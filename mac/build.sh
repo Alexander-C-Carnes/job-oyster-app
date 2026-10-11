@@ -13,7 +13,7 @@
 # --notarize  send the signed DMG to Apple's notary service and staple the ticket, so it opens with no
 #             warning. Auth: an App Store Connect API key ($NOTARY_KEY path to the .p8, $NOTARY_KEY_ID,
 #             $NOTARY_ISSUER), or a keychain profile ($NOTARY_PROFILE, default jobsearch-notary) made with
-#             xcrun notarytool store-credentials jobsearch-notary --apple-id <email> --team-id <TEAM> --password <app-specific>
+#             xcrun notarytool store-credentials jobsearch-notary --key <AuthKey.p8> --key-id <ID> --issuer <ISSUER>
 #
 # Output: build/Job Search.app and build/Job-Search-<version>-<arch>.dmg (plus build/Job-Search-<arch>.dmg,
 # a stable name for "latest" download links).
@@ -108,58 +108,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-IDENTITY=""
-if [ -n "$SIGN" ]; then
-  IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"' || true)}
-fi
-if [ -n "$IDENTITY" ]; then
-  say "Signing with $IDENTITY"
-  # Inside out: every Mach-O file (Python, its extension modules, Chromium), then the app.
-  find "$APP/Contents/Resources" -type f \( -name "*.so" -o -name "*.dylib" -o -perm -u+x \) -print0 |
-    while IFS= read -r -d '' f; do
-      if file -b "$f" | grep -q "Mach-O"; then printf '%s\0' "$f"; fi
-    done | xargs -0 -n 50 -P 4 codesign --force --timestamp --options runtime \
-      --entitlements mac/entitlements.plist --sign "$IDENTITY"
-  codesign --force --timestamp --options runtime --entitlements mac/entitlements.plist --sign "$IDENTITY" "$APP"
-  codesign --verify --deep --strict "$APP"
-else
-  say "Not signed with a Developer ID: ad-hoc signing only"
-  codesign --force --deep --sign - "$APP"
-fi
-
-say "DMG"
+# Signing, the DMG and notarizing: mac/package.sh, which mac/sign-release.sh also uses.
 DMG="$BUILD/Job-Search-$VERSION-$ARCH.dmg"
-# dmgbuild lays out the window (background, icon places, no toolbar) without Finder. It runs on the bundled
-# Python from a folder of its own, and writes no .pyc files, which would break the app's signature.
-export PYTHONDONTWRITEBYTECODE=1
-DMGBUILD="$CACHE/dmgbuild-1.6.7"
-[ -d "$DMGBUILD" ] || "$PY" -m pip install --quiet --disable-pip-version-check --target "$DMGBUILD" dmgbuild==1.6.7
-BG_FLAGS=(); [ -n "$NOTARIZE" ] || BG_FLAGS=(--open-anyway)
-swift mac/make_dmg_background.swift "$BUILD/dmg-background.png" "$BUILD/dmg-background@2x.png" ${BG_FLAGS[@]+"${BG_FLAGS[@]}"}
-# hdiutil now and then fails on GitHub's Macs ("Resource busy"), so try three times and say why each failed.
-for try in 1 2 3; do
-  rm -f "$DMG"
-  if out=$(PYTHONPATH="$DMGBUILD" "$PY" -m dmgbuild -s mac/dmg_settings.py -D app="$APP" \
-      -D icon="$RES/AppIcon.icns" -D background="$BUILD/dmg-background.png" "Job Search" "$DMG" 2>&1); then break; fi
-  printf 'Making the DMG failed (try %s of 3):\n%s\n' "$try" "$out"
-  [ "$try" = 3 ] && exit 1
-  sleep $((try * 15))
-done
-unset PYTHONDONTWRITEBYTECODE
-[ -n "$IDENTITY" ] && codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-
-if [ -n "$NOTARIZE" ]; then
-  [ -n "$IDENTITY" ] || { echo "Notarizing needs a Developer ID signature."; exit 1; }
-  say "Notarizing (a few minutes)"
-  if [ -n "${NOTARY_KEY:-}" ]; then
-    NOTARY_AUTH=(--key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER")
-  else
-    NOTARY_AUTH=(--keychain-profile "${NOTARY_PROFILE:-jobsearch-notary}")
-  fi
-  xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait
-  xcrun stapler staple "$DMG"
-  spctl --assess --type open --context context:primary-signature -v "$DMG"
-fi
+PKG_FLAGS=(); [ -n "$SIGN" ] || PKG_FLAGS+=(--no-sign); [ -z "$NOTARIZE" ] || PKG_FLAGS+=(--notarize)
+mac/package.sh "$APP" "$DMG" ${PKG_FLAGS[@]+"${PKG_FLAGS[@]}"}
 cp "$DMG" "$BUILD/Job-Search-$ARCH.dmg"
 
 say "Done: $DMG ($(du -h "$DMG" | cut -f1))"

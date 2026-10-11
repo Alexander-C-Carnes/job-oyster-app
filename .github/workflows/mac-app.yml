@@ -6,8 +6,9 @@
 #   git tag v0.2.0 && git push origin v0.2.0      a release now, with a version you choose
 #   Actions > Mac app > Run workflow                a test build; tick "release" to publish it as the next version
 #
-# Signing is optional. Without these secrets the DMGs are ad-hoc signed and people allow the app once in
-# System Settings > Privacy & Security. With them, the app is signed with a Developer ID and notarized:
+# The DMGs go out ad-hoc signed, and people allow the app once in System Settings > Privacy & Security, until
+# mac/sign-release.sh signs and notarizes them on a Mac that has the Developer ID certificate, which keeps the
+# key off GitHub. The workflow can sign and notarize here instead if the repo has these secrets:
 #   MAC_CERT_P12          base64 of a "Developer ID Application" certificate exported as .p12
 #   MAC_CERT_PASSWORD     that .p12's password
 #   NOTARY_KEY_P8         base64 of an App Store Connect API key (.p8) with Developer access
