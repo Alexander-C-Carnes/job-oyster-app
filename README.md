@@ -12,7 +12,7 @@
 
 - **Finds jobs.** Save searches (titles, remote or hybrid, location, pay) and it pulls new postings from [JobsPipe](https://jobspipe.dev). It also watches startups that just raised money and reads their careers pages.
 - **Scores the fit.** Each job gets a 1–10 score against your real experience, with your strongest matches and likely gaps.
-- **Writes the résumé.** For a job worth applying to, it drafts three résumés, keeps the best parts of each and checks the result, then hands you a polished PDF in one of five layouts, plus a report on what it matched.
+- **Writes the résumé.** For a job worth applying to, it drafts three résumés, keeps the best parts of each and checks the result, then hands you a polished PDF in one of five layouts, or in a look of your own read from a résumé you upload, plus a report on what it matched.
 - **Stays honest.** Every line on a résumé has to trace back to something you actually wrote down. When a job asks for something you haven't shown, it asks you a question instead of making something up.
 - **Tracks your applications.** A board from *Not started* to *Offer*, a dashboard of what you've sent, and an optional sync with Notion.
 - **Never applies for you.** You read the résumé, you apply, and you mark the job Applied.

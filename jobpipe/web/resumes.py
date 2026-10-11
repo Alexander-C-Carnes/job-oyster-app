@@ -538,11 +538,12 @@ class ResumeWorkspace:
         return v
 
     # ---- formats -----------------------------------------------------------------------
-    def redraw(self, fmt: formats.Format, printer: Optional[render.Printer] = None) -> dict:
+    def redraw(self, fmt: formats.Format, printer: Optional[render.Printer] = None, force: bool = False) -> dict:
         """Draw the current version in `fmt` when it fits the format's page limit: {"applied", "pages"}.
-        One that doesn't fit keeps its format; trim_instruction() is the chat message that fits it."""
+        One that doesn't fit keeps its format; trim_instruction() is the chat message that fits it. `force` redraws
+        one already in `fmt` too (its settings changed)."""
         h = self.history()
-        if h.get("format") == fmt.id and (self.vdir / f"v{h['current']}.pdf").exists():
+        if not force and h.get("format") == fmt.id and (self.vdir / f"v{h['current']}.pdf").exists():
             return {"applied": True, "pages": None, "format": fmt.id}
         n = h["current"]
         tmp = self.vdir / "redraw.pdf"

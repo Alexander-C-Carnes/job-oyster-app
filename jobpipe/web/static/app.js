@@ -3125,6 +3125,7 @@ $("#resume-upload").addEventListener("change", (e) => {
 // ---- uploading a résumé: the file is read and sorted into the app's markdown (Claude, about a minute), then
 // checked word by word against the file. You see both side by side, fix anything flagged, name it and save.
 const impDialog = $("#import-dialog");
+impDialog.addEventListener("close", () => { F.forLook = false; });
 async function importResume(file) {
   const body = $("#import-body");
   $("#import-title").textContent = "Add a résumé";
@@ -3176,24 +3177,57 @@ function renderImport(d) {
   const name = h("input", { type: "text", value: fileLabel(`resume-${d.name}.md`), "aria-label": "Name for this résumé" });
   const fname = h("input", { type: "text", value: d.name, "aria-label": "File name" });
   const score = h("input", { type: "checkbox", checked: true });
-  const save = h("button", { class: "primary", disabled: !d.html }, "Save résumé");
+  const forLook = !!(F.forLook && d.look);
+  const words = h("input", { type: "checkbox", checked: !forLook });
+  const look = h("input", { type: "checkbox", checked: forLook, disabled: !d.look });
+  const stem = d.filename.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s*\bresume\b\s*/i, " ").trim();
+  const lookName = h("input", { type: "text", value: `${stem || "My"} look`, "aria-label": "Name for the format" });
+  const lookBox = h("div", { class: "import-look", hidden: !forLook });
+  const save = h("button", { class: "primary" }, "Save");
   const err = h("p", { class: "form-error hidden" });
+  const sync = () => {
+    lookBox.hidden = !look.checked;
+    save.disabled = !(words.checked && d.html) && !look.checked;
+    save.textContent = words.checked && look.checked ? "Save résumé and format" : look.checked ? "Save format" : "Save résumé";
+    if (look.checked && !lookBox.childNodes.length) showLook(d, lookBox);
+  };
+  words.addEventListener("change", sync);
+  look.addEventListener("change", sync);
   body.replaceChildren(
     h("div", { class: "import-cols" },
       h("section", {}, h("h3", {}, "What you uploaded"), orig),
       h("section", {}, h("div", { class: "import-col-head" }, h("h3", {}, "What the app read"), h("span", { class: "grow" }), recheck, toggle),
         sheet, md, flags)),
-    h("div", { class: "import-save" },
-      h("label", {}, "Name ", name), h("label", {}, "File ", h("code", {}, "references/resume-"), fname, h("code", {}, ".md")),
-      h("label", { class: "check" }, score, "Score jobs against it")),
+    h("div", { class: "import-uses" },
+      h("label", { class: "check import-use" }, words, h("b", {}, "Save its words as a résumé")),
+      h("div", { class: "import-save" },
+        h("label", {}, "Name ", name), h("label", {}, "File ", h("code", {}, "references/resume-"), fname, h("code", {}, ".md")),
+        h("label", { class: "check" }, score, "Score jobs against it")),
+      h("label", { class: "check import-use", title: d.look ? "" : "A look can only be read from a PDF or a Word file" }, look,
+        h("b", {}, "Save its look as a format"), d.look ? null : h("span", { class: "muted" }, " (only from a PDF or Word file)")),
+      h("div", { class: "import-save", hidden: !forLook, "data-look-name": "" }, h("label", {}, "Format name ", lookName)),
+      lookBox),
     err,
     h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => impDialog.close() }, "Cancel"), h("span", { class: "grow" }), save));
   if (d._editing) toggle.click();
+  look.addEventListener("change", () => { body.querySelector("[data-look-name]").hidden = !look.checked; });
+  sync();
   save.addEventListener("click", async () => {
     if (!md.hidden && md.value !== d.markdown) { recheck.click(); return; }
+    save.disabled = true;
+    if (look.checked) {        // first: saving the résumé clears the upload the look is read from
+      try {
+        const r = await post("/api/formats/own", { name: lookName.value, import_id: d.id });
+        F.data = r; F.pick = r.created; F.forLook = false;
+        if (S.tab === "profile") renderFormats();
+        const made = r.formats.find((f) => f.id === r.created).name;
+        toast(`Saved “${made}” in Your formats. Use ${made} there makes it your résumé format.`);
+      } catch (e0) { formError(body, e0.message); save.disabled = false; return; }
+      look.checked = false; look.disabled = true; sync();
+      if (!words.checked) { impDialog.close(); return; }
+    }
     const payload = { markdown: md.value, filename: `${fname.value.trim() || d.name}.md`, import_id: d.id };
     let res;
-    save.disabled = true;
     try { res = await post("/api/profile/resumes", payload); }
     catch (e1) {
       if (!/already exists/.test(e1.message) || !confirm(`${e1.message} Replace it?`)) { formError(body, e1.message); save.disabled = false; return; }
@@ -3209,6 +3243,196 @@ function renderImport(d) {
     toast(score.checked ? `Added ${res.file}. Save the profile to start scoring against it.` : `Added ${res.file}.`);
   });
 }
+
+// The look read from an upload: what was found, what a one-column page leaves out, and the résumé drawn in it.
+async function showLook(d, box) {
+  box.replaceChildren(h("p", { class: "muted" }, spinner(), " Reading its look…"));
+  let lk;
+  try { lk = await api(`/api/profile/resumes/import/${d.id}/look`); }
+  catch (e) { box.replaceChildren(h("p", { class: "form-error" }, e.message)); return; }
+  box.replaceChildren(
+    h("img", { class: "import-look-img", src: fileUrl(`/api/profile/resumes/import/${d.id}/look.png`), alt: "Your résumé drawn in this look" }),
+    h("div", {},
+      h("p", {}, h("b", {}, "Kept: "), lk.found.join(" · ") || "fonts, sizes and layout"),
+      lk.not_copied.length ? h("div", {}, h("p", {}, h("b", {}, "Not copied, on purpose:")),
+        h("ul", { class: "import-notes" }, ...lk.not_copied.map((n) => h("li", {}, n)))) : null,
+      h("p", { class: "muted" }, "You can change any of it afterwards: Profile › Résumé format › Edit.")));
+}
+
+// ---- résumé format: the Profile's one default (jobpipe/formats.py). Choosing one can redraw every résumé
+// already made; one that would go over the new format's page limit keeps its format until it's trimmed.
+const F = { data: null, pick: null };
+async function loadFormats() {
+  try { F.data = await api("/api/formats"); } catch (e) { toast(e.message, true); return; }
+  if (!F.pick || F.pick === F.data.default) F.pick = F.data.default;
+  renderFormats();
+}
+function renderFormats(result) {
+  const d = F.data;
+  const thumbV = (f) => (f.own ? `&v=${encodeURIComponent(JSON.stringify(f.tokens).length + f.name)}${F.bust || ""}` : "");
+  const tile = (f) => {
+    const b = h("button", { type: "button", class: "look-option format-option", role: "radio", "aria-checked": String(f.id === F.pick), "data-format": f.id },
+      h("span", { class: "format-thumb" }, h("img", { src: fileUrl(`/api/formats/${f.id}/thumb.png`) + thumbV(f), alt: "", loading: "lazy" })),
+      h("span", { class: "look-name" }, f.name, f.id === d.default && h("span", { class: "tag format-current" }, "current"),
+        f.own && h("span", { class: "tag format-yours" }, "yours")),
+      h("span", { class: "look-blurb" }, f.own ? (f.source ? `From ${f.source}` : "Your own") + (f.max_pages === 1 ? " · one page" : "") : f.blurb));
+    b.addEventListener("click", () => { F.pick = f.id; renderFormats(); });
+    if (!f.own) return b;
+    return h("div", { class: "format-own" }, b, h("div", { class: "format-own-actions" },
+      h("button", { type: "button", class: "link-btn small", onclick: () => editFormat(f.id) }, "Edit"),
+      h("button", { type: "button", class: "link-btn small", onclick: () => deleteFormat(f) }, "Delete")));
+  };
+  const picked = d.formats.find((f) => f.id === F.pick) || d.formats[0];
+  F.pick = picked.id;
+  const add = h("button", { type: "button", class: "look-option format-option format-add" },
+    h("span", { class: "format-thumb format-add-mark", "aria-hidden": "true" }, "+"), h("span", { class: "look-name" }, "From a résumé…"),
+    h("span", { class: "look-blurb" }, "Upload one whose look you like (PDF or Word). As many as you want."));
+  add.addEventListener("click", () => { F.forLook = true; $("#resume-upload").click(); });
+  const custom = h("button", { type: "button", class: "look-option format-option format-add" },
+    h("span", { class: "format-thumb format-add-mark", "aria-hidden": "true" }, "✎"), h("span", { class: "look-name" }, `Customise ${picked.name}…`),
+    h("span", { class: "look-blurb" }, "A copy in Your formats with every setting to change."));
+  custom.addEventListener("click", async () => {
+    let name = `${picked.name} (mine)`;
+    for (let k = 2; d.formats.some((f) => f.name.toLowerCase() === name.toLowerCase()); k++) name = `${picked.name} (mine ${k})`;
+    try { const r = await post("/api/formats/own", { name, from: picked.id }); F.data = r; F.pick = r.created; renderFormats(); editFormat(r.created); }
+    catch (e) { toast(e.message, true); }
+  });
+  $("#format-picker").replaceChildren(...d.formats.filter((f) => !f.own).map(tile));
+  $("#format-own").replaceChildren(...d.formats.filter((f) => f.own).map(tile), add, custom);
+  $("#format-pdf").href = fileUrl(`/api/formats/${F.pick}/preview.pdf`);
+  $("#format-pdf").textContent = `Preview ${picked.name} PDF ↗`;
+  $("#format-save").disabled = F.pick === d.default;
+  $("#format-save").textContent = F.pick === d.default ? "In use" : `Use ${picked.name}`;
+  const jobLink = (x) => h("li", {}, h("button", { type: "button", class: "link-btn", onclick: () => openJob(x.id, "resume") },
+    [x.title, x.company].filter(Boolean).join(" · ") || x.id), x.pages ? h("span", { class: "muted" }, ` ${x.pages} pages`) : null);
+  const def = d.formats.find((f) => f.id === d.default);
+  const status = [];
+  if (result) status.push(h("p", {}, result.redrawn ? `Redrew ${plural(result.redrawn, "résumé")} in ${def.name}.` : `${def.name} is your résumé format.`));
+  if (d.behind.length) {
+    status.push(h("p", { class: "muted" }, result?.over?.length
+      ? `These run longer than ${def.pages_word} in ${def.name}, so they keep their format for now. Open one and use Trim to ${def.pages_word}:`
+      : `Still in another format (open one to redraw it in ${def.name}):`),
+      h("ul", { class: "format-behind" }, ...d.behind.map((x) => jobLink({ ...x, pages: result?.over?.find((o) => o.id === x.id)?.pages }))));
+  }
+  $("#format-status").replaceChildren(...status);
+}
+async function deleteFormat(f) {
+  if (!confirm(`Delete “${f.name}”? Résumés already drawn in it keep their PDFs${f.id === F.data.default ? "; Signature becomes your format" : ""}.`)) return;
+  try { F.data = await request(`/api/formats/own/${encodeURIComponent(f.id)}`, { method: "DELETE" }).then((r) => r.json()); F.pick = F.data.default; renderFormats(); }
+  catch (e) { toast(e.message, true); }
+}
+
+// Every setting of a format of your own, with the fallback résumé redrawn as you change them.
+const fmtDialog = $("#format-dialog");
+const FMT_LABELS = {
+  name_align: { left: "Left", center: "Centred" }, name_case: { "as-is": "As written", upper: "CAPITALS" },
+  name_color: { ink: "Text colour", accent: "Accent" }, headline_color: { accent: "Accent", ink: "Text colour", muted: "Grey" },
+  heading_case: { upper: "CAPITALS", title: "Title Case" }, heading_align: { left: "Left", center: "Centred" },
+  heading_color: { accent: "Accent", ink: "Text colour" },
+  heading_style: { plain: "Plain", rule: "Line under", bar: "Bar before", lines: "Lines beside" },
+  header_rule: { none: "None", thin: "Thin line", thick: "Thick line", double: "Double line" },
+  dates: { right: "Right of the role", under: "Under the role" },
+};
+function editFormat(fid) {
+  const f = F.data.formats.find((x) => x.id === fid);
+  if (!f) return;
+  const t = { ...f.tokens }, C = F.data.choices, R = F.data.ranges;
+  const form = h("form", { class: "fmt-form" });
+  const img = h("img", { class: "fmt-preview", alt: `${f.name}, drawn with your fallback résumé` });
+  const name = h("input", { type: "text", value: f.name, "aria-label": "Format name", required: true });
+  const select = (k, opts) => {
+    const el = h("select", { name: k }, ...opts.map((o) => h("option", { value: o, selected: String(t[k]) === String(o) }, FMT_LABELS[k]?.[o] || o)));
+    el.addEventListener("change", () => { t[k] = el.value; changed(); });
+    return el;
+  };
+  const number = (k, step) => {
+    const el = h("input", { type: "number", name: k, min: R[k][0], max: R[k][1], step, value: t[k] });
+    el.addEventListener("input", () => { t[k] = parseFloat(el.value); changed(); });
+    return el;
+  };
+  const check = (k, label) => {
+    const el = h("input", { type: "checkbox", name: k, checked: !!t[k] });
+    el.addEventListener("change", () => { t[k] = el.checked; changed(); });
+    return h("label", { class: "check" }, el, label);
+  };
+  const color = (k) => {
+    const el = h("input", { type: "color", name: k, value: (t[k] || "#000000").toLowerCase() });
+    el.addEventListener("input", () => { t[k] = el.value.toUpperCase(); none && (none.checked = false); changed(); });
+    return el;
+  };
+  const accent = color("accent");
+  const noneBox = h("input", { type: "checkbox", checked: !t.accent });
+  const none = noneBox;
+  noneBox.addEventListener("change", () => { t.accent = noneBox.checked ? "" : accent.value.toUpperCase(); changed(); });
+  const row = (label, ...controls) => h("label", { class: "fmt-row" }, h("span", {}, label), h("span", { class: "fmt-ctl" }, ...controls));
+  const group = (title, ...rows) => h("fieldset", {}, h("legend", {}, title), ...rows);
+  form.append(
+    row("Name", name),
+    group("Type", row("Body", select("body_font", C.fonts), number("body_size", 0.25), "pt"),
+      row("Headings", select("heading_font", C.fonts), number("heading_size", 0.25), "pt"),
+      row("Your name", select("name_font", C.fonts), number("name_size", 0.5), "pt")),
+    group("Colour", row("Accent", accent, h("label", { class: "check" }, noneBox, "None")), row("Text", color("ink"))),
+    group("Header", row("Name", select("name_align", C.name_align), select("name_case", C.name_case), select("name_color", C.name_color)),
+      row("Headline", select("headline_color", C.headline_color), check("headline_italic", "Italic")),
+      row("Line under it", select("header_rule", C.header_rule))),
+    group("Sections", row("Headings", select("heading_case", C.heading_case), select("heading_align", C.heading_align), select("heading_color", C.heading_color)),
+      row("Heading style", select("heading_style", C.heading_style)),
+      row("Dates", select("dates", C.dates)), row("Bullet", select("bullet", C.bullet)),
+      h("div", { class: "fmt-row" }, h("span", {}), h("span", { class: "fmt-ctl" }, check("role_rule", "Line between roles"), check("skills_first", "Skills after the summary")))),
+    group("Page", row("Margins", number("margin_in", 0.05), "in"),
+      row("Length", select("max_pages", ["2", "1"]), h("span", { class: "muted" }, "pages"))));
+  const notes = f.notes?.not_copied?.length ? h("div", { class: "fmt-notes" }, h("b", {}, `Not copied from ${f.source}:`),
+    h("ul", {}, ...f.notes.not_copied.map((n) => h("li", {}, n)))) : null;
+  const err = h("p", { class: "form-error hidden" });
+  const save = h("button", { type: "button", class: "primary" }, "Save");
+  $("#format-dialog-body").replaceChildren(h("div", { class: "fmt-cols" }, h("div", {}, form, notes), h("div", { class: "fmt-side" }, img,
+    h("p", { class: "muted" }, "Your fallback résumé, redrawn as you change things. Words and ATS results stay the same in every format."))),
+    err, h("div", { class: "actions" },
+      h("button", { type: "button", class: "ghost", onclick: () => { fmtDialog.close(); deleteFormat(f); } }, "Delete"),
+      h("span", { class: "grow" }), h("button", { type: "button", class: "ghost", onclick: () => fmtDialog.close() }, "Cancel"), save));
+  $("#format-dialog-title").textContent = `Edit ${f.name}`;
+  let timer, seq = 0;
+  const changed = () => {          // the page's image policy allows data: URLs, not blob: ones
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const mine = ++seq;
+      img.classList.add("loading");
+      try {
+        const res = await request("/api/formats/own/preview", { method: "POST", body: JSON.stringify({ tokens: t }) });
+        if (!res.ok || mine !== seq) return;
+        const blob = await res.blob();
+        const src = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+        if (mine === seq) img.src = src;
+      } finally { if (mine === seq) img.classList.remove("loading"); }
+    }, 350);
+  };
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try {
+      F.data = await put(`/api/formats/own/${encodeURIComponent(fid)}`, { name: name.value, tokens: t });
+      F.bust = Date.now(); fmtDialog.close(); renderFormats();
+      if (fid === F.data.default && confirm(`Saved. ${f.name} is your résumé format: redraw the résumés already made in it with the new settings?`)) {
+        toast("Redrawing your résumés…");
+        const r = await put("/api/profile/format", { format: fid, redraw: true, force: true });
+        F.data = r; renderFormats(r); S.details.clear();
+      } else toast("Saved.");
+    } catch (e) { formError($("#format-dialog-body"), e.message); save.disabled = false; }
+  });
+  fmtDialog.showModal();
+  changed();
+}
+
+$("#format-save").addEventListener("click", async () => {
+  const btn = $("#format-save"), redraw = $("#format-redraw").checked;
+  btn.disabled = true;
+  btn.replaceChildren(spinner(), redraw ? " Redrawing your résumés…" : " Saving…");
+  try {
+    const res = await put("/api/profile/format", { format: F.pick, redraw });
+    F.data = res; F.pick = res.default;
+    renderFormats(res);
+    S.details.clear();                  // résumé panels show the new format
+  } catch (e) { toast(e.message, true); renderFormats(); }
+});
 
 $("#profile-impact-link").addEventListener("click", () => showTab("impact"));
 document.addEventListener("keydown", (e) => {

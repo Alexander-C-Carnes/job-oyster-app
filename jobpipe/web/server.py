@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, render, resume_import
+from .. import formats, jd, own_formats, render, resume_import
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -1628,6 +1628,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         stem = re.sub(r"^resume[-_ ]*|[-_ ]*resume$", "", Path(meta["filename"]).stem, flags=re.I)
         return {"id": d.name, "filename": meta["filename"], "kind": meta["kind"], "markdown": md, "html": html,
                 "source": (d / "source.txt").read_text(), "has_original": (d / "original.pdf").exists(),
+                "look": any(d.glob("original.pdf")) or any(d.glob("original.docx")),
                 "name": slug(stem, max_len=40) or "uploaded", **check}
 
     @app.post("/api/profile/resumes/import")
@@ -1718,7 +1719,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             return folder / f"{f}-{key}.{kind}"
         if not path_for(fid).exists():
             with preview_lock:
-                todo = [f for f in (formats.FORMATS if kind == "png" else [fid]) if not path_for(f).exists()]
+                every = [f.id for f in formats.all_formats()]
+                todo = [f for f in (every if kind == "png" else [fid]) if not path_for(f).exists()]
                 if todo:
                     folder.mkdir(parents=True, exist_ok=True)
                     with render.Printer() as pr:
@@ -1741,9 +1743,103 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             fid = ws.format_id()
             if fid != default.id:
                 behind.append({**job_line(jid), "format": formats.get(fid).name})
+        own = {r["id"]: r for r in own_formats.records()}
         return {"default": default.id, "behind": behind,
                 "formats": [{"id": f.id, "name": f.name, "font": f.font, "accent": f.accent, "blurb": f.blurb,
-                             "max_pages": f.max_pages, "pages_word": f.pages_word} for f in formats.FORMATS.values()]}
+                             "max_pages": f.max_pages, "pages_word": f.pages_word, "own": f.id in own,
+                             **({"tokens": own[f.id]["tokens"], "source": own[f.id].get("source", ""),
+                                 "notes": own[f.id].get("notes", {})} if f.id in own else {})}
+                            for f in formats.all_formats()],
+                "choices": {**own_formats.CHOICES, "fonts": list(own_formats.FONTS)}, "ranges": own_formats.RANGES}
+
+    # ---- formats of your own: a résumé's look read into settings (own_formats.py), as many as you like -------
+    def look_of(d: Path) -> dict:
+        """The look read from an upload's original (cached beside it)."""
+        cached = d / "look.json"
+        if cached.exists():
+            return json.loads(cached.read_text())
+        original = next((p for p in d.glob("original.*") if p.suffix in (".pdf", ".docx")), None)
+        if not original:
+            raise HTTPException(400, "A look can only be read from a PDF or a Word file.")
+        meta = json.loads((d / "meta.json").read_text())
+        try:
+            tokens, notes = own_formats.read_look(original.name, original.read_bytes())
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        look = {"tokens": tokens, **notes, "source": meta["filename"]}
+        cached.write_text(json.dumps(look))
+        return look
+
+    @app.get("/api/profile/resumes/import/{iid}/look")
+    def import_look(iid: str):
+        return look_of(import_dir(iid))
+
+    @app.get("/api/profile/resumes/import/{iid}/look.png")
+    def import_look_png(iid: str):
+        d = import_dir(iid)
+        md = (d / "sorted.md").read_text()
+        return Response(own_preview_png(md, look_of(d)["tokens"]), media_type="image/png",
+                        headers={"Cache-Control": "private, max-age=600"})
+
+    def own_preview_png(md: str, tokens: dict) -> bytes:
+        tmp = store.root / "format-previews" / f"own-{secrets.token_hex(4)}.png"
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with render.Printer() as pr:
+                pr.png(render.render(md, fmt=own_formats.to_format("own-preview", "Preview", tokens)), tmp, scale=1)
+            return tmp.read_bytes()
+        except Exception:  # noqa: BLE001 - the résumé can't be drawn: draw the example instead
+            with render.Printer() as pr:
+                pr.png(render.render(preview_md(), fmt=own_formats.to_format("own-preview", "Preview", tokens)), tmp)
+            return tmp.read_bytes()
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @app.post("/api/formats/own")
+    def create_own_format(body: dict):
+        """A new format of your own: {"name", "import_id"} reads an uploaded résumé's look; {"name", "from": id}
+        copies a format's settings to change (Customise)."""
+        if body.get("import_id"):
+            look = look_of(import_dir(str(body["import_id"])))
+            tokens, source = look["tokens"], look["source"]
+            notes = {"found": look.get("found", []), "not_copied": look.get("not_copied", [])}
+        else:
+            src = str(body.get("from") or formats.DEFAULT)
+            rec = own_formats.load_record(src)
+            tokens = rec["tokens"] if rec else own_formats.BUILTIN.get(src)
+            if tokens is None:
+                raise HTTPException(400, "Choose a format to start from.")
+            source, notes = "", {}
+        try:
+            rec = own_formats.save(str(body.get("name") or ""), tokens, source, notes)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        return {**get_formats(), "created": rec["id"]}
+
+    @app.put("/api/formats/own/{fid}")
+    def update_own_format(fid: str, body: dict):
+        rec = own_formats.load_record(fid)
+        if not rec:
+            raise HTTPException(404, "That format isn't there any more.")
+        try:
+            own_formats.save(str(body.get("name") or rec["name"]), body.get("tokens") or rec["tokens"], fid=fid)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        return get_formats()
+
+    @app.delete("/api/formats/own/{fid}")
+    def delete_own_format(fid: str):
+        """Delete a format of your own. If it was the default, Signature is; résumés drawn in it keep their PDFs."""
+        if not own_formats.delete(fid):
+            raise HTTPException(404, "That format isn't there any more.")
+        if default_format().id == formats.DEFAULT and (searches_file.load_candidate(searches_path) or {}).get("resume_format") == fid:
+            searches_file.save_resume_format(searches_path, formats.DEFAULT)
+        return get_formats()
+
+    @app.post("/api/formats/own/preview")
+    def preview_own_format(body: dict):
+        """The fallback résumé's first page drawn with these settings, for the settings form as you change it."""
+        return Response(own_preview_png(preview_md(), body.get("tokens") or {}), media_type="image/png")
 
     @app.get("/api/formats/{fid}/preview.pdf")
     def format_preview(fid: str, request: Request):
@@ -1760,7 +1856,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         fid = str(body.get("format") or "")
         if not formats.known(fid):
             raise HTTPException(400, "Choose one of the résumé formats.")
-        redraw = bool(body.get("redraw"))
+        redraw, force = bool(body.get("redraw")), bool(body.get("force"))   # force: résumés already in it too
         if redraw:
             not_mid_run()
         try:
@@ -1776,7 +1872,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                         if edit_busy(jid):
                             continue
                         try:
-                            r = ws.redraw(fmt, pr)
+                            r = ws.redraw(fmt, pr, force=force)
                         except (EditError, OSError, ValueError):
                             continue
                         if r["applied"]:

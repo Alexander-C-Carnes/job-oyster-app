@@ -18,7 +18,9 @@ The app has five résumé formats; the candidate picks one on the Profile tab (`
 | Minimal | Helvetica | none | 2 | Black and greys only, dates under each role, en-dash bullets |
 | Compact | Arial | #1D4ED8 blue | **1** | 0.5 in margins, tighter spacing, CORE SKILLS straight after SUMMARY |
 
-Render any of them with `python -m jobpipe.render resume.md out.pdf --format <signature|executive|modern|minimal|compact>`. In every format, heading letter-spacing stays at .06em or less and ligatures are off, so each heading and word comes out of the PDF as plain text.
+Render any of them with `python -m jobpipe.render resume.md out.pdf --format <signature|executive|modern|minimal|compact>`.
+
+The candidate can also have formats of their own (`own-<name>` ids, saved in the profile's `references/formats/`): settings read from an uploaded résumé's look, or copied from a built-in format and changed (`jobpipe/own_formats.py`). They change only fonts, sizes, colours, alignment, rules, bullets, margins and page limit. The page is always this one-column structure, so every ATS rule here still holds. In every format, heading letter-spacing stays at .06em or less and ligatures are off, so each heading and word comes out of the PDF as plain text.
 
 ## Page
 - US Letter (8.5 × 11 in), exactly **2 pages**, 0.625 in margins on all sides.

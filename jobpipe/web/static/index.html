@@ -303,6 +303,8 @@
           <h2>Résumé format</h2>
           <p class="muted">How the résumés the app makes look. The words are the same in every format, so the scores and ATS results don't change. The previews use your fallback résumé.</p>
           <div id="format-picker" class="format-picker" role="radiogroup" aria-label="Résumé format"></div>
+          <h3 class="format-own-head">Your formats</h3>
+          <div id="format-own" class="format-picker format-own-list" role="group" aria-label="Your formats"></div>
           <div class="format-foot">
             <label class="check"><input type="checkbox" id="format-redraw" checked> Redraw the résumés already made in it</label>
             <span class="grow"></span>
@@ -448,6 +450,11 @@
         <button class="primary">Add</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="format-dialog" class="format-dialog" aria-labelledby="format-dialog-title">
+    <h2 id="format-dialog-title">Edit format</h2>
+    <div id="format-dialog-body"></div>
   </dialog>
 
   <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title">

@@ -187,7 +187,7 @@ def render(md, editable=False, fmt=None, title=None):
             if section == "CORE SKILLS":
                 body.append('<div class="rule-heavy pre-skills"></div>')
                 cls = "skills"
-            head = f'<h2 class="{cls}">{inline(section)}</h2>'
+            head = f'<h2 class="{cls}">{inline(section if fmt.heading_case == "upper" else title_case(section))}</h2>'
             if section in ROLE_SECTIONS:
                 # emitted inside the first entry's block so it can't be orphaned at a page end
                 pending_head = head
@@ -266,6 +266,15 @@ def render(md, editable=False, fmt=None, title=None):
             f"<style>{CSS}{page}{fmt.css}{EDIT_CSS if editable else ''}</style></head><body>{''.join(body)}</body></html>")
 
 
+SMALL_WORDS = {"and", "of", "the", "for", "in", "on", "to", "a", "an", "&"}
+
+
+def title_case(heading):
+    """PROFESSIONAL EXPERIENCE -> Professional Experience; small words stay lower-case after the first."""
+    words = heading.lower().split()
+    return " ".join(w if k and w in SMALL_WORDS else w[:1].upper() + w[1:] for k, w in enumerate(words))
+
+
 def _reorder(body, starts, order):
     """Move the named sections' markup to the front of the body, in that order. Done on the drawn markup, not
     the markdown, so the page editor's line numbers still point at the right lines."""
@@ -305,7 +314,7 @@ class Printer:
         finally:
             pg.close()
 
-    def png(self, doc, png_path, scale=0.4):
+    def png(self, doc, png_path, scale=0.6):
         """The first page as an image, `scale` × 96 dpi (the Profile tab's format thumbnails)."""
         w, h = 816, 1056                       # US Letter at 96 px per inch
         pg = self._browser.new_page(viewport={"width": w, "height": h}, device_scale_factor=scale)

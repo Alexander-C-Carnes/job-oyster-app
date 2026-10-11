@@ -6,7 +6,8 @@ in skill/SKILL-resume-format.md: one column, all real text, rules drawn as CSS b
 header or footer, a standard font. Heading letter-spacing stays at .06em or less: wider, and the PDF's text
 reads "S U M M A R Y", so a parser can miss the section (tests/test_formats.py checks every heading).
 
-The candidate picks one as the Profile default (searches.yaml `candidate.resume_format`). A résumé records the
+Formats of the candidate's own (jobpipe/own_formats.py) have "own-" ids and live in the profile; get() finds them
+too. The candidate picks one as the Profile default (searches.yaml `candidate.resume_format`). A résumé records the
 format its PDF was drawn in, so changing the default never silently pushes one over its page limit.
 """
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 DEFAULT = "signature"
+OWN = "own-"            # the id prefix of a format of the candidate's own
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,7 @@ class Format:
     css: str = ""               # laid over render.CSS
     tighten: str = ""           # added once when a résumé runs over max_pages, before the trim step
     words: int = 950            # about how many words fit in max_pages, for the writers and the trim step
+    heading_case: str = "upper"  # "title": section headings drawn as "Professional Experience"
     pages_word: str = field(init=False, default="")
 
     def __post_init__(self):
@@ -152,11 +155,24 @@ ul.b > li::before { content: "\\2022"; width: 11pt; color: #1D4ED8; }
 
 def get(fid: str | None) -> Format:
     """The format with this id; the default for an unknown or empty one (a format later removed, an old run)."""
-    return FORMATS.get(fid or "") or FORMATS[DEFAULT]
+    if fid in FORMATS:
+        return FORMATS[fid]
+    if fid and fid.startswith(OWN):
+        from . import own_formats
+        own = own_formats.load(fid)
+        if own:
+            return own
+    return FORMATS[DEFAULT]
 
 
 def known(fid: str) -> bool:
-    return fid in FORMATS
+    return fid in FORMATS or get(fid).id == fid
+
+
+def all_formats() -> list[Format]:
+    """The built-in formats, then the candidate's own, oldest first."""
+    from . import own_formats
+    return [*FORMATS.values(), *(own_formats.load(r["id"]) for r in own_formats.records())]
 
 
 def length_rules(fmt: Format) -> str:

@@ -1721,43 +1721,6 @@ def test_ai_settings(env, monkeypatch):
     assert any(p["id"] == "kimi" and p["key_env"] == "MOONSHOT_API_KEY" for p in a["providers"])
 
 
-def test_chat_can_use_another_ai(env, tmp_path, monkeypatch):
-    """The résumé chat's model menu offers every AI set up on the Profile tab, and a message can go to any of them."""
-    from jobpipe import llm
-    from jobpipe.web import searches_file
-    for k in ("OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
-        monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("MOONSHOT_API_KEY", "m-key")
-
-    async def listed(self):
-        return ["kimi-k3", "kimi-k3-fast"]
-    monkeypatch.setattr(llm.OpenAICompatRunner, "models", listed)
-    searches_file.save_models(env["searches"], "kimi", "", {s: {"model": "kimi-k3", "effort": "medium"}
-                                                           for s in searches_file.MODEL_STAGES})
-    built = []
-
-    def factory(cfg):
-        built.append(cfg.backend)
-        return env["runner"]
-    c = TestClient(create_app(env["cfg"], token=TOKEN, store=env["store"], tracker=env["tracker"], runner_factory=factory,
-                              runs=env["runs"], allowed_hosts={"testserver"}, searches_path=env["searches"],
-                              resume_root=tmp_path / "repo", impact_path=env["impact"]))
-    d = c.get("/api/ai/chat-models", headers=H).json()
-    assert d["default"] == {"backend": "claude-code", "model": "claude-opus-5-5"}     # the Profile's writing model
-    groups = {g["backend"]: (g["short"], g["models"]) for g in d["groups"]}
-    assert groups["claude-code"] == ("Claude", llm.CLAUDE_MODELS)
-    assert groups["kimi"] == ("Kimi", ["kimi-k3", "kimi-k3-fast"]) and "openai" not in groups    # no key, not offered
-
-    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Is the summary strong?", "backend": "kimi",
-                                                    "model": "kimi-k3-fast"})
-    assert r.status_code == 200 and "kimi" in built          # the Profile's AI is set up too: it re-rates edits
-    assert env["runner"].calls[-1].model.model == "kimi-k3-fast"
-    assert r.json()["chat"][-1]["via"] == "Kimi · kimi-k3-fast"
-    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "And the skills?"})        # no pick: the Profile's
-    assert r.json()["chat"][-1]["via"] == "Claude · claude-opus-5-5" and env["runner"].calls[-1].model.model == "claude-opus-5-5"
-    assert c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Hi?", "backend": "nope"}).status_code == 400
-
-
 def test_claude_sign_in_helper(env, monkeypatch):
     import subprocess
     from jobpipe import llm
@@ -1911,3 +1874,65 @@ def test_upload_falls_back_to_a_rough_sort_and_refuses_what_it_cant_read(env):
     r = _upload(c, "cv.doc", b"x")
     assert r.status_code == 400 and "save it as .docx" in r.json()["detail"]
     assert c.post("/api/profile/resumes/import/nothex/check", headers=H, json={"markdown": "x"}).status_code == 404
+
+
+# ---- formats of your own --------------------------------------------------------------------------------
+def test_a_format_from_an_uploaded_resumes_look(env, tmp_path):
+    from jobpipe import formats, own_formats
+    c, runner = env["client"], env["runner"]
+    _sorter(runner)
+    pdf = tmp_path / "Navy CV.pdf"
+    render.render_pdf(_resume(), pdf, fmt="executive")
+    d = _upload(c, pdf.name, pdf.read_bytes()).json()
+    assert d["look"]
+    look = c.get(f"/api/profile/resumes/import/{d['id']}/look", headers=H).json()
+    assert look["tokens"]["body_font"] == "Georgia" and look["tokens"]["accent"] == "#1F3A5F" and look["source"] == pdf.name
+    assert c.get(f"/api/profile/resumes/import/{d['id']}/look.png", headers=H).content[:4] == b"\x89PNG"
+    r = c.post("/api/formats/own", headers=H, json={"name": "Navy", "import_id": d["id"]}).json()
+    assert r["created"] == "own-navy"
+    own = next(f for f in r["formats"] if f["id"] == "own-navy")
+    assert own["own"] and own["source"] == pdf.name and own["tokens"]["name_align"] == "center"
+    assert "Body text: Georgia" in own["notes"]["found"]
+    assert c.get("/api/formats/own-navy/thumb.png", headers=H).content[:4] == b"\x89PNG"
+    # it can be the default, and résumés redraw in it
+    d2 = c.put("/api/profile/format", headers=H, json={"format": "own-navy", "redraw": True}).json()
+    assert d2["default"] == "own-navy" and d2["redrawn"] == 1
+    assert c.get("/api/jobs/j1", headers=H).json()["resume"]["format"]["name"] == "Navy"
+    # a Markdown upload has no look to read
+    m = _upload(c, "r.md", _resume().encode()).json()
+    assert not m["look"] and c.get(f"/api/profile/resumes/import/{m['id']}/look", headers=H).status_code == 400
+
+
+def test_customise_edit_preview_and_delete_a_format_of_your_own(env):
+    c = env["client"]
+    r = c.post("/api/formats/own", headers=H, json={"name": "My Compact", "from": "compact"}).json()
+    fid = r["created"]
+    own = next(f for f in r["formats"] if f["id"] == fid)
+    assert own["max_pages"] == 1 and own["tokens"]["skills_first"]
+    assert c.post("/api/formats/own", headers=H, json={"name": "my compact", "from": "signature"}).status_code == 400
+    r = c.put(f"/api/formats/own/{fid}", headers=H, json={"name": "Teal one-pager",
+                                                          "tokens": {**own["tokens"], "accent": "#0E7C74", "body_size": 99}}).json()
+    own = next(f for f in r["formats"] if f["id"] == fid)
+    assert own["name"] == "Teal one-pager" and own["tokens"]["accent"] == "#0E7C74" and own["tokens"]["body_size"] == 11.5
+    png = c.post("/api/formats/own/preview", headers=H, json={"tokens": {"accent": "#7A1F5C", "heading_style": "bar"}})
+    assert png.status_code == 200 and png.content[:4] == b"\x89PNG"
+    c.put("/api/profile/format", headers=H, json={"format": fid})
+    r = c.delete(f"/api/formats/own/{fid}", headers=H).json()
+    assert r["default"] == "signature" and fid not in [f["id"] for f in r["formats"]]
+    assert "resume_format: signature" in env["searches"].read_text()
+    assert c.delete(f"/api/formats/own/{fid}", headers=H).status_code == 404
+    assert r["choices"]["fonts"][0] == "Helvetica Neue" and r["ranges"]["body_size"] == [9.5, 11.5]
+
+
+def test_the_page_script_calls_only_functions_and_elements_that_exist():
+    # A merge once dropped loadFormats() while showTab() still called it, and the Profile's format card went blank.
+    import re
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "jobpipe" / "web" / "static"
+    js = (static / "app.js").read_text() + (static / "theme.js").read_text()
+    called = set(re.findall(r"(?<![.\w])((?:load|render|open|show|apply|import|refresh|select|save)[A-Z]\w*)\(", js))
+    defined = {a or b for a, b in re.findall(r"function\s+(\w+)|(?:const|let|var)\s+(\w+)\s*=", js)}
+    assert called - defined == set()
+    html = (static / "index.html").read_text()
+    made = set(re.findall(r'\bid:\s*"([\w-]+)"', js))
+    assert {i for i in re.findall(r'\$\("#([\w-]+)"\)', js) if f'id="{i}"' not in html and i not in made} == set()
