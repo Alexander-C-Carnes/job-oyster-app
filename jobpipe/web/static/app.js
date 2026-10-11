@@ -3232,16 +3232,20 @@ async function loadKeys(d) {
 }
 function applyAI(d) {
   AI.data = d;
-  aField("backend").replaceChildren(...d.providers.map((p) => h("option", { value: p.id }, p.label)));
+  aField("backend").replaceChildren(...d.providers.map((p) => h("option", { value: p.id }, p.label + (p.key_set ? " · key saved" : ""))));
   aField("backend").value = d.backend;
   aField("base_url").value = d.base_url;
   aField("key").value = "";
   $("#ai-stages").replaceChildren(...AI_STAGES.flatMap(([s, name, what]) => [
     h("div", { class: "ai-step" }, name, h("span", { class: "muted" }, what)),
-    h("input", { id: `ai-model-${s}`, list: "ai-models", value: d.stages[s].model, placeholder: "model", spellcheck: "false", "aria-label": `${name} model` }),
+    h("div", { class: "ai-model" },
+      h("select", { id: `ai-pick-${s}`, class: "hidden", "aria-label": `${name} model` }),
+      h("input", { id: `ai-model-${s}`, value: d.stages[s].model, placeholder: "model name", spellcheck: "false", "aria-label": `${name} model name` })),
     h("select", { id: `ai-effort-${s}`, "aria-label": `${name} effort` },
       ...["low", "medium", "high"].map((e) => h("option", { value: e, selected: d.stages[s].effort === e }, e))),
   ]));
+  for (const [s] of AI_STAGES) $(`#ai-pick-${s}`).addEventListener("change", () => modelPicked(s));
+  AI.typing = new Set();
   AI.base = JSON.stringify(aiState());
   formError(aForm);
   aiProviderShown(false);
@@ -3250,7 +3254,7 @@ function applyAI(d) {
 function aiProviderShown(changed) {
   const b = aField("backend").value, p = aiProvider(b) || {};
   $("#ai-key-row").classList.toggle("hidden", !p.key_env);
-  $("#ai-key-hint").textContent = p.key_env ? (p.key_set ? `saved as ${p.key_env}; type a new one to replace it` : `saved as ${p.key_env} in your profile's .env`) : "";
+  keyHint();
   aField("key").placeholder = p.key_set ? "••••••••" : p.local || b === "openai-compatible" ? "if the server needs one" : "paste your key";
   $("#ai-url-row").classList.toggle("hidden", !(b === "openai-compatible" || p.local));
   aField("base_url").placeholder = p.base_url || "http://localhost:8000/v1";
@@ -3272,26 +3276,64 @@ function aiProviderShown(changed) {
     }
   }
   AI.lastBackend = b;
+  if (changed) AI.typing.clear();
   setModels(isClaude(b) ? AI.data.claude_models : []);
   $("#ai-state").textContent = "";
   if (!isClaude(b) && (p.key_set || p.local)) checkAI(true);
   aiChanged();
 }
+// Whether the provider's key is saved, or typed here and not saved yet.
+function keyHint() {
+  const p = aiProvider(aField("backend").value) || {}, typed = !!aField("key").value.trim(), hint = $("#ai-key-hint");
+  hint.textContent = !p.key_env ? "" : typed ? "not saved yet: click Save AI settings"
+    : p.key_set ? `✓ saved as ${p.key_env}; paste a new one to replace it` : "none saved yet";
+  hint.classList.toggle("warn", !!p.key_env && typed);
+  hint.classList.toggle("ok", !!p.key_env && !typed && !!p.key_set);
+}
+// Each step picks from a menu of the provider's models once they're known; "Other model…" types a name instead.
+const OTHER_MODEL = "\u0000other";
 function setModels(list) {
   AI.models = list;
-  $("#ai-models").replaceChildren(...list.map((m) => h("option", { value: m })));
+  for (const [s] of AI_STAGES) syncPick(s);
+}
+function syncPick(s) {
+  const box = $(`#ai-model-${s}`), pick = $(`#ai-pick-${s}`), list = AI.models || [];
+  const menu = list.length > 0 && !AI.typing.has(s);
+  pick.classList.toggle("hidden", !menu);
+  box.classList.toggle("hidden", menu);
+  if (!menu) return;
+  const cur = box.value.trim();
+  pick.replaceChildren(
+    ...(cur ? [] : [h("option", { value: "", disabled: true }, "Choose a model")]),
+    ...(cur && !list.includes(cur) ? [h("option", { value: cur }, `${cur} (not listed)`)] : []),
+    ...list.map((m) => h("option", { value: m }, m)),
+    h("option", { value: OTHER_MODEL }, "Other model…"));
+  pick.value = cur;
+}
+function modelPicked(s) {
+  const box = $(`#ai-model-${s}`), pick = $(`#ai-pick-${s}`);
+  if (pick.value === OTHER_MODEL) {
+    AI.typing.add(s);
+    syncPick(s);
+    box.focus();
+    box.select();
+  } else box.value = pick.value;
+  aiChanged();
 }
 async function checkAI(quiet = false) {
   const s = aiState(), state = $("#ai-state");
   state.replaceChildren(spinner(), " Checking…");
   try {
+    const typed = !!aField("key").value.trim();
     const d = await post("/api/ai/models", { backend: s.backend, base_url: s.base_url, key: aField("key").value.trim() });
-    setModels(d.models);
-    state.textContent = isClaude(s.backend) ? "" : `Connected: ${plural(d.models.length, "model")} available. Pick one for each step.`;
     for (const [st] of AI_STAGES) {                  // fill empty model boxes with the first listed model
       const box = $(`#ai-model-${st}`);
       if (!box.value && d.models.length) box.value = d.models[0];
     }
+    setModels(d.models);
+    state.textContent = isClaude(s.backend) ? "" : typed
+      ? `The key works: ${plural(d.models.length, "model")} available. Pick one for each step, then Save AI settings to keep it.`
+      : `Connected: ${plural(d.models.length, "model")} available. Pick one for each step.`;
     aiChanged();
   } catch (e) { state.textContent = quiet ? "" : e.message; if (!quiet) toast(e.message, true); }
 }
@@ -3315,7 +3357,10 @@ $("#ai-claude-login").addEventListener("click", async () => {
   catch (e) { toast(e.message, true); }
 });
 aField("backend").addEventListener("change", () => aiProviderShown(true));
-aForm.addEventListener("input", (e) => { if (e.target.name !== "backend" && !e.target.closest("#keys")) aiChanged(); });
+aForm.addEventListener("input", (e) => {
+  if (e.target.name === "key") keyHint();
+  if (e.target.name !== "backend" && !e.target.closest("#keys")) aiChanged();
+});
 $("#ai-check").addEventListener("click", () => checkAI());
 aForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -3323,9 +3368,10 @@ aForm.addEventListener("submit", async (e) => {
   const btn = $("#ai-save");
   btn.disabled = true;
   try {
-    applyAI(await put("/api/ai", { ...aiState(), key: aField("key").value.trim() }));
+    const key = aField("key").value.trim(), label = aiProvider(aiState().backend)?.label;
+    applyAI(await put("/api/ai", { ...aiState(), key }));
     loadSummary();
-    toast("AI settings saved. The next score or résumé uses them.");
+    toast(`${key ? `${label} key saved. ` : ""}AI settings saved. The next score or résumé uses them; runs already going finish on the AI they started with.`);
   } catch (err) { formError(aForm, err.message); btn.disabled = false; }
 });
 

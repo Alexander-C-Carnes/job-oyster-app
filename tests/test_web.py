@@ -1659,7 +1659,9 @@ def test_ai_settings(env, monkeypatch):
     stages = {s: {"model": "gpt-x", "effort": "medium"} for s in ("triage", "analysis", "writer")}
     assert c.put("/api/ai", headers=H, json={"backend": "openai", "stages": {**stages, "writer": {"model": ""}}}).status_code == 400
     assert c.put("/api/ai", headers=H, json={"backend": "openai-compatible", "stages": stages}).status_code == 400  # no address
+    monkeypatch.setattr(env["runs"], "active", lambda: object())   # saved while a run is going: it keeps its own AI
     a = c.put("/api/ai", headers=H, json={"backend": "openai", "stages": stages, "key": "sk-new"}).json()
+    monkeypatch.setattr(env["runs"], "active", lambda: None)
     assert a["backend"] == "openai" and next(p for p in a["providers"] if p["id"] == "openai")["key_set"]
     text = searches.read_text()
     assert "backend: openai" in text and "writer: {model: gpt-x, effort: medium}" in text

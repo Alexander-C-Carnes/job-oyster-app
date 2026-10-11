@@ -1408,9 +1408,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return {**searches_file.load_models(searches_path), "providers": providers, "claude_models": CLAUDE_MODELS,
                 "env_file": str(config.PROFILE / ".env")}
 
+    # Saved even while runs are going: a run reads the AI settings and keys once, when it starts, so the runs
+    # already going finish on the AI they began with and the next one uses these.
     @app.put("/api/ai")
     def put_ai(body: dict):
-        not_mid_run()
         try:
             backend, base_url, stages = searches_file.clean_models(body, BACKEND_LABELS)
             key, env = str(body.get("key") or "").strip(), key_env(backend)
