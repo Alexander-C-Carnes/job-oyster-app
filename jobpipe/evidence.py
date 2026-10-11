@@ -94,6 +94,7 @@ def split_markdown(name: str, md: str) -> list[Passage]:
         for i in range(0, len(words), PASSAGE_WORDS):
             out.append(Passage(label, " ".join(words[i:i + PASSAGE_WORDS])))
 
+    md = re.sub(r"<!--.*?-->", "", md, flags=re.S)        # notes, such as where an added line came from
     for block in re.split(r"\n\s*\n", md):
         items: list[str] = []
         for line in block.splitlines():

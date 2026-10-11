@@ -3183,16 +3183,19 @@ function renderImport(d) {
   const stem = d.filename.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s*\bresume\b\s*/i, " ").trim();
   const lookName = h("input", { type: "text", value: `${stem || "My"} look`, "aria-label": "Name for the format" });
   const lookBox = h("div", { class: "import-look", hidden: !forLook });
+  const record = h("input", { type: "checkbox", checked: !forLook });
   const save = h("button", { class: "primary" }, "Save");
   const err = h("p", { class: "form-error hidden" });
   const sync = () => {
     lookBox.hidden = !look.checked;
-    save.disabled = !(words.checked && d.html) && !look.checked;
-    save.textContent = words.checked && look.checked ? "Save résumé and format" : look.checked ? "Save format" : "Save résumé";
+    save.disabled = !(words.checked && d.html) && !look.checked && !record.checked;
+    save.textContent = !words.checked && !look.checked && record.checked ? "Next"
+      : words.checked && look.checked ? "Save résumé and format" : look.checked ? "Save format" : "Save résumé";
     if (look.checked && !lookBox.childNodes.length) showLook(d, lookBox);
   };
   words.addEventListener("change", sync);
   look.addEventListener("change", sync);
+  record.addEventListener("change", sync);
   body.replaceChildren(
     h("div", { class: "import-cols" },
       h("section", {}, h("h3", {}, "What you uploaded"), orig),
@@ -3206,7 +3209,9 @@ function renderImport(d) {
       h("label", { class: "check import-use", title: d.look ? "" : "A look can only be read from a PDF or a Word file" }, look,
         h("b", {}, "Save its look as a format"), d.look ? null : h("span", { class: "muted" }, " (only from a PDF or Word file)")),
       h("div", { class: "import-save", hidden: !forLook, "data-look-name": "" }, h("label", {}, "Format name ", lookName)),
-      lookBox),
+      lookBox,
+      h("label", { class: "check import-use" }, record, h("b", {}, "Add what's new to my impact record"),
+        h("span", { class: "muted" }, " (you pick each line next; nothing is added on its own)"))),
     err,
     h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => impDialog.close() }, "Cancel"), h("span", { class: "grow" }), save));
   if (d._editing) toggle.click();
@@ -3224,8 +3229,9 @@ function renderImport(d) {
         toast(`Saved “${made}” in Your formats. Use ${made} there makes it your résumé format.`);
       } catch (e0) { formError(body, e0.message); save.disabled = false; return; }
       look.checked = false; look.disabled = true; sync();
-      if (!words.checked) { impDialog.close(); return; }
+      if (!words.checked) { if (record.checked) renderSuggestions({ markdown: md.value, source: d.filename }); else impDialog.close(); return; }
     }
+    if (!words.checked) { renderSuggestions({ markdown: md.value, source: d.filename }); return; }
     const payload = { markdown: md.value, filename: `${fname.value.trim() || d.name}.md`, import_id: d.id };
     let res;
     try { res = await post("/api/profile/resumes", payload); }
@@ -3234,7 +3240,8 @@ function renderImport(d) {
       try { res = await post("/api/profile/resumes", { ...payload, replace: true }); }
       catch (e2) { formError(body, e2.message); save.disabled = false; return; }
     }
-    impDialog.close();
+    if (record.checked) renderSuggestions({ markdown: md.value, source: d.filename });
+    else impDialog.close();
     P.data.files = res.files;              // keep unsaved profile edits; tick the new résumé if asked
     let row = P.rows.find((r) => r.file === res.file);
     if (!row) P.rows.push(row = { file: res.file, name: "" });
@@ -3243,6 +3250,92 @@ function renderImport(d) {
     toast(score.checked ? `Added ${res.file}. Save the profile to start scoring against it.` : `Added ${res.file}.`);
   });
 }
+
+// What a résumé has that the impact record doesn't, role by role: new lines ticked, lines the record has with less
+// detail unticked, lines it already has folded away. Each role's ticked lines are added with one click.
+async function renderSuggestions(params) {
+  const body = $("#import-body");
+  $("#import-title").textContent = "What's new for your impact record";
+  $("#import-sub").textContent = `From ${params.source || params.file}. Nothing is added until you press Add.`;
+  if (!impDialog.open) impDialog.showModal();
+  body.replaceChildren(h("div", { class: "import-reading" }, h("span", { class: "import-blob", "aria-hidden": "true" }),
+    h("p", {}, h("b", {}, "Checking each line against your impact record…")),
+    h("p", { class: "muted" }, "Up to half a minute: the evidence models run on this Mac.")));
+  let r;
+  try { r = await post("/api/impact-record/suggestions", params); }
+  catch (e) {
+    body.replaceChildren(h("p", { class: "form-error" }, e.message), h("div", { class: "actions" }, h("span", { class: "grow" }),
+      h("button", { class: "ghost", onclick: () => impDialog.close() }, "Close")));
+    return;
+  }
+  const source = r.source;
+  const open = r.roles.filter((role) => role.lines.some((l) => l.status !== "covered"));
+  const covered = r.roles.length - open.length;
+  const card = (role) => {
+    const boxes = [];
+    const lineRow = (l) => {
+      const cb = h("input", { type: "checkbox", checked: l.status === "new" });
+      boxes.push([cb, l.text]);
+      cb.addEventListener("change", count);
+      return h("li", { class: `sugg-line ${l.status}` }, h("label", { class: "check" }, cb, h("span", {}, l.text)),
+        h("small", {}, l.why));
+    };
+    const fresh = role.lines.filter((l) => l.status !== "covered"), have = role.lines.filter((l) => l.status === "covered");
+    const add = h("button", { type: "button", class: "primary small" });
+    const done = h("span", { class: "sugg-done", hidden: true });
+    function count() {
+      const n = boxes.filter(([cb]) => cb.checked).length;
+      add.disabled = !n;
+      add.textContent = role.known ? `Add ${plural(n, "line")}` : n ? `Add this role (${plural(n, "line")})` : "Add this role";
+    }
+    const list = h("ul", { class: "sugg-lines" }, ...fresh.map(lineRow));
+    count();
+    add.addEventListener("click", async () => {
+      const lines = boxes.filter(([cb]) => cb.checked).map(([, t]) => t);
+      add.disabled = true;
+      try {
+        const d = await DOCS.impact.amend("/suggestions/apply", { company: role.company, title: role.title, dates: role.dates, lines, source },
+                                          /^from your résumés$/i);
+        boxes.forEach(([cb]) => { if (cb.checked) { cb.checked = false; cb.disabled = true; cb.closest("li").classList.add("added"); } });
+        done.hidden = false; done.textContent = `Added ${plural(lines.length, "line")} ✓`;
+        count();
+      } catch (e) { toast(e.message, true); count(); }
+    });
+    return h("section", { class: "sugg-role" },
+      h("div", { class: "sugg-head" }, h("b", {}, role.company), h("span", {}, ` | ${role.title}`),
+        role.dates && h("span", { class: "muted" }, ` · ${role.dates}`), !role.known && h("span", { class: "tag sugg-new" }, "New role"),
+        h("span", { class: "grow" }), done, add),
+      list,
+      have.length ? h("details", { class: "sugg-have" }, h("summary", {}, `Already in your record (${have.length})`),
+        h("ul", {}, ...have.map((l) => h("li", {}, l.text)))) : null);
+  };
+  body.replaceChildren(
+    open.length ? h("div", { class: "sugg-list" }, ...open.map(card))
+      : h("p", {}, "Your impact record already has everything in this résumé."),
+    h("p", { class: "muted sugg-foot" },
+      covered ? `${plural(covered, "role")} with nothing new left out. ` : "",
+      "Added lines go in the record's “From your résumés” section, under their role. ",
+      r.models ? "Checked with the evidence models and by words and figures." : `Checked by words and figures (the evidence models weren't used: ${r.reason || "off"}).`),
+    h("div", { class: "actions" },
+      h("button", { class: "ghost", onclick: () => { impDialog.close(); showTab("impact"); } }, "Open the impact record"),
+      h("span", { class: "grow" }), h("button", { class: "primary", onclick: () => impDialog.close() }, "Done")));
+}
+
+// The Impact record tab: compare one of your saved résumés with the record.
+$("#impact-compare").addEventListener("click", async () => {
+  let prof;
+  try { prof = await api("/api/profile"); } catch (e) { toast(e.message, true); return; }
+  $("#import-title").textContent = "Compare a résumé with your impact record";
+  $("#import-sub").textContent = "Pick one of your résumés. You choose what to add, line by line.";
+  $("#import-body").replaceChildren(
+    prof.files.length ? h("ul", { class: "sugg-files" }, ...prof.files.map((f) => h("li", {},
+      h("button", { type: "button", class: "ghost", onclick: () => renderSuggestions({ file: f.file }) }, fileLabel(f.file)),
+      h("span", { class: "muted" }, [f.headline, f.updated && `updated ${f.updated}`].filter(Boolean).join(" · ")))))
+      : h("p", { class: "muted" }, "No résumés in your profile yet. Add one on the Profile tab."),
+    h("p", { class: "muted" }, "Or add a new one, as a PDF or Word file, from Profile › Your résumés."),
+    h("div", { class: "actions" }, h("span", { class: "grow" }), h("button", { class: "ghost", onclick: () => impDialog.close() }, "Close")));
+  impDialog.showModal();
+});
 
 // The look read from an upload: what was found, what a one-column page leaves out, and the résumé drawn in it.
 async function showLook(d, box) {
@@ -3840,7 +3933,7 @@ function docEditor({ key, url, onSaved = () => {} }) {
   });
 
   // A change made on the server (a confirmed fact): send unsaved edits first, then post with the version saved.
-  async function amend(path, body) {
+  async function amend(path, body, jump = /^confirmed facts$/i) {
     if (!D.loaded) await load();
     await save();
     if (D.conflict) throw new Error("Sort out the changed-elsewhere banner first.");
@@ -3855,7 +3948,7 @@ function docEditor({ key, url, onSaved = () => {} }) {
     }
     if (!res.ok) throw new Error(d.detail || res.statusText);
     apply(d);
-    const n = headings(d.markdown).findIndex((x) => x.level === 1 && /^confirmed facts$/i.test(x.label));
+    const n = headings(d.markdown).findIndex((x) => x.level === 1 && jump.test(x.label));
     if (n >= 0) requestAnimationFrame(() => jumpTo(headings(d.markdown)[n], n));
     return d;
   }

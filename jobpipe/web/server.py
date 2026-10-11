@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, own_formats, render, resume_import
+from .. import formats, jd, own_formats, record_import, render, resume_import
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -1978,6 +1978,62 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             return JSONResponse({"detail": "The impact record was changed outside this window since you opened it.",
                                  "current": impact_payload(current)}, status_code=409)
         new = add_confirmed_fact(current, text, date.today(), config.candidate().first_name)
+        write_impact(new, current)
+        state["runner"] = None  # the cached system prompt includes the record
+        return impact_payload(new)
+
+    # ---- what a résumé says that the impact record doesn't (record_import.py) ------------------------------
+    # Checked in a process of its own: the evidence models take gigabytes, and this way they go when it ends.
+    async def record_gaps(md: str) -> dict:
+        if cfg.evidence.enabled and os.environ.get("JOBPIPE_EVIDENCE_MODELS") != "off":
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", "jobpipe.record_import", "-", "--record", str(impact_path),
+                    stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    cwd=str(config.ROOT))
+                out, _ = await asyncio.wait_for(proc.communicate(md.encode()), timeout=300)
+                if proc.returncode == 0:
+                    return json.loads(out)
+                reason = "the evidence check stopped"
+            except (OSError, asyncio.TimeoutError, ValueError) as e:
+                reason = f"the evidence check didn't finish ({type(e).__name__})"
+        else:
+            reason = "switched off"
+        return record_import.payload(record_import.suggest(read_impact(), md), False, reason)
+
+    @app.post("/api/impact-record/suggestions")
+    async def record_suggestions(body: dict):
+        """The roles and results a résumé has that the impact record lacks: {"markdown", "source"} (from the upload
+        dialog), {"import_id"} or {"file": "resume-x.md"} (a saved résumé). Changes nothing."""
+        if isinstance(body.get("markdown"), str) and body["markdown"].strip():
+            md, source = body["markdown"][:300_000], str(body.get("source") or "a résumé")[:120]
+        elif body.get("import_id"):
+            d = import_dir(str(body["import_id"]))
+            md, source = (d / "sorted.md").read_text(), json.loads((d / "meta.json").read_text())["filename"]
+        else:
+            f = str(body.get("file") or "")
+            if not searches_file.is_resume_file(f) or not (references() / f).is_file():
+                raise HTTPException(400, "Choose one of your résumés.")
+            md, source = (references() / f).read_text(), f
+        found = await record_gaps(md)
+        return {**found, "source": source, "version": doc_version(read_impact())}
+
+    @app.post("/api/impact-record/suggestions/apply")
+    def apply_suggestion(body: dict):
+        """Add the chosen lines of one role to the record's "From your résumés" section. `version` is the record
+        the app has open; a different one on disk is a 409, as for a save."""
+        lines = [str(x) for x in body.get("lines") or [] if str(x).strip()]
+        company, title = str(body.get("company") or "").strip(), str(body.get("title") or "").strip()
+        if not lines or not company:
+            raise HTTPException(400, "Tick at least one line to add.")
+        current = read_impact()
+        if doc_version(current) != body.get("version"):
+            return JSONResponse({"detail": "The impact record was changed outside this window since you opened it.",
+                                 "current": impact_payload(current)}, status_code=409)
+        new = record_import.apply(current, company, title, str(body.get("dates") or ""), lines,
+                                  str(body.get("source") or "a résumé")[:120], date.today())
+        if new == current:
+            raise HTTPException(400, "Those lines are in your impact record already.")
         write_impact(new, current)
         state["runner"] = None  # the cached system prompt includes the record
         return impact_payload(new)

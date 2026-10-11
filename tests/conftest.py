@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import sys
@@ -214,13 +215,18 @@ def notion_row(pid, url, status="Not started", fit=None, notes=""):
 def no_evidence_models():
     """The local evidence models are off in tests (they'd load gigabytes); a test that wants them swaps in fakes.
     Set by hand, not with monkeypatch, so a test's monkeypatch.undo() can't switch the real models on."""
-    real = evidence.load
+    real, env = evidence.load, os.environ.get("JOBPIPE_EVIDENCE_MODELS")
 
     def off(cfg):
         raise evidence.Unavailable("off in tests")
     evidence.load = off
+    os.environ["JOBPIPE_EVIDENCE_MODELS"] = "off"         # for the checks that run in a process of their own
     yield
     evidence.load = real
+    if env is None:
+        os.environ.pop("JOBPIPE_EVIDENCE_MODELS", None)
+    else:
+        os.environ["JOBPIPE_EVIDENCE_MODELS"] = env
 
 
 @pytest.fixture(autouse=True)

@@ -1936,3 +1936,30 @@ def test_the_page_script_calls_only_functions_and_elements_that_exist():
     html = (static / "index.html").read_text()
     made = set(re.findall(r'\bid:\s*"([\w-]+)"', js))
     assert {i for i in re.findall(r'\$\("#([\w-]+)"\)', js) if f'id="{i}"' not in html and i not in made} == set()
+
+
+# ---- from a résumé into the impact record -------------------------------------------------------------
+def test_suggestions_from_a_resume_and_adding_them_to_the_impact_record(env):
+    c = env["client"]
+    env["impact"].write_text("# Impact record\n\n## Northwind Cloud\n\n- Ran the move of 31 payment services onto the "
+                             "new ledger platform over 20 months, with no customer-facing downtime.\n")
+    r = c.post("/api/impact-record/suggestions", headers=H, json={"markdown": _resume(), "source": "cv.pdf"}).json()
+    assert r["source"] == "cv.pdf" and r["models"] is False and r["version"]
+    roles = {x["company"]: x for x in r["roles"]}
+    assert roles["Northwind Cloud"]["known"] and not roles["Woodgrove Bank"]["known"]
+    assert roles["Northwind Cloud"]["lines"][0]["status"] == "detail"
+    wb = roles["Woodgrove Bank"]
+    d = c.post("/api/impact-record/suggestions/apply", headers=H, json={
+        "version": r["version"], "company": wb["company"], "title": wb["title"], "dates": wb["dates"],
+        "lines": [wb["lines"][0]["text"]], "source": "cv.pdf"}).json()
+    assert "# From your résumés" in d["markdown"] and "## Woodgrove Bank, Quality Assurance Analyst" in d["markdown"]
+    assert d["markdown"] == env["impact"].read_text()
+    stale = c.post("/api/impact-record/suggestions/apply", headers=H, json={
+        "version": r["version"], "company": "X", "title": "Y", "lines": ["z z z z"]})
+    assert stale.status_code == 409                                   # the record changed since the suggestions
+    again = c.post("/api/impact-record/suggestions/apply", headers=H, json={
+        "version": d["version"], "company": wb["company"], "title": wb["title"], "lines": [wb["lines"][0]["text"]]})
+    assert again.status_code == 400 and "already" in again.json()["detail"]
+    saved = c.post("/api/impact-record/suggestions", headers=H, json={"file": "resume-platform.md"}).json()
+    assert saved["source"] == "resume-platform.md" and saved["roles"]
+    assert c.post("/api/impact-record/suggestions", headers=H, json={"file": "../searches.yaml"}).status_code == 400

@@ -1005,6 +1005,23 @@ dialog h2 + p { margin: -6px 0 12px; }
 .import-look { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 14px; align-items: start; margin-left: 24px; font-size: 13px; }
 .import-look p { margin: 0 0 6px; }
 .import-look-img { width: 100%; aspect-ratio: 8.5 / 11; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+/* What a résumé has that the impact record doesn't: a card per role, its lines to tick, then Add. */
+.sugg-list { display: flex; flex-direction: column; gap: 12px; }
+.sugg-role { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.sugg-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.sugg-new { background: var(--sel); }
+.sugg-done { color: var(--good); font-weight: 600; font-size: 13px; }
+.sugg-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sugg-line .check { align-items: flex-start; }
+.sugg-line .check input { margin-top: 3px; }
+.sugg-line small { display: block; margin-left: 24px; color: var(--muted); font-size: 12px; }
+.sugg-line.detail small { color: var(--warn); }
+.sugg-line.added { opacity: .55; }
+.sugg-have { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.sugg-have ul { margin: 4px 0 0; padding-left: 18px; }
+.sugg-foot { margin: 12px 0 4px; font-size: 13px; }
+.sugg-files { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sugg-files li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) {
   .moment-banner, .cat-card, .meter .track i { transition: none; }
   .cat .eye, .cat .tail, .cat .body-blob { animation: none; }
