@@ -16,8 +16,10 @@ from pypdf import PdfReader
 
 from jobpipe import config, render
 from jobpipe.llm import AgentResult
-from jobpipe.notion import NotionTracker
-from jobpipe.store import Store
+from jobpipe.notion import NotionTracker, TrackerEntry
+from jobpipe.store import Store, safe_id
+from jobpipe.tracker import LocalTracker
+from jobpipe.web.board import Marks
 from jobpipe.web.runs import Busy, Run, RunManager
 from jobpipe.web.server import create_app
 from conftest import BASE, TITLE, FakeNotion, FakeRunner, _resume, make_job, notion_row
@@ -856,6 +858,44 @@ def test_run_results_list_the_jobs_it_scored(env):
     run = again.runs[r.json()["id"]]
     assert run.status == "done" and run.label == "Search + signal score" and run.args == ["run", "--search", "tpm-remote", "--no-tailor"]
     assert [x["id"] for x in run.results] == ["j2"]
+
+
+def test_a_job_kept_under_its_page_address_moves_to_a_safe_id(tmp_dirs, tmp_path):
+    """A JobsPipe job stored under its URL as the id (Himalayas postings, before ids were made safe) couldn't
+    open: /api/jobs/<id> can't hold its slashes. At start-up it moves to a safe id, and its tracker row, the
+    runs that scored it and its star follow."""
+    url = "https://himalayas.app/companies/acme/jobs/staff-tpm"
+    store = Store()
+    store.save_job(make_job(url, url=url), "tpm-remote")
+    store.update(url, triage={"fit_score": 8, "one_line": "good"})
+    local = LocalTracker(store.root / "tracker.db")
+    local.track(TrackerEntry(TITLE, "Acme", url, 8, "good"), job_id=url)
+    tid = local.rows()[0]["page_id"]
+    Marks(store.root / "marks.json").set(url, starred=True)
+    runs = RunManager(argv_prefix=[sys.executable, "-c", "print('done')"], db=local.path)
+    run = runs.start("Search", ["run"], marks={url: "before", "j9": "x"})
+    runs.wait(run.id)
+    runs.save_results(run, [{"id": url, "title": TITLE}])
+    assert (store.jobs_dir / "https:").is_dir()
+
+    runs = RunManager(db=local.path)       # the app restarts
+    c = TestClient(create_app(config.load(), token=TOKEN, store=store, tracker=local, runs=runs,
+                              allowed_hosts={"testserver"}, resume_root=tmp_path / "repo"))
+    new = safe_id(url)
+    d = c.get(f"/api/jobs/{new}", headers=H)
+    assert d.status_code == 200, d.text
+    assert (d.json()["company"], d.json()["fit"], d.json()["tracker_id"], d.json()["starred"]) == ("Acme", 8, tid, True)
+    assert list(store.jobs_dir.iterdir()) == [store.jobs_dir / f"{new}.json"] and store.job(new)["id"] == new
+    assert [r["job_id"] for r in local.rows()] == [new]
+    assert [x["id"] for x in c.get(f"/api/runs/{run.id}", headers=H).json()["results"]] == [new]
+    assert RunManager(db=local.path).runs[run.id].marks == {new: "before", "j9": "x"}
+    assert store.fix_ids() == {}           # once is enough
+
+    # A run from before safe ids that outlived the restart writes to the old id: the next start folds that in.
+    store.update(url, impact_score=9.0, tailored_at="2026-10-11")
+    assert store.fix_ids() == {url: new}
+    st = store.state()[new]
+    assert (st["impact_score"], st["tailored_at"], st["triage"]["fit_score"], st["searches"]) == (9.0, "2026-10-11", 8, ["tpm-remote"])
 
 
 def _until(cond, seconds=10):

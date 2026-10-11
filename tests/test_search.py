@@ -3,7 +3,7 @@ import pytest
 
 from jobpipe import config
 from jobpipe.jobs_api import JobsClient, post_filter
-from jobpipe.store import Store, canonical_url
+from jobpipe.store import Store, canonical_url, safe_id
 from conftest import FakeJobsAPI, jobspipe_client, make_job
 
 
@@ -57,6 +57,20 @@ def test_bad_request_costs_one_credit_and_is_not_retried(tmp_dirs):
     assert len(fake.bodies) == 1
     assert store.credits_used("once") == 1
     assert "unknown field" in store.credits()["calls"][-1]["status"]
+
+
+def test_a_job_whose_id_is_its_page_address_is_kept_under_a_safe_id(tmp_dirs):
+    """JobsPipe gives Himalayas postings their address as the id. Kept as it is, its slashes nest the job's
+    file in folders named after the URL and break /api/jobs/<id>."""
+    cfg = config.load()
+    url = "https://himalayas.app/companies/acme/jobs/staff-tpm"
+    fake = FakeJobsAPI({"Technical Program Manager": [make_job(url, url=url), make_job("a1b2")]})
+    store = Store()
+    res = JobsClient(cfg, store, client=jobspipe_client(fake)).run(cfg.search("tpm-remote"))
+    new, kept = (j["id"] for j in res.jobs)
+    assert kept == "a1b2" and new == safe_id(url) and len(new) == 16 and new.isalnum()
+    assert store.job(new)["url"] == url and set(store.state()) == {new, kept}
+    assert sorted(p.name for p in store.jobs_dir.iterdir()) == sorted([f"{new}.json", "a1b2.json"])
 
 
 def test_post_filter():

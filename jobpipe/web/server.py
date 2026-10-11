@@ -183,14 +183,23 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     # run starts from the last Notion snapshot the app saved, so nothing tracked is lost in the move.
     local = tracker if isinstance(tracker, LocalTracker) else LocalTracker(
         store.root / "tracker.db", notion=tracker, seed=store.root / "notion-cache.json")
+    runs = runs or RunManager(db=local.path)   # run history sits beside the tracker in data/tracker.db
+    progress = Estimator(runs)                 # how far along a tailoring run is, for the ring on its fit badge
+    marks = Marks(store.root / "marks.json")
+    # Jobs kept under an id that file names and URLs can't hold (store.safe_id) move to a safe one, and the
+    # tracker rows, run history and stars that name them follow, before anything reads them.
+    moved = store.fix_ids()
+    if moved:
+        local.rename_jobs(moved)
+        runs.rename_jobs(moved)
+        for old, new in moved.items():
+            if marks.get(old):
+                marks.set(new, old)
     # A job you applied to keeps its posting: saved when its status reaches an applied stage, here or in Notion.
     keeper = PostingKeeper(store, local)
     app.state.posting_keeper = keeper
     sync = TrackerSync(local, after=keeper.kick)
     keeper.kick()
-    runs = runs or RunManager(db=local.path)   # run history sits beside the tracker in data/tracker.db
-    progress = Estimator(runs)                 # how far along a tailoring run is, for the ring on its fit badge
-    marks = Marks(store.root / "marks.json")
 
     def materials() -> tuple[str, int]:
         """The impact record's path, plus a signature of every file the runner's cached system

@@ -174,6 +174,13 @@ class LocalTracker:
                            (job_id, row_id, job_id)).rowcount:
                 self._bump(con)
 
+    def rename_jobs(self, moved: dict[str, str]) -> None:
+        """Rows linked to a stored job that moved to a new id ({old: new}, Store.fix_ids) follow it."""
+        with closing(self._db()) as con, con:
+            if sum(con.execute("UPDATE tracker SET job_id = ? WHERE job_id = ?", (new, old)).rowcount
+                   for old, new in moved.items()):
+                self._bump(con)
+
     def track(self, e: TrackerEntry, job_id: Optional[str] = None) -> str:
         """Add the job, or update its row, by the rules the Notion tracker always had: an existing row keeps
         its status except Not started -> In progress, keeps the notes you wrote, and gets the new fit score.

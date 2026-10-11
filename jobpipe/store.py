@@ -4,6 +4,7 @@ Everything is plain JSON so it can be inspected or edited by hand.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -55,6 +56,17 @@ def slug(*parts: str, max_len: int = 60) -> str:
     s = "-".join(p for p in parts if p)
     s = re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-").lower()
     return s[:max_len].rstrip("-") or "job"
+
+
+SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def safe_id(jid: Any) -> str:
+    """The id to keep a job under: its own when it is safe as a file name and in a URL path, otherwise a short
+    hash of it, the same each time. JobsPipe gives some postings (Himalayas') their page address as the id,
+    which nested the job's file in folders named after the URL and broke /api/jobs/<id>."""
+    jid = str(jid)
+    return jid if SAFE_ID.fullmatch(jid) else hashlib.sha1(jid.encode()).hexdigest()[:16]
 
 
 class Store:
@@ -143,6 +155,33 @@ class Store:
             state = self.state()
             state.setdefault(jid, {"first_seen": now_iso(), "searches": []}).update(fields)
             self._save_state(state)
+
+    def fix_ids(self) -> dict[str, str]:
+        """Move jobs kept under an unsafe id (see safe_id) to their safe one: the job's file and its state. Returns
+        {old: new}, for the other records that name jobs. Both ids are kept only when a run from before safe ids
+        outlived the restart that moved its job and wrote to the old id again: its state, the newer, wins field
+        by field (the posting's file under the safe id stays)."""
+        with self._locked():
+            state = self.state()
+            moved = {jid: safe_id(jid) for jid in state if safe_id(jid) != jid}
+            for old, new in moved.items():
+                src, dst = self.jobs_dir / f"{old}.json", self.jobs_dir / f"{new}.json"
+                inside = src.resolve().is_relative_to(self.jobs_dir.resolve())
+                job = _read(src, None) if inside else None
+                if job is not None:
+                    if not dst.exists():
+                        _write(dst, {**job, "id": new})
+                    src.unlink()
+                    for d in src.parents:       # the folders the URL-shaped id made, now empty
+                        if d == self.jobs_dir or any(d.iterdir()):
+                            break
+                        d.rmdir()
+                entry, there = state.pop(old), state.get(new) or {}
+                state[new] = {**there, **entry, "searches": list(dict.fromkeys([*entry.get("searches", []), *there.get("searches", [])])),
+                              "first_seen": min(filter(None, (entry.get("first_seen"), there.get("first_seen"))), default=now_iso())}
+            if moved:
+                self._save_state(state)
+        return moved
 
     # ---- credits ----------------------------------------------------------
     def credits(self) -> dict:

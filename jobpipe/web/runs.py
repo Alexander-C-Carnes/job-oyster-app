@@ -367,6 +367,23 @@ class RunManager:
             with closing(self._db()) as con, con:
                 con.execute("UPDATE runs SET results = ? WHERE id = ?", (json.dumps(results), run.id))
 
+    def rename_jobs(self, moved: dict[str, str]) -> None:
+        """Runs' marks and results name jobs by id: follow jobs that moved to a new one ({old: new}, Store.fix_ids)."""
+        for run in self.runs.values():
+            marks = run.marks if isinstance(run.marks, dict) and moved.keys() & run.marks.keys() else None
+            results = run.results if run.results and any(r.get("id") in moved for r in run.results) else None
+            if marks is None and results is None:
+                continue
+            if marks is not None:
+                run.marks = {moved.get(k, k): v for k, v in marks.items()}
+            if results is not None:
+                run.results = [{**r, "id": moved.get(r.get("id"), r.get("id"))} for r in results]
+            if self.db is not None:
+                with closing(self._db()) as con, con:
+                    con.execute("UPDATE runs SET marks = ?, results = ? WHERE id = ?",
+                                (json.dumps(run.marks) if run.marks is not None else None,
+                                 json.dumps(run.results) if run.results is not None else None, run.id))
+
     def stop(self, run_id: int) -> Run:
         run = self.runs[run_id]
         with self.lock:

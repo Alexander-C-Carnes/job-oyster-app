@@ -17,7 +17,7 @@ import jobspipe
 
 from .config import Config, Search
 from .doh import DoHTransport
-from .store import Store
+from .store import Store, safe_id
 
 
 class BudgetExhausted(RuntimeError):
@@ -115,7 +115,7 @@ class JobsClient:
         limit = min(search.limit, remaining)
         body = search.request_body(limit=limit)
         resp = self._call(search, body)
-        jobs = [j.model_dump() for j in resp.data]
+        jobs = [{**j.model_dump(), "id": safe_id(j.id)} for j in resp.data]
         for job in jobs:
             self.store.save_job(job, search.id)
         return SearchResult(search, jobs=jobs, total_results=resp.metadata.total_results,
