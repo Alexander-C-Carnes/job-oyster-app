@@ -1,6 +1,7 @@
 """Is a posting still open? Roles in Find jobs are found once and otherwise never looked at again, so a role that
 closed after it was found stays in the list. check_closed() asks the posting's page (or its applicant-tracking
-system) and moves closed roles to Dismissed, tagged Closed.
+system) and moves closed roles to Dismissed, tagged Closed. A tracked role you haven't applied to yet (one tracked
+on its own, say) is checked too, but only tagged Closed: its status is yours to set.
 
 A posting you applied to is kept for good, to read again before an interview after the page comes down.
 keep_applied() saves the posting text of every tracked job in an applied stage that doesn't have it yet;
@@ -74,21 +75,27 @@ def is_closed(job: dict, client: httpx.Client) -> Optional[bool]:
         return None
 
 
-def check_closed(jobs_store: Any, *, tracked_ids: Optional[set[str]] = None, limit: int = 200, workers: int = 8,
+def check_closed(jobs_store: Any, *, tracked: Optional[dict[str, str]] = None, limit: int = 200, workers: int = 8,
                  client: Optional[httpx.Client] = None, log: Callable[[str], None] = lambda s: None) -> dict:
-    """Re-check the untracked, undismissed roles in Find jobs that weren't checked in the last RECHECK_HOURS, oldest
-    first. A closed one is dismissed and marked closed_at. Returns counts: checked, closed, unknown."""
-    state = jobs_store.state()
+    """Re-check the roles that weren't checked in the last RECHECK_HOURS, oldest first: the untracked, undismissed
+    ones in Find jobs, and the tracked ones not yet applied to or ruled out and not already found closed.
+    `tracked`: stored job id -> its tracker status. A closed role is marked closed_at, and dismissed if it isn't
+    tracked. Returns counts: checked, closed, unknown."""
+    state, tracked = jobs_store.state(), tracked or {}
     since = (datetime.now(timezone.utc) - timedelta(hours=RECHECK_HOURS)).isoformat(timespec="seconds")
-    todo = [jid for jid, st in state.items() if not st.get("dismissed") and jid not in (tracked_ids or set())
-            and (st.get("posting_checked") or "") < since]
+
+    def due(jid: str, st: dict) -> bool:
+        if jid in tracked:
+            return tracked[jid] not in (*APPLIED_STATUSES, "Not Applying") and not st.get("closed_at")
+        return not st.get("dismissed")
+    todo = [jid for jid, st in state.items() if due(jid, st) and (st.get("posting_checked") or "") < since]
     todo.sort(key=lambda j: state[j].get("posting_checked") or state[j].get("first_seen") or "")
     todo = todo[:limit]
     counts = {"checked": 0, "closed": 0, "unknown": 0}
     if not todo:
-        log("Postings: every role in Find jobs was checked recently")
+        log("Postings: every role was checked recently")
         return counts
-    log(f"Postings: checking whether {len(todo)} role(s) in Find jobs are still open")
+    log(f"Postings: checking whether {len(todo)} role(s) are still open")
     c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
 
     def one(jid: str) -> tuple[str, Optional[bool]]:
@@ -105,8 +112,12 @@ def check_closed(jobs_store: Any, *, tracked_ids: Optional[set[str]] = None, lim
             if closed:
                 counts["closed"] += 1
                 job = jobs_store.job(jid)
-                jobs_store.update(jid, posting_checked=now_iso(), dismissed=True, closed_at=now_iso())
-                log(f"  closed: {job.get('job_title')} @ {job.get('company')}")
+                if jid in tracked:
+                    jobs_store.update(jid, posting_checked=now_iso(), closed_at=now_iso())
+                    log(f"  closed: {job.get('job_title')} @ {job.get('company')} (in your tracker as {tracked[jid] or 'no status'})")
+                else:
+                    jobs_store.update(jid, posting_checked=now_iso(), dismissed=True, closed_at=now_iso())
+                    log(f"  closed: {job.get('job_title')} @ {job.get('company')}")
             else:
                 jobs_store.update(jid, posting_checked=now_iso())
     log(f"Postings: {counts['closed']} closed of {counts['checked']} checked"

@@ -12,7 +12,7 @@
   startups list        Stored startups, newest raise first (--stage "Series B", --hiring, --days N)
   startups roles ID    A startup's open roles from its careers board; --add stores the matching ones as jobs
   startups enrich ID   Look up a startup's latest round (needs FUNDABLE_API_KEY or PDL_API_KEY)
-  check-postings       Re-check that the roles in Find jobs are still open; closed ones go to Dismissed
+  check-postings       Re-check that roles are still open; closed ones in Find jobs go to Dismissed, tracked ones are tagged Closed
   credits              JobsPipe credit ledger
   serve                Local web app (job board, searches, runs, résumé review and edits)
   show-request         Print the request body each saved search would send (free)
@@ -190,7 +190,7 @@ def cmd_startups(cfg, args):
     exclude = cfg.startups.roles_exclude_titles
     if args.what == "refresh":
         new, upd = su.refresh(cfg.startups, store, keys, log=print, days=args.days, phrases=cfg.title_phrases,
-                              searches=cfg.searches, jobs_store=Store(), tracked_ids=_tracked_ids())
+                              searches=cfg.searches, jobs_store=Store(), tracked=_tracked())
         print(f"Startups: {new} new, {upd} seen again; {len(store.read())} stored in {store.path}")
         if cfg.startups.roles_signal_score and cfg.startups.roles_score_per_refresh:
             asyncio.run(su.score_startup_roles(cfg, Store(), limit=cfg.startups.roles_score_per_refresh, log=print))
@@ -249,21 +249,21 @@ def cmd_startups(cfg, args):
             print(f"Added {n} matching role(s) to Find jobs.")
 
 
-def _tracked_ids() -> set[str]:
-    """The stored jobs that are in the tracker (a closed posting there is yours to mark, not the app's)."""
+def _tracked() -> dict[str, str]:
+    """Stored job id -> tracker status, for the jobs in the tracker (a closed posting there is tagged, not dismissed)."""
     import sqlite3
     from contextlib import closing
     path = config.DATA / "tracker.db"
     if not path.exists():
-        return set()
+        return {}
     with closing(sqlite3.connect(path)) as con:
-        return {r[0] for r in con.execute("SELECT job_id FROM tracker WHERE job_id IS NOT NULL")}
+        return {r[0]: r[1] for r in con.execute("SELECT job_id, status FROM tracker WHERE job_id IS NOT NULL")}
 
 
 def cmd_check_postings(cfg, args):
     from .postings import check_closed
     from .store import Store
-    check_closed(Store(), tracked_ids=_tracked_ids(), limit=args.limit, log=print)
+    check_closed(Store(), tracked=_tracked(), limit=args.limit, log=print)
 
 
 class _NoLLM:
@@ -323,7 +323,7 @@ def main(argv=None) -> None:
     sub.add_parser("jobs").set_defaults(fn=cmd_jobs)
     sub.add_parser("credits").set_defaults(fn=cmd_credits)
 
-    p = sub.add_parser("check-postings", help="move roles in Find jobs whose posting has closed to Dismissed")
+    p = sub.add_parser("check-postings", help="move roles in Find jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
     p.add_argument("--limit", type=int, default=200)
     p.set_defaults(fn=cmd_check_postings)
 

@@ -164,7 +164,8 @@ startups:
   # While the app is open, refresh the sources on its own this often (hours). 0 = only when you click.
   auto_refresh_hours: 24
   # Each refresh also re-checks that the roles in Find jobs are still open (their page, or their applicant-tracking
-  # system); a closed one moves to Dismissed, tagged Closed. `python -m jobpipe check-postings` does it alone.
+  # system); a closed one moves to Dismissed, tagged Closed. Tracked roles not yet applied to are checked too and only
+  # tagged Closed (their status stays yours to set). `python -m jobpipe check-postings` does it alone.
   check_postings: true
   enrich:
     # On each refresh, look up the round of up to N startups whose round is still unknown (newest first).

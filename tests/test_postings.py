@@ -1,4 +1,4 @@
-"""Closed postings: found once, re-checked later, moved to Dismissed when they've closed."""
+"""Closed postings: found once, re-checked later, moved to Dismissed (or tagged, if tracked) when they've closed."""
 import json
 
 import httpx
@@ -48,21 +48,35 @@ def test_is_closed_per_site():
     assert closed("") is None
 
 
-def test_check_closed_dismisses_closed_roles_and_leaves_tracked_ones(tmp_dirs):
+def test_check_closed_dismisses_closed_roles_and_tags_tracked_ones(tmp_dirs):
     store = Store()
-    for jid, url in (("a", "https://www.linkedin.com/jobs/view/4000000002"), ("b", "https://open.example/jobs/1"),
-                     ("c", "https://flaky.example/jobs/1"), ("t", "https://www.linkedin.com/jobs/view/4000000002")):
+    gone = "https://www.linkedin.com/jobs/view/4000000002"
+    for jid, url in (("a", gone), ("b", "https://open.example/jobs/1"), ("c", "https://flaky.example/jobs/1"),
+                     ("t", gone), ("u", "https://open.example/jobs/2"), ("p", gone), ("n", gone)):
         store.save_job({"id": jid, "job_title": "EM", "company": jid.upper(), "url": url, "description": "x" * 700}, "s")
     c = httpx.Client(transport=httpx.MockTransport(FakeSites()))
     lines = []
-    counts = postings.check_closed(store, tracked_ids={"t"}, client=c, log=lines.append)
-    assert counts == {"checked": 3, "closed": 1, "unknown": 1}
+    tracked = {"t": "Not started", "u": "In progress", "p": "Applied", "n": "Not Applying"}
+    counts = postings.check_closed(store, tracked=tracked, client=c, log=lines.append)
+    assert counts == {"checked": 5, "closed": 2, "unknown": 1}
     st = store.state()
-    assert st["a"]["dismissed"] and st["a"]["closed_at"] and not st["b"].get("dismissed") and "closed_at" not in st["t"]
-    assert all(st[j].get("posting_checked") for j in "abc") and not st["t"].get("posting_checked")
-    assert any("closed: EM @ A" in l for l in lines)
+    assert st["a"]["dismissed"] and st["a"]["closed_at"] and not st["b"].get("dismissed")
+    # tracked and not yet applied to: tagged Closed, never dismissed (its status is yours to set)
+    assert st["t"]["closed_at"] and not st["t"].get("dismissed") and "closed_at" not in st["u"]
+    # applied to or ruled out: left alone
+    assert not any(st[j].get("posting_checked") or st[j].get("closed_at") for j in "pn")
+    assert any("closed: EM @ A" in l for l in lines) and any("closed: EM @ T (in your tracker as Not started)" in l for l in lines)
     # checked recently: nothing to do again
-    assert postings.check_closed(store, tracked_ids={"t"}, client=c, log=lines.append)["checked"] == 0
+    assert postings.check_closed(store, tracked=tracked, client=c, log=lines.append)["checked"] == 0
+
+
+def test_a_tracked_role_found_closed_is_not_checked_again(tmp_dirs):
+    store = Store()
+    store.save_job({"id": "t", "job_title": "EM", "company": "T", "url": "https://www.linkedin.com/jobs/view/4000000002",
+                    "description": "x" * 700}, "s")
+    store.update("t", closed_at="2026-10-06T10:00:00+00:00", posting_checked="2026-10-01T10:00:00+00:00")
+    c = httpx.Client(transport=httpx.MockTransport(FakeSites()))
+    assert postings.check_closed(store, tracked={"t": "In progress"}, client=c)["checked"] == 0
 
 
 def test_the_board_tags_closed_roles(tmp_dirs):

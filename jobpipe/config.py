@@ -243,7 +243,7 @@ class StartupsCfg:
     roles_signal_score: bool = False                 # score new startup roles against the impact record each refresh
     roles_score_per_refresh: int = 30                # at most this many scores (Claude calls) a refresh
     roles_track_min_fit: Optional[int] = None        # a startup role scoring this or more goes to the tracker; None = notion.log_triaged_min_fit
-    check_postings: bool = True                      # each refresh re-checks Find jobs' roles are still open
+    check_postings: bool = True                      # each refresh re-checks roles not yet applied to are still open
     auto_refresh_hours: float = 24                   # the app refreshes the sources on its own this often; 0 = never
 
 

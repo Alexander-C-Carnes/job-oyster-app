@@ -1216,7 +1216,7 @@ def since_date(days: int) -> str:
 
 def refresh(cfg: Any, store: StartupStore, keys: Optional[dict[str, str]] = None, *, log: Callable[[str], None] = print,
             days: Optional[int] = None, client: Optional[httpx.Client] = None, phrases: Optional[list[str]] = None,
-            searches: Optional[list] = None, jobs_store: Any = None, tracked_ids: Optional[set[str]] = None) -> tuple[int, int]:
+            searches: Optional[list] = None, jobs_store: Any = None, tracked: Optional[dict[str, str]] = None) -> tuple[int, int]:
     """Read the funding feeds, the YC directory and the VC portfolio boards into the store. `cfg` is the StartupsCfg
     from searches.yaml; `phrases` are the filters' title phrases (what counts as a matching role on a VC board).
     Returns (new startups, startups seen again). With a lookup key and enrich_per_refresh > 0, also looks up
@@ -1263,7 +1263,7 @@ def refresh(cfg: Any, store: StartupStore, keys: Optional[dict[str, str]] = None
                     exclude=exclude)
     if jobs_store is not None and getattr(cfg, "check_postings", True):
         from .postings import check_closed
-        check_closed(jobs_store, tracked_ids=tracked_ids, client=client, log=log)
+        check_closed(jobs_store, tracked=tracked, client=client, log=log)
     return new, upd
 
 
