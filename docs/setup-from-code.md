@@ -5,7 +5,7 @@ Most people should [download the Mac app](https://github.com/Alexander-C-Carnes/
 ## 1. What you need
 
 - **A Mac** (the scripts are written for macOS; Linux may work) with **Python 3.10+** and **git**.
-- **An AI to do the work.** The default, and the one the app is tuned on, is **Claude through a Pro or Max subscription** with the **Claude Code CLI** ([install guide](https://docs.claude.com/en/docs/claude-code/setup)): run `claude` once and sign in with `/login`, and calls count toward your plan's usage limits instead of costing anything per call. You can use ChatGPT, Gemini, OpenRouter or a free model on your own Mac (Ollama, LM Studio) instead: see [Which AI does the work](choosing-an-ai.md).
+- **An AI to do the work.** The default, and the one the app is tuned on, is **Claude through a Pro or Max subscription** with the **Claude Code CLI** ([install guide](https://docs.claude.com/en/docs/claude-code/setup)): run `claude` once and sign in with `/login`, and calls count toward your plan's usage limits instead of costing anything per call. You can use ChatGPT, Gemini, Kimi, OpenRouter or a free model on your own Mac (Ollama, LM Studio) instead: see [Which AI does the work](choosing-an-ai.md).
 - **A JobsPipe account** from [jobspipe.dev](https://jobspipe.dev). The free plan gives 1,000 credits once; one credit buys one job.
 - **Notion** (optional): a workspace where you can add an integration. Without it the tracker still works, on your Mac only.
 

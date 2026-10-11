@@ -1,5 +1,5 @@
 """Run one resume-job-fit agent through an AI model: Claude (Claude Code or the API), or any
-provider with an OpenAI-compatible chat API (OpenAI, Gemini, OpenRouter, Ollama, LM Studio).
+provider with an OpenAI-compatible chat API (OpenAI, Gemini, Kimi, OpenRouter, Ollama, LM Studio).
 
 Each agent brief from skill/agents/ was written for a sub-agent that reads and writes
 files in a run folder. Here the orchestrator passes the files inline as named
@@ -325,6 +325,7 @@ class Provider:
     key_env: str                     # the .env key holding its API key ("" = none needed)
     local: bool = False              # runs on this Mac
     signup: str = ""                 # where to get a key, or the app
+    efforts: Optional[dict] = None   # the app's effort -> the provider's reasoning_effort (None: EFFORTS)
 
 
 # models.backend values besides claude-code and api, each an OpenAI-compatible chat API.
@@ -333,6 +334,10 @@ PROVIDERS = {
                        signup="https://platform.openai.com/api-keys"),
     "gemini": Provider("Gemini (Google AI API)", "https://generativelanguage.googleapis.com/v1beta/openai",
                        "GEMINI_API_KEY", signup="https://aistudio.google.com/apikey"),
+    # Kimi K3 takes reasoning_effort low, high or max (no medium); older Kimi models reject it and get no effort.
+    "kimi": Provider("Kimi (Moonshot AI API)", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY",
+                     signup="https://platform.kimi.ai/console/api-keys",
+                     efforts={"low": "low", "medium": "high", "high": "max"}),
     "openrouter": Provider("OpenRouter (many models)", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
                            signup="https://openrouter.ai/keys"),
     "ollama": Provider("Ollama (on this Mac)", "http://localhost:11434/v1", "", local=True, signup="https://ollama.com"),
@@ -345,6 +350,9 @@ OLDER_CLAUDE = ("claude-haiku-4-5",)
 BACKEND_LABELS = {"claude-code": "Claude (your subscription)", "api": "Claude API",
                   **{k: p.label for k, p in PROVIDERS.items()}}
 EFFORTS = {"low": "low", "medium": "medium", "high": "high"}   # anything else (max, xhigh) asks for high
+# Models a provider lists that can't write text (embeddings, speech, images, video): left out of the settings form.
+NOT_CHAT = re.compile(r"embed|tts|whisper|transcribe|dall-e|image|imagen|veo|audio|realtime|moderation|aqa|"
+                      r"babbage|davinci", re.I)
 
 
 def system_text(candidate: bool) -> str:
@@ -430,7 +438,8 @@ class OpenAICompatRunner(_RetryingRunner):
                                                         {"role": "user", "content": user}]}
         async with self.sem:
             if self.send_effort and call.model.effort:
-                r = await self._post("/chat/completions", {**body, "reasoning_effort": EFFORTS.get(call.model.effort, "high")})
+                efforts = PROVIDERS[self.provider].efforts or EFFORTS
+                r = await self._post("/chat/completions", {**body, "reasoning_effort": efforts.get(call.model.effort, "high")})
                 if r.status_code == 400 and re.search(r"reasoning|effort|unsupported|unrecognized|unknown", r.text, re.I):
                     self.send_effort = False
                     r = await self._post("/chat/completions", body)
@@ -471,7 +480,7 @@ class OpenAICompatRunner(_RetryingRunner):
             raise self._unreachable(e) from None
         if r.status_code >= 400:
             raise self._error("models", r)
-        return sorted(m["id"] for m in r.json().get("data", []) if m.get("id"))
+        return sorted(m["id"] for m in r.json().get("data", []) if m.get("id") and not NOT_CHAT.search(m["id"]))
 
 
 def parse_output(text: str, usage: Optional[dict] = None) -> AgentResult:

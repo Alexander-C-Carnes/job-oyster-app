@@ -279,7 +279,7 @@ class Config:
     rescore_model: ModelCfg = field(default_factory=lambda: ModelCfg(model=LIVE_SCORE_MODEL, effort="medium"))
     fallbacks: bool = True
     # Which AI does the work: "claude-code" (Claude subscription), "api" (Claude API credits), or an
-    # OpenAI-compatible provider from llm.PROVIDERS (openai, gemini, openrouter, ollama, lmstudio,
+    # OpenAI-compatible provider from llm.PROVIDERS (openai, gemini, kimi, openrouter, ollama, lmstudio,
     # openai-compatible). base_url and api_key_env override a provider's address and key variable.
     backend: str = "claude-code"
     claude_bin: Optional[str] = None

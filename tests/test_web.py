@@ -1672,6 +1672,11 @@ def test_ai_settings(env, monkeypatch):
     assert c.get("/api/summary", headers=H).json()["backend_label"] == "ChatGPT (OpenAI API)"
     a = c.put("/api/ai", headers=H, json={"backend": "ollama", "base_url": "http://127.0.0.1:11434/v1", "stages": stages}).json()
     assert a["base_url"] == "http://127.0.0.1:11434/v1" and "OPENAI_API_KEY=sk-new" in (config.PROFILE / ".env").read_text()
+    # each AI's picks are remembered, so switching back to one restores them (Claude's from before the first switch too)
+    assert a["saved"]["openai"]["stages"]["writer"] == {"model": "gpt-x", "effort": "medium"}
+    assert a["saved"]["claude-code"]["stages"]["writer"] == {"model": "claude-opus-5-5", "effort": "high"}
+    assert a["saved"]["ollama"]["base_url"] == "http://127.0.0.1:11434/v1"
+    assert any(p["id"] == "kimi" and p["key_env"] == "MOONSHOT_API_KEY" for p in a["providers"])
 
 
 def test_claude_sign_in_helper(env, monkeypatch):

@@ -1,4 +1,4 @@
-"""OpenAICompatRunner (OpenAI, Gemini, OpenRouter, Ollama, LM Studio...) against a mocked chat API (no network)."""
+"""OpenAICompatRunner (OpenAI, Gemini, Kimi, OpenRouter, Ollama, LM Studio...) against a mocked chat API (no network)."""
 import asyncio
 import json
 
@@ -26,14 +26,14 @@ def reply(text=OK, finish="stop", prompt_tokens=None, cached=0, refusal=None, st
     return make
 
 
-def runner_with(replies, provider="openai", **kw):
+def runner_with(replies, provider="openai", models=("gpt-b", "gpt-a"), **kw):
     seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else {}
         seen.append((request, body))
         if request.url.path.endswith("/models"):
-            return httpx.Response(200, json={"data": [{"id": "gpt-b"}, {"id": "gpt-a"}]})
+            return httpx.Response(200, json={"data": [{"id": m} for m in models]})
         return replies[min(len(seen) - 1, len(replies) - 1)](body)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -49,6 +49,7 @@ def call(**kw):
 def keys(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    monkeypatch.setenv("MOONSHOT_API_KEY", "m-key")
 
 
 def test_request_shape_and_parsing():
@@ -64,6 +65,15 @@ def test_request_shape_and_parsing():
     assert user["role"] == "user" and "posting" in user["content"] and "Expected output files" in user["content"]
     u = runner.usage_log[0]
     assert u["cache_read"] == 30 and u["output"] == 20 and u["label"] == "04-matcher"
+
+
+def test_kimi_address_key_and_effort():
+    runner, seen = runner_with([reply()], provider="kimi")
+    asyncio.run(runner.run(call(model=ModelCfg("kimi-k3", "medium"), candidate=False)))
+    req, body = seen[0]
+    assert str(req.url) == "https://api.moonshot.ai/v1/chat/completions"
+    assert req.headers["authorization"] == "Bearer m-key"
+    assert body["reasoning_effort"] == "high"                  # Kimi has no medium: low, high or max
 
 
 def test_effort_is_dropped_when_the_model_rejects_it():
@@ -123,6 +133,9 @@ def test_unreachable_local_server():
 def test_model_list_and_make_runner(tmp_path):
     runner, _ = runner_with([reply()])
     assert asyncio.run(runner.models()) == ["gpt-a", "gpt-b"]
+    listed = ["gpt-c", "text-embedding-3-small", "tts-1", "whisper-1", "dall-e-3", "gpt-image-1", "gemini-x-embedding"]
+    runner, _ = runner_with([reply()], models=listed)
+    assert asyncio.run(runner.models()) == ["gpt-c"]           # only models that write text
     p = tmp_path / "searches.yaml"
     p.write_text("models:\n  backend: gemini\n  writer: {model: gemini-x, effort: high}\n")
     cfg = config.load(p)

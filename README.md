@@ -40,7 +40,7 @@ These links always get the newest version. To read what changed, see the [latest
 
 All of this happens inside the app.
 
-1. **Connect an AI.** Click the round person button at the top right to open **Profile**, then go to **AI**. If you have a Claude Pro or Max plan, click **Sign in to Claude…** and nothing costs extra. (If it says Claude Code isn't installed, install the [Claude app](https://claude.ai/download) first.) You can also [use ChatGPT, Gemini or a free local model](docs/choosing-an-ai.md).
+1. **Connect an AI.** Click the round person button at the top right to open **Profile**, then go to **AI**. If you have a Claude Pro or Max plan, click **Sign in to Claude…** and nothing costs extra. (If it says Claude Code isn't installed, install the [Claude app](https://claude.ai/download) first.) You can also [use ChatGPT, Gemini, Kimi or a free local model](docs/choosing-an-ai.md), and switch between them.
 2. **Say who you are.** On the same **Profile** tab, fill in your name and contact line, and add your résumé with **Add a résumé** (a PDF, Word file or text).
 3. **Write your impact record.** This is the step that matters most. In the **Impact record** tab, replace Jordan's with your own: every role or big project, what you did, and what changed because of it, with numbers wherever you have them. The app can only use what's written here. [Here's what makes a good one.](docs/your-evidence.md)
 4. **Start finding jobs.** Get a [JobsPipe](https://jobspipe.dev) key (the free plan gives you 1,000 jobs to start), paste it under **Profile → Other keys**, and set up your searches in the **Filters** tab. Even without a key you can add jobs by pasting their link, and browse the **Startups** tab.
@@ -80,7 +80,7 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 |---|---|
 | [Your evidence](docs/your-evidence.md) | How to write your impact record and add your résumés |
 | [Using the app](docs/using-the-app.md) | Every tab and button, the tracker and Notion sync |
-| [Which AI does the work](docs/choosing-an-ai.md) | Claude, ChatGPT, Gemini, OpenRouter or a local model, and what changes |
+| [Which AI does the work](docs/choosing-an-ai.md) | Claude, ChatGPT, Gemini, Kimi, OpenRouter or a local model, and what changes |
 | [How it works](docs/how-it-works.md) | The scoring and résumé pipeline, the honesty checks, where files live |
 | [Run it from the code](docs/setup-from-code.md) | Setup with git and Python, Notion, searches, keeping it updated |
 | [Reference](docs/reference.md) | Command line, searches, startup sources, JobsPipe credits, tests |

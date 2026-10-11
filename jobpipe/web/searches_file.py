@@ -237,7 +237,20 @@ def load_models(path: Path) -> dict:
     backend = str(m.get("backend") or "claude-code")
     if not m.get("rescore"):            # a profile from before live scores
         stages["rescore"] = config.rescore_default(backend, stages["triage"])
-    return {"backend": backend, "base_url": str(m.get("base_url") or ""), "stages": stages}
+    saved = {}                          # each provider's last saved picks, restored when you switch back to it
+    for b, picks in (m.get("saved") or {}).items():
+        if isinstance(picks, dict):
+            saved[str(b)] = {"base_url": str(picks.get("base_url") or ""),
+                             "stages": {s: {"model": str((picks.get(s) or {}).get("model") or ""),
+                                            "effort": str((picks.get(s) or {}).get("effort") or "")}
+                                        for s in MODEL_STAGES if picks.get(s)}}
+    return {"backend": backend, "base_url": str(m.get("base_url") or ""), "stages": stages, "saved": saved}
+
+
+def _flow(model: str, effort: str) -> CommentedMap:
+    cur = CommentedMap(model=model, effort=effort)
+    cur.fa.set_flow_style()
+    return cur
 
 
 def save_models(path: Path, backend: str, base_url: str, stages: dict) -> None:
@@ -246,6 +259,7 @@ def save_models(path: Path, backend: str, base_url: str, stages: dict) -> None:
     m = doc.get("models")
     if m is None:
         m = doc["models"] = CommentedMap()
+    before = load_models(path)            # the AI being switched away from, kept below if it isn't yet
     m["backend"] = backend
     if base_url:
         m["base_url"] = base_url
@@ -258,6 +272,23 @@ def save_models(path: Path, backend: str, base_url: str, stages: dict) -> None:
             cur.fa.set_flow_style()
             m[s] = cur
         cur["model"], cur["effort"] = stages[s]["model"], stages[s]["effort"]
+    # Remember this provider's picks too, so switching to another AI and back doesn't lose them.
+    saved = m.get("saved")
+    if not isinstance(saved, CommentedMap):
+        saved = m["saved"] = CommentedMap()
+        m.yaml_set_comment_before_after_key("saved", before="Each AI's last picks, so switching back to it restores them.",
+                                            indent=2)
+    def remember(b: str, url: str, chosen: dict) -> None:
+        picks = CommentedMap()
+        if url:
+            picks["base_url"] = url
+        for s in MODEL_STAGES:
+            if chosen.get(s, {}).get("model"):
+                picks[s] = _flow(chosen[s]["model"], chosen[s]["effort"] or "medium")
+        saved[b] = picks
+    if before["backend"] != backend and before["backend"] not in saved:
+        remember(before["backend"], before["base_url"], before["stages"])
+    remember(backend, base_url, stages)
     tmp = path.with_suffix(".yaml.tmp")
     with tmp.open("w") as f:
         _yaml().dump(doc, f)

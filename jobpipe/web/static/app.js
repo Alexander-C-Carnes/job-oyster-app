@@ -3192,6 +3192,7 @@ const AI_NOTES = {
   api: "Pays per call with a Claude API key (console.anthropic.com).",
   openai: "Pays per call with an OpenAI API key. A ChatGPT subscription doesn't include API use.",
   gemini: "Uses a Google AI Studio key, paid per call. Check Google's page for any free allowance.",
+  kimi: "Moonshot AI's Kimi models, paid per call with a key from the international Kimi platform (a key from the China platform, moonshot.cn, won't work here).",
   openrouter: "One key for models from many companies, paid per call; a few models are free.",
   ollama: "Free, on this Mac. Install Ollama, download a model, and give it a large context window (OLLAMA_CONTEXT_LENGTH=65536): each step reads your whole impact record and every résumé. Small models give weak results.",
   lmstudio: "Free, on this Mac. Start LM Studio's server and load a model with a context length of 64k or more: each step reads your whole impact record and every résumé. Small models give weak results.",
@@ -3256,7 +3257,14 @@ function aiProviderShown(changed) {
   $("#ai-note").replaceChildren(AI_NOTES[b] || "", p.signup ? " " : "", p.signup ? extLink(p.signup, "Get started") : "");
   $("#ai-claude").classList.toggle("hidden", b !== "claude-code");
   if (b === "claude-code") claudeStatus();
-  if (changed) {                                      // a different family of models: the old names won't work
+  const saved = changed && AI.data.saved?.[b];
+  if (saved) {                                        // this AI was used before: put back what was picked for it
+    for (const [s] of AI_STAGES) if (saved.stages[s]) {
+      $(`#ai-model-${s}`).value = saved.stages[s].model;
+      $(`#ai-effort-${s}`).value = saved.stages[s].effort || "medium";
+    }
+    aField("base_url").value = saved.base_url;
+  } else if (changed) {                               // a different family of models: the old names won't work
     const wasClaude = isClaude(AI.lastBackend ?? AI.data.backend);
     if (isClaude(b) !== wasClaude || !isClaude(b)) for (const [s] of AI_STAGES) {
       const small = s === "rescore" && AI.data.claude_models.find((m) => m.includes("sonnet"));
