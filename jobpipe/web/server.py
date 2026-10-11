@@ -91,6 +91,11 @@ def loosen_lists(text: str) -> str:
     return "\n".join(out)
 
 
+def short_label(backend: str) -> str:
+    """An AI's name without the detail in brackets: "Kimi" for "Kimi (Moonshot AI API)"."""
+    return BACKEND_LABELS.get(backend, backend).split(" (")[0]
+
+
 def md_html(text: str) -> str:
     """Markdown to HTML with raw HTML escaped (reports and change notes quote posting text)."""
     text = text.replace("&", "&amp;").replace("<", "&lt;")
@@ -172,7 +177,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     prep_path = prep_path or store.root / "interview-prep.md"   # personal notes, in the profile's data/
     allowed = allowed_hosts or {"127.0.0.1", "localhost"}
     app = FastAPI(title="jobpipe", docs_url=None, redoc_url=None, openapi_url=None)
-    state: dict[str, Any] = {"runner": None, "edit_locks": {}, "reports": {}, "chatting": set()}
+    state: dict[str, Any] = {"runner": None, "edit_locks": {}, "reports": {}, "chatting": set(),
+                             "chat_runners": {}, "model_lists": {}}
     # The tracker lives in data/tracker.db. Given a NotionTracker (or none), it is wrapped here; the first
     # run starts from the last Notion snapshot the app saved, so nothing tracked is lost in the move.
     local = tracker if isinstance(tracker, LocalTracker) else LocalTracker(
@@ -199,6 +205,30 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             from ..pipeline import make_runner
             state["runner"], state["runner_sig"] = (runner_factory or make_runner)(cfg), sig
         return state["runner"]
+
+    def chat_ai(backend: str, model: str) -> tuple[Runner, ModelCfg, str]:
+        """The runner and model for one chat message, which may use another AI than the Profile's: any
+        provider set up on the Profile tab. Returns (runner, model, the label the reply is tagged with)."""
+        writer = cfg.writer_model
+        backend, model = backend or cfg.backend, model or writer.model
+        if backend not in BACKEND_LABELS:
+            raise HTTPException(400, "Choose an AI for the chat.")
+        if not searches_file.MODEL_ID.fullmatch(model):
+            raise HTTPException(400, "That model name can't be used.")
+        via = f"{short_label(backend)} · {model}"
+        if backend == cfg.backend:
+            return get_runner(), ModelCfg(model, writer.effort), via
+        base_url = (searches_file.load_models(searches_path)["saved"].get(backend) or {}).get("base_url") or None
+        sig = (backend, base_url, materials()[1])
+        if state["chat_runners"].get(backend, (None,))[0] != sig:
+            from dataclasses import replace
+            from ..pipeline import make_runner
+            try:
+                r = (runner_factory or make_runner)(replace(cfg, backend=backend, base_url=base_url))
+            except (RuntimeError, ValueError) as e:
+                raise HTTPException(400, str(e)) from None
+            state["chat_runners"][backend] = (sig, r)
+        return state["chat_runners"][backend][1], ModelCfg(model, writer.effort), via
 
     # ---- security ----------------------------------------------------------------
     @app.middleware("http")
@@ -913,14 +943,18 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 fid = str(body.get("format") or "")
                 if fid and not formats.known(fid):
                     raise EditError(f"Unknown résumé format: {fid}")
-                r = await ws.propose(body.get("instruction", ""), get_runner(), cfg, fmt=fid or None)
+                chat_runner, model, via = chat_ai(str(body.get("backend") or ""), str(body.get("model") or ""))
+                r = await ws.propose(body.get("instruction", ""), get_runner(), cfg, fmt=fid or None,
+                                     chat=(chat_runner, model, via))
                 p = r["proposal"]
                 return {"reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
                         "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
+            except HTTPException:
+                raise
             except EditError as e:
                 raise HTTPException(400, str(e)) from None
             except Exception as e:  # noqa: BLE001 - surface Claude/CLI failures to the UI
-                raise HTTPException(502, f"Claude couldn't answer: {e}") from None
+                raise HTTPException(502, f"The AI couldn't answer: {e}") from None
             finally:
                 state["chatting"].discard(jid)
 
@@ -1480,6 +1514,45 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         script.chmod(0o700)
         subprocess.run(["open", "-a", "Terminal", str(script)], check=False)
         return {"opened": True}
+
+    @app.get("/api/ai/chat-models")
+    async def chat_models():
+        """Every AI set up on the Profile tab, with its models, for the résumé chat's model menu. The Profile's
+        writing model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
+        reached, the models picked for it on the Profile tab are offered."""
+        saved = searches_file.load_models(searches_path)["saved"]
+        usable = ["claude-code"] + (["api"] if os.environ.get("ANTHROPIC_API_KEY") else [])
+        for b, p in PROVIDERS.items():
+            if b == cfg.backend or b in saved and (p.local or b == "openai-compatible") \
+                    or p.key_env and os.environ.get(cfg.api_key_env if b == cfg.backend and cfg.api_key_env else p.key_env):
+                usable.append(b)
+        if cfg.backend not in usable:
+            usable.append(cfg.backend)
+
+        async def listed(b: str) -> list[str]:
+            if b in ("claude-code", "api"):
+                return CLAUDE_MODELS
+            hit = state["model_lists"].get(b)
+            if hit and time.time() - hit[0] < 600:
+                return hit[1]
+            url = cfg.base_url if b == cfg.backend else (saved.get(b) or {}).get("base_url") or None
+            try:
+                found = await OpenAICompatRunner(provider=b, base_url=url, timeout_s=10, retry_wait=0.5).models()
+            except (RuntimeError, AgentError, httpx.HTTPError):
+                found = []
+            state["model_lists"][b] = (time.time(), found)
+            return found
+
+        lists = await asyncio.gather(*(listed(b) for b in usable))
+        groups = []
+        for b, found in zip(usable, lists):
+            picks = [st["model"] for st in (saved.get(b) or {}).get("stages", {}).values()]
+            if b == cfg.backend:
+                picks.insert(0, cfg.writer_model.model)
+            models = list(dict.fromkeys(m for m in [*picks, *found] if m))
+            if models:
+                groups.append({"backend": b, "label": BACKEND_LABELS[b], "short": short_label(b), "models": models})
+        return {"default": {"backend": cfg.backend, "model": cfg.writer_model.model}, "groups": groups}
 
     @app.post("/api/ai/models")
     async def ai_models(body: dict):

@@ -1728,6 +1728,38 @@ function formatNote(d, r, trim) {
   box.append(h("span", { class: "grow" }, `Drawn in ${f.name}. Your résumé format is ${def.name}.`), use, later);
   return box;
 }
+// The résumé chat's model menu: every AI set up on the Profile tab, with the Profile's writing model as the
+// default. Your pick is remembered in this browser; picking the default again follows the Profile.
+let CHAT_MODELS = null;     // a promise of /api/ai/chat-models, asked for again after the AI settings are saved
+const chatModels = () => (CHAT_MODELS ||= api("/api/ai/chat-models").catch((e) => { CHAT_MODELS = null; throw e; }));
+function chatChoice(v) {
+  try {
+    if (v === undefined) return localStorage.getItem("chat-model") || "";
+    v ? localStorage.setItem("chat-model", v) : localStorage.removeItem("chat-model");
+  } catch { return ""; }
+}
+function chatModelMenu() {
+  const sel = h("select", { class: "chat-model", "aria-label": "Model for this chat", title: "Which AI answers in this chat" },
+    h("option", { value: "" }, "Loading models…"));
+  chatModels().then((d) => {
+    const def = `${d.default.backend}|${d.default.model}`, want = chatChoice();
+    const all = d.groups.flatMap((g) => g.models.map((m) => `${g.backend}|${m}`));
+    const pick = all.includes(want) ? want : def;
+    sel.replaceChildren(...d.groups.map((g) => h("optgroup", { label: g.label }, ...g.models.map((m) => {
+      const v = `${g.backend}|${m}`;
+      return h("option", { value: v, selected: v === pick }, `${g.short} · ${m}${v === def ? " (default)" : ""}`);
+    }))));
+    sel.dataset.default = def;
+  }).catch(() => sel.replaceChildren(h("option", { value: "" }, "The Profile's model")));
+  sel.addEventListener("change", () => chatChoice(sel.value === sel.dataset.default ? "" : sel.value));
+  return sel;
+}
+const chatModelOf = (sel) => {
+  const [backend, ...model] = sel.value.split("|");
+  return backend ? { backend, model: model.join("|") } : {};
+};
+const chatModelName = (sel) => (sel.selectedOptions[0]?.textContent || "").split(" · ")[0] || "The AI";
+
 function renderResume(d, panel) {
   const r = d.resume;
   const id = encodeURIComponent(d.id);
@@ -1748,16 +1780,17 @@ function renderResume(d, panel) {
   // Chat with Claude about this résumé: questions get answers; a change you ask for comes back as a proposal.
   const thread = h("div", { class: "chat-thread", "aria-live": "polite" });
   const chat = CHATS.get(d.id) || chatFromServer(d.id, r.chat, r.chat_busy);
-  const instr = h("textarea", { rows: 2, placeholder: "Ask about this résumé, or tell Claude what to change…" });
+  const instr = h("textarea", { rows: 2, placeholder: "Ask about this résumé, or say what to change…" });
   instr.value = chat.draft;
   instr.addEventListener("input", () => { chat.draft = instr.value; });
   const askBtn = h("button", { class: "primary" }, "Send");
   const newBtn = h("button", { class: "ghost small", title: "Clear this conversation (versions are kept)" }, "New chat");
+  const modelSel = chatModelMenu();
   const askCard = h("div", { class: "card chat" },
-    h("div", { class: "chat-head" }, h("h3", {}, "Chat with Claude"), newBtn),
+    h("div", { class: "chat-head" }, h("h3", {}, "Chat"), modelSel, newBtn),
     thread,
     h("div", { class: "chat-input" }, instr, askBtn),
-    h("p", { class: "muted chat-hint" }, "Enter sends, Shift+Enter adds a line. Claude only changes the résumé when you ask, and you see every change before it's saved."));
+    h("p", { class: "muted chat-hint" }, "Enter sends, Shift+Enter adds a line. The résumé only changes when you ask, and you see every change before it's saved."));
   const proposalBox = h("div");
   const metrics = h("div", { class: "card" }, h("h3", {}, `Current version: v${r.current}`),
     cur?.rating && h("p", { class: "muted" }, spinner(), " Re-rating this edit: ATS shows the new keywords; skills and experience follow in a few seconds."),
@@ -1776,7 +1809,8 @@ function renderResume(d, panel) {
   const bubble = (m) => m.role === "note" ? h("div", { class: "msg note" }, m.text)
     : m.role === "user" ? h("div", { class: "msg me" }, m.text)
     : h("div", { class: "msg claude" }, h("div", { class: "markdown", html: m.html || "" }),
-        m.proposal && h("div", { class: "msg-tag" }, "Proposed an edit"));
+        m.proposal && h("div", { class: "msg-tag" }, "Proposed an edit"),
+        m.via && h("div", { class: "msg-via" }, m.via));
   // Draws the chat from CHATS; this panel's copy replaces any earlier one's, so a reply that comes
   // back after the panel was redrawn lands in the one on screen.
   const paint = () => {
@@ -1785,7 +1819,7 @@ function renderResume(d, panel) {
     thread.replaceChildren(...(chat.msgs.length ? chat.msgs.map(bubble) : [h("div", { class: "msg claude intro" },
       h("p", {}, "Ask me anything about this résumé and the role, or tell me what to change. When you ask for a change I'll propose it, and the PDF shows it before anything is saved."),
       h("div", { class: "starters" }, ...starters.map((q) => h("button", { class: "ghost small", disabled: chat.busy, onclick: () => { instr.value = q; send(); } }, q))))]),
-      chat.busy ? h("div", { class: "msg claude pending" }, spinner(), " Claude is thinking…") : "");
+      chat.busy ? h("div", { class: "msg claude pending" }, spinner(), ` ${chat.thinking || "Claude"} is thinking…`) : "");
     if (near || chat.busy) thread.scrollTop = thread.scrollHeight;
     askBtn.disabled = newBtn.disabled = chat.busy;
     askBtn.title = chat.busy ? "Claude is still answering your last message" : "";
@@ -1805,11 +1839,13 @@ function renderResume(d, panel) {
     const text = instr.value.trim();
     if (!text || chat.busy) { instr.focus(); return; }
     chat.busy = chat.sending = true;
+    chat.thinking = chatModelName(modelSel);
     chat.draft = instr.value = "";
     chat.msgs = [...chat.msgs, { role: "user", text }];
     chat.view.paint();
     try {
-      const res = await post(`/api/jobs/${id}/edit`, { instruction: text, ...(typeof format === "string" ? { format } : {}) });
+      const res = await post(`/api/jobs/${id}/edit`, { instruction: text, ...chatModelOf(modelSel),
+                                                       ...(typeof format === "string" ? { format } : {}) });
       chat.msgs = res.chat;
       chat.busy = chat.sending = false;
       if (res.proposal) {
@@ -3370,6 +3406,7 @@ aForm.addEventListener("submit", async (e) => {
   try {
     const key = aField("key").value.trim(), label = aiProvider(aiState().backend)?.label;
     applyAI(await put("/api/ai", { ...aiState(), key }));
+    CHAT_MODELS = null;                                // the chat's model menu offers the new set-up
     loadSummary();
     toast(`${key ? `${label} key saved. ` : ""}AI settings saved. The next score or résumé uses them; runs already going finish on the AI they started with.`);
   } catch (err) { formError(aForm, err.message); btn.disabled = false; }

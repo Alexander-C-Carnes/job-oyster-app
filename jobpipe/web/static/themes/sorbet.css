@@ -195,6 +195,9 @@ html[data-theme="sorbet"] .tag.warn-tag { background: #FBE9E0; color: #8A3B12; }
 html[data-theme="sorbet"] .tag.round-tag { background: color-mix(in srgb, var(--r) 18%, white); color: var(--ink); }
 html[data-theme="sorbet"] .tag.round-tag b { color: var(--muted); }
 html[data-theme="sorbet"] .ref-chip, html[data-theme="sorbet"] .status-select { border-radius: 999px; }
+html[data-theme="sorbet"] .chat-head .chat-model { border-radius: 999px; padding: 4px 26px 4px 12px; font-weight: 700; color: var(--ink);
+  background-color: color-mix(in srgb, var(--accent) 12%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 35%, var(--edge)); }
+html[data-theme="sorbet"] .msg-via { font-weight: 600; }
 
 /* the board */
 html[data-theme="sorbet"] .board { padding: 10px 20px 14px; }

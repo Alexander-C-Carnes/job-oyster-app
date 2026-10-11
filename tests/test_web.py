@@ -1681,6 +1681,43 @@ def test_ai_settings(env, monkeypatch):
     assert any(p["id"] == "kimi" and p["key_env"] == "MOONSHOT_API_KEY" for p in a["providers"])
 
 
+def test_chat_can_use_another_ai(env, tmp_path, monkeypatch):
+    """The résumé chat's model menu offers every AI set up on the Profile tab, and a message can go to any of them."""
+    from jobpipe import llm
+    from jobpipe.web import searches_file
+    for k in ("OPENAI_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("MOONSHOT_API_KEY", "m-key")
+
+    async def listed(self):
+        return ["kimi-k3", "kimi-k3-fast"]
+    monkeypatch.setattr(llm.OpenAICompatRunner, "models", listed)
+    searches_file.save_models(env["searches"], "kimi", "", {s: {"model": "kimi-k3", "effort": "medium"}
+                                                           for s in searches_file.MODEL_STAGES})
+    built = []
+
+    def factory(cfg):
+        built.append(cfg.backend)
+        return env["runner"]
+    c = TestClient(create_app(env["cfg"], token=TOKEN, store=env["store"], tracker=env["tracker"], runner_factory=factory,
+                              runs=env["runs"], allowed_hosts={"testserver"}, searches_path=env["searches"],
+                              resume_root=tmp_path / "repo", impact_path=env["impact"]))
+    d = c.get("/api/ai/chat-models", headers=H).json()
+    assert d["default"] == {"backend": "claude-code", "model": "claude-opus-5-5"}     # the Profile's writing model
+    groups = {g["backend"]: (g["short"], g["models"]) for g in d["groups"]}
+    assert groups["claude-code"] == ("Claude", llm.CLAUDE_MODELS)
+    assert groups["kimi"] == ("Kimi", ["kimi-k3", "kimi-k3-fast"]) and "openai" not in groups    # no key, not offered
+
+    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Is the summary strong?", "backend": "kimi",
+                                                    "model": "kimi-k3-fast"})
+    assert r.status_code == 200 and "kimi" in built          # the Profile's AI is set up too: it re-rates edits
+    assert env["runner"].calls[-1].model.model == "kimi-k3-fast"
+    assert r.json()["chat"][-1]["via"] == "Kimi · kimi-k3-fast"
+    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "And the skills?"})        # no pick: the Profile's
+    assert r.json()["chat"][-1]["via"] == "Claude · claude-opus-5-5" and env["runner"].calls[-1].model.model == "claude-opus-5-5"
+    assert c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Hi?", "backend": "nope"}).status_code == 400
+
+
 def test_claude_sign_in_helper(env, monkeypatch):
     import subprocess
     from jobpipe import llm

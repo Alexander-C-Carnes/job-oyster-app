@@ -4,6 +4,8 @@ Pick it on the **Profile** tab, under **AI**: the provider, its key, and a model
 
 Each provider's key stays saved under its own name, so you can keep several (say ChatGPT, Gemini and Kimi) and switch between them: choose another provider and click **Save**. The app remembers the models and effort you picked for each provider (`models.saved` in `searches.yaml`), so switching back puts them back.
 
+The résumé chat has its own model menu, next to **New chat**. It lists every AI you've set up (Claude through your subscription, plus each provider with a key saved, or a local server you've used) and their models, with your Profile's writing model as the default. Pick another to ask one message of, say, Kimi or ChatGPT; each reply says which model wrote it. Your pick is remembered in that browser. A proposed edit is still re-rated by the Profile's AI, so its scores stay comparable.
+
 | Provider (`models.backend`) | How you pay | Key in `.env` |
 |---|---|---|
 | Claude, your subscription (`claude-code`, the default) | Your Pro or Max plan; nothing per call | none: sign in to Claude Code |

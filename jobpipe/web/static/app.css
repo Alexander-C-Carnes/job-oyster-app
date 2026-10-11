@@ -483,6 +483,8 @@ html[data-theme] .fit.run-ring { border: 0; box-shadow: none; background: var(--
 .fail { color: var(--bad); font-weight: 600; }
 .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .chat-head h3 { margin-bottom: 8px; }
+.chat-head .chat-model { width: auto; max-width: 240px; min-width: 0; margin-left: auto; font-size: 12px; padding: 3px 6px; }
+.msg-via { margin-top: 4px; font-size: 11px; color: var(--faint); }
 .chat-thread { display: flex; flex-direction: column; gap: 8px; max-height: min(52vh, 520px); overflow: auto; padding: 2px 2px 6px; }
 .msg { max-width: 88%; padding: 8px 11px; border-radius: 12px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .msg.me { align-self: flex-end; background: var(--link); color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }

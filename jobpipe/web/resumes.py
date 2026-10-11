@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Optional
 
 from .. import config, formats, render
-from ..config import Config
+from ..config import Config, ModelCfg
 from ..llm import AgentCall, Runner, brief
 from ..tailor import VALUE, exact_title, normalize_keywords, run_script, scorecard
 
@@ -339,10 +339,13 @@ class ResumeWorkspace:
         return (self.run_dir / "jd.md").exists() and (self.run_dir / "04-match.md").exists()
 
     # ---- edit loop ---------------------------------------------------------------
-    async def propose(self, instruction: str, runner: Runner, cfg: Config, fmt: Optional[str] = None) -> dict:
+    async def propose(self, instruction: str, runner: Runner, cfg: Config, fmt: Optional[str] = None,
+                      chat: Optional[tuple[Runner, ModelCfg, str]] = None) -> dict:
         """Send one chat message. Returns {"reply": str, "proposal": {...} | None}; a proposal only
         when Claude revised the résumé, which replaces any pending one. With `fmt` (the trim for a new
-        default format), the proposal is drawn in and held to that format, and accepting it switches to it."""
+        default format), the proposal is drawn in and held to that format, and accepting it switches to it.
+        `chat` is (runner, model, label) for the AI picked in the chat's model menu: it answers and its label is
+        kept with the reply, while `runner` (the Profile's AI) still re-rates a proposed edit."""
         if not self.editable():
             raise EditError("This résumé was saved without its posting and match brief, so Claude can't edit it "
                             "here. Tailor the job in the app to get an editable copy.")
@@ -369,24 +372,27 @@ class ResumeWorkspace:
         tail = (f"The conversation so far:\n{convo}\n\n"
                 f"{cand.first_name}'s new message:\n{instruction}"
                 + (f"\n\nThe posting's exact job title: {self.title()}" if self.title() else ""))
-        call = AgentCall(label="resume-edit", model=cfg.writer_model,
+        chat_runner, model, via = chat or (runner, cfg.writer_model, "")
+        call = AgentCall(label="resume-edit", model=model,
                          instructions=cand.personalize(EDIT_BRIEF) + "\n" + formats.length_rules(target),
                          documents=docs, expect=["reply.md"], tail=tail)
         # The message is kept before Claude answers, so a page reloaded meanwhile still shows it.
         self._say("user", instruction)
         try:
-            return await self._answer(instruction, runner, cfg, call, h, current, pending, target)
+            return await self._answer(instruction, runner, cfg, call, h, current, pending, target, chat_runner, via)
         except BaseException:       # a failure, or the request cancelled: the message isn't left unanswered
             self._say("note", "Claude couldn't answer that message. Send it again to retry.")
             raise
 
     async def _answer(self, instruction: str, runner: Runner, cfg: Config, call: AgentCall,
-                      h: dict, current: str, pending: str, target: formats.Format) -> dict:
-        res = await runner.run(call)
+                      h: dict, current: str, pending: str, target: formats.Format,
+                      chat_runner: Runner, via: str) -> dict:
+        res = await chat_runner.run(call)
         reply = res.files["reply.md"].strip()
         new_md = res.files.get("resume-edited.md", "")
+        tag = {"via": via} if via else {}
         if not new_md.strip() or new_md.strip() == (pending or current).strip():
-            self._say("claude", reply)
+            self._say("claude", reply, **tag)
             return {"reply": reply, "proposal": None}
         prop_md = self.vdir / "proposal.md"
         prop_md.write_text(new_md)
@@ -406,7 +412,7 @@ class ResumeWorkspace:
                     "keywords_pct": self.keyword_pct(new_md), "base": h["current"], **scores}
         h["proposal"] = proposal
         self._save(h)
-        self._say("claude", reply, proposal=True)
+        self._say("claude", reply, proposal=True, **tag)
         return {"reply": reply, "proposal": {**proposal, "diff": diff(current, new_md)}}
 
     def accept(self) -> dict:
