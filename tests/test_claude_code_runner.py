@@ -69,6 +69,7 @@ def test_invocation_uses_subscription_and_no_tools(tmp_path, monkeypatch):
     assert rec["max_out"] == "64000"
     assert "[Impact record]" in rec["system"] and "Four standing rules" in rec["system"]
     assert "--effort" not in ClaudeCodeRunner(claude_bin=bin_).command(call(model=ModelCfg("claude-haiku-4-5", "low")))
+    assert "--effort" in ClaudeCodeRunner(claude_bin=bin_).command(call(model=ModelCfg("claude-haiku-5-5", "low")))
     assert '<document name="jd.md">' in rec["stdin"] and "Your lens: B" in rec["stdin"]
     assert rec["stdin"].rstrip().endswith("ratings.json, 04-match.md")
     assert os.path.realpath(rec["cwd"]) == os.path.realpath(runner.workdir)   # macOS: /var -> /private/var

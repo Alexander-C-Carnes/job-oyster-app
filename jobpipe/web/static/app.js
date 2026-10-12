@@ -1728,7 +1728,7 @@ function formatNote(d, r, trim) {
   box.append(h("span", { class: "grow" }, `Drawn in ${f.name}. Your résumé format is ${def.name}.`), use, later);
   return box;
 }
-// The résumé chat's model menu: every AI set up on the Profile tab, with the Profile's writing model as the
+// The résumé chat's model menu: every AI set up on the Profile tab, with the Profile's chat model as the
 // default. Your pick is remembered in this browser; picking the default again follows the Profile.
 let CHAT_MODELS = null;     // a promise of /api/ai/chat-models, asked for again after the AI settings are saved
 const chatModels = () => (CHAT_MODELS ||= api("/api/ai/chat-models").catch((e) => { CHAT_MODELS = null; throw e; }));
@@ -3539,6 +3539,7 @@ const aForm = $("#ai-form"), aField = (n) => aForm.elements.namedItem(n);
 const AI_STAGES = [["triage", "Signal score", "one short call per job"],
                    ["analysis", "Analysis", "reading the posting, matching your evidence"],
                    ["writer", "Writing", "the résumé drafts and the merge"],
+                   ["chat", "Résumé chat", "answering you and drafting the edits"],
                    ["rescore", "Live scores", "re-rating each résumé edit in the chat"]];
 const AI_NOTES = {
   "claude-code": "Uses your Claude Pro or Max plan through Claude Code, so there's nothing to pay per call. Sign in once with the button below.",
@@ -3614,19 +3615,21 @@ function aiProviderShown(changed) {
   $("#ai-note").replaceChildren(AI_NOTES[b] || "", p.signup ? " " : "", p.signup ? extLink(p.signup, "Get started") : "");
   $("#ai-claude").classList.toggle("hidden", b !== "claude-code");
   if (b === "claude-code") claudeStatus();
-  const saved = changed && AI.data.saved?.[b];
-  if (saved) {                                        // this AI was used before: put back what was picked for it
-    for (const [s] of AI_STAGES) if (saved.stages[s]) {
-      $(`#ai-model-${s}`).value = saved.stages[s].model;
-      $(`#ai-effort-${s}`).value = saved.stages[s].effort || "medium";
-    }
-    aField("base_url").value = saved.base_url;
-  } else if (changed) {                               // a different family of models: the old names won't work
+  if (changed) {
+    const saved = AI.data.saved?.[b];                 // this AI was used before: put back what was picked for it
     const wasClaude = isClaude(AI.lastBackend ?? AI.data.backend);
-    if (isClaude(b) !== wasClaude || !isClaude(b)) for (const [s] of AI_STAGES) {
-      const small = s === "rescore" && AI.data.claude_models.find((m) => m.includes("sonnet"));
-      $(`#ai-model-${s}`).value = isClaude(b) ? small || AI.data.claude_models[0] : "";
+    const fresh = isClaude(b) !== wasClaude || !isClaude(b);   // a different family of models: the old names won't work
+    for (const [s] of AI_STAGES) {
+      if (saved?.stages[s]) {
+        $(`#ai-model-${s}`).value = saved.stages[s].model;
+        $(`#ai-effort-${s}`).value = saved.stages[s].effort || "medium";
+      } else if (fresh) {                             // a step it has no pick for (saved before the step existed)
+        const small = (s === "rescore" || s === "chat") && AI.data.claude_models.find((m) => m.includes("sonnet"));
+        $(`#ai-model-${s}`).value = isClaude(b) ? small || AI.data.claude_models[0]
+          : p.defaults?.[s] || (s === "chat" ? aiState().stages.writer.model : "");   // the chat: else the writing model
+      }
     }
+    if (saved) aField("base_url").value = saved.base_url;
   }
   AI.lastBackend = b;
   if (changed) AI.typing.clear();
@@ -3679,9 +3682,9 @@ async function checkAI(quiet = false) {
   try {
     const typed = !!aField("key").value.trim();
     const d = await post("/api/ai/models", { backend: s.backend, base_url: s.base_url, key: aField("key").value.trim() });
-    for (const [st] of AI_STAGES) {                  // fill empty model boxes with the first listed model
-      const box = $(`#ai-model-${st}`);
-      if (!box.value && d.models.length) box.value = d.models[0];
+    for (const [st] of AI_STAGES) {                  // fill empty model boxes: the provider's pick if listed, else the first
+      const box = $(`#ai-model-${st}`), pick = aiProvider(s.backend)?.defaults?.[st];
+      if (!box.value && d.models.length) box.value = d.models.includes(pick) ? pick : d.models[0];
     }
     setModels(d.models);
     state.textContent = isClaude(s.backend) ? "" : typed

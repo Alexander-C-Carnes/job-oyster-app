@@ -94,6 +94,10 @@ models:
   triage: {model: claude-opus-5-5, effort: low}
   analysis: {model: claude-opus-5-5, effort: medium}
   writer: {model: claude-opus-5-5, effort: high}
+  # The résumé chat: answering your messages and drafting the edits you ask for. Every message is a call, so
+  # Sonnet at medium effort rather than the writing model. The chat's model menu can still pick another for one
+  # message; that message also gets this effort.
+  chat: {model: claude-sonnet-5-5, effort: medium}
   # Re-rating each résumé edit in the chat, for the live ATS and résumé scores. It runs on every edit, so
   # Sonnet rather than Opus. (Haiku also works; it takes no effort setting, and the app leaves it off.)
   rescore: {model: claude-sonnet-5-5, effort: medium}

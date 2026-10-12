@@ -225,7 +225,7 @@ def save_candidate(path: Path, cand: dict) -> None:
 
 
 # ---- the AI (searches.yaml's `models:` section and the key in the profile's .env, edited on the Profile tab) ----
-MODEL_STAGES = ("triage", "analysis", "writer", "rescore")
+MODEL_STAGES = ("triage", "analysis", "writer", "chat", "rescore")
 EFFORT_CHOICES = ("low", "medium", "high")
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}")
 
@@ -235,6 +235,8 @@ def load_models(path: Path) -> dict:
     stages = {s: {"model": str((m.get(s) or {}).get("model") or ""), "effort": str((m.get(s) or {}).get("effort") or "")}
               for s in MODEL_STAGES}
     backend = str(m.get("backend") or "claude-code")
+    if not m.get("chat"):               # a profile from before the chat had its own model
+        stages["chat"] = config.chat_default(backend, stages["writer"])
     if not m.get("rescore"):            # a profile from before live scores
         stages["rescore"] = config.rescore_default(backend, stages["triage"])
     saved = {}                          # each provider's last saved picks, restored when you switch back to it
@@ -307,6 +309,8 @@ def clean_models(raw: dict, backends) -> tuple[str, str, dict]:
     stages = {}
     for s in MODEL_STAGES:
         r = (raw.get("stages") or {}).get(s) or {}
+        if s == "chat" and not r:       # a page from before the chat had its own model
+            r = config.chat_default(backend, stages["writer"])
         if s == "rescore" and not r:    # a page from before live scores
             r = config.rescore_default(backend, stages["triage"])
         model, effort = str(r.get("model") or "").strip(), str(r.get("effort") or "medium")

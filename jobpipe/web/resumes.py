@@ -372,7 +372,7 @@ class ResumeWorkspace:
         tail = (f"The conversation so far:\n{convo}\n\n"
                 f"{cand.first_name}'s new message:\n{instruction}"
                 + (f"\n\nThe posting's exact job title: {self.title()}" if self.title() else ""))
-        chat_runner, model, via = chat or (runner, cfg.writer_model, "")
+        chat_runner, model, via = chat or (runner, cfg.chat_model, "")
         call = AgentCall(label="resume-edit", model=model,
                          instructions=cand.personalize(EDIT_BRIEF) + "\n" + formats.length_rules(target),
                          documents=docs, expect=["reply.md"], tail=tail)

@@ -216,17 +216,18 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return state["runner"]
 
     def chat_ai(backend: str, model: str) -> tuple[Runner, ModelCfg, str]:
-        """The runner and model for one chat message, which may use another AI than the Profile's: any
-        provider set up on the Profile tab. Returns (runner, model, the label the reply is tagged with)."""
-        writer = cfg.writer_model
-        backend, model = backend or cfg.backend, model or writer.model
+        """The runner and model for one chat message: the Profile's chat model, or another a message picks, on any
+        provider set up on the Profile tab, always at the chat's effort. Returns (runner, model, the label the reply
+        is tagged with)."""
+        chat = cfg.chat_model
+        backend, model = backend or cfg.backend, model or chat.model
         if backend not in BACKEND_LABELS:
             raise HTTPException(400, "Choose an AI for the chat.")
         if not searches_file.MODEL_ID.fullmatch(model):
             raise HTTPException(400, "That model name can't be used.")
         via = f"{short_label(backend)} · {model}"
         if backend == cfg.backend:
-            return get_runner(), ModelCfg(model, writer.effort), via
+            return get_runner(), ModelCfg(model, chat.effort), via
         base_url = (searches_file.load_models(searches_path)["saved"].get(backend) or {}).get("base_url") or None
         sig = (backend, base_url, materials()[1])
         if state["chat_runners"].get(backend, (None,))[0] != sig:
@@ -237,7 +238,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             except (RuntimeError, ValueError) as e:
                 raise HTTPException(400, str(e)) from None
             state["chat_runners"][backend] = (sig, r)
-        return state["chat_runners"][backend][1], ModelCfg(model, writer.effort), via
+        return state["chat_runners"][backend][1], ModelCfg(model, chat.effort), via
 
     # ---- security ----------------------------------------------------------------
     @app.middleware("http")
@@ -1446,7 +1447,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def get_ai():
         providers = [{"id": b, "label": label, "key_env": key_env(b), "key_set": bool(key_env(b) and os.environ.get(key_env(b))),
                       "local": b in PROVIDERS and PROVIDERS[b].local, "signup": PROVIDERS[b].signup if b in PROVIDERS else "",
-                      "base_url": PROVIDERS[b].base_url if b in PROVIDERS else ""}
+                      "base_url": PROVIDERS[b].base_url if b in PROVIDERS else "",
+                      "defaults": PROVIDERS[b].defaults or {} if b in PROVIDERS else {}}
                      for b, label in BACKEND_LABELS.items()]
         return {**searches_file.load_models(searches_path), "providers": providers, "claude_models": CLAUDE_MODELS,
                 "env_file": str(config.PROFILE / ".env")}
@@ -1465,8 +1467,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         except searches_file.SearchError as e:
             raise HTTPException(400, str(e)) from None
         cfg.backend, cfg.base_url = backend, base_url or None
-        cfg.triage_model, cfg.analysis_model, cfg.writer_model, cfg.rescore_model = (
-            ModelCfg(**stages[s]) for s in searches_file.MODEL_STAGES)
+        for s in searches_file.MODEL_STAGES:
+            setattr(cfg, f"{s}_model", ModelCfg(**stages[s]))
         state["runner"] = None
         return get_ai()
 
@@ -1527,7 +1529,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.get("/api/ai/chat-models")
     async def chat_models():
         """Every AI set up on the Profile tab, with its models, for the résumé chat's model menu. The Profile's
-        writing model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
+        chat model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
         reached, the models picked for it on the Profile tab are offered."""
         saved = searches_file.load_models(searches_path)["saved"]
         usable = ["claude-code"] + (["api"] if os.environ.get("ANTHROPIC_API_KEY") else [])
@@ -1557,11 +1559,11 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         for b, found in zip(usable, lists):
             picks = [st["model"] for st in (saved.get(b) or {}).get("stages", {}).values()]
             if b == cfg.backend:
-                picks.insert(0, cfg.writer_model.model)
+                picks[:0] = [cfg.chat_model.model, cfg.writer_model.model]
             models = list(dict.fromkeys(m for m in [*picks, *found] if m))
             if models:
                 groups.append({"backend": b, "label": BACKEND_LABELS[b], "short": short_label(b), "models": models})
-        return {"default": {"backend": cfg.backend, "model": cfg.writer_model.model}, "groups": groups}
+        return {"default": {"backend": cfg.backend, "model": cfg.chat_model.model}, "groups": groups}
 
     @app.post("/api/ai/models")
     async def ai_models(body: dict):

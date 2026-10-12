@@ -278,8 +278,10 @@ def _usage(runner) -> None:
     tot = {k: sum(u[k] for u in log) for k in ("input", "output", "cache_read", "cache_write")}
     via = getattr(runner, "label", None) or ("Claude Code (your subscription)" if type(runner).__name__ == "ClaudeCodeRunner"
                                              else "Claude API (credits)")
+    cost = [u["cost"] for u in log if "cost" in u]               # what OpenRouter says it charged
     print(f"AI usage via {via}: {len(log)} calls, {tot['input']:,} input + {tot['cache_write']:,} cache-write + "
-          f"{tot['cache_read']:,} cache-read input tokens, {tot['output']:,} output tokens")
+          f"{tot['cache_read']:,} cache-read input tokens, {tot['output']:,} output tokens"
+          + (f", ${sum(cost):.2f} charged" if cost else ""))
 
 
 def main(argv=None) -> None:

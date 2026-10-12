@@ -10,7 +10,7 @@ The app uses one name for each thing it can do to a job, and **What each does** 
 |---|---|---|
 | **Signal score** | ~30 seconds, one Claude call | A quick 1–10 read on how well your impact record fits the posting, with the strongest matches and likely gaps. |
 | **Full score** | a few minutes, about four calls | Rates every requirement against your impact record and each résumé: a 1–10 score, a heat map and the gaps to confirm. No résumé is written. |
-| **Make résumé** | ~25 minutes, about eleven calls | The full score (reused if there is one), three drafts, the best merged and checked, a PDF and a fit report. While it runs, the job's badge fills with its progress and time left. On the command line it's `tailor`. |
+| **Make résumé** | ~25 minutes, about fourteen calls | The full score (reused if there is one), three drafts, the best merged and checked, a PDF and a fit report. While it runs, the job's badge fills with its progress and time left. On the command line it's `tailor`. |
 
 Searches (the **Filters** tab): **Check filters** (≤1 credit per filter), **Search + signal score**, and **Search + make résumés for top N**.
 

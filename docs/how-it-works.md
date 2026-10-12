@@ -17,7 +17,7 @@ searches.yaml ──► JobsPipe search ──► local filters ──► skip j
 1. **Find jobs.** `searches.yaml` holds saved searches (titles, remote or hybrid, locations, salary floor, how recent). Each one becomes a request to the JobsPipe API. JobsPipe charges one credit per job returned, so every search has a `limit` and each run has a credit budget. Jobs are stored in `data/` so they're never paid for twice.
 2. **Skip what you've seen.** Jobs already scored, or already marked Applied, Interviewing, Offer, Denied, Done or Not Applying in the tracker, are dropped.
 3. **Signal score.** One short Claude call per job gives it a 1–10 fit score against your **impact record**, a detailed document of what you've done and what it achieved (`references/impact-record.md` in your profile folder). If the listing is only a stub, the full posting is fetched from the employer's site first. A job is never scored on its title alone.
-4. **Make résumés for the best ones.** Jobs scoring 7 or higher (the top 3 by default) get **Make résumé**: the full `resume-job-fit` pipeline, about 11 Claude calls per job:
+4. **Make résumés for the best ones.** Jobs scoring 7 or higher (the top 3 by default) get **Make résumé**: the full `resume-job-fit` pipeline, about 14 Claude calls per job (the median of measured runs):
    - three analysts each pull one thing out of the posting: its objectives, the skills it requires, and the experience it requires;
    - a matcher rates every requirement against the impact record and each of your existing résumés, and builds an evidence ledger and a "do not claim" list;
    - three writers draft résumés independently, each with a different emphasis, using the posting's own wording wherever your evidence supports it;

@@ -29,7 +29,7 @@ from typing import Callable, Optional
 
 from . import config, evidence, formats, render
 from .config import Config
-from .llm import AgentCall, AgentError, Runner, brief, candidate_materials, write_files
+from .llm import AgentCall, AgentError, Runner, brief, candidate_materials, warm, write_files
 
 SCRIPTS = config.SKILL / "scripts"
 WEIGHT = {"high": 3, "med": 2, "medium": 2, "low": 1}
@@ -541,12 +541,11 @@ class Tailor:
         wnote = (f"\n\nOrchestrator notes:\n- Best existing resume, for the frame only: {base} "
                  f"(<skill>/references/{config.candidate().resumes[base]}). Build every bullet from the ledger.\n"
                  f"- The posting's exact job title: {title}\n- {limits}")
-        writers = await asyncio.gather(*(
-            self.runner.run(AgentCall(
-                label=f"05-writer-{L}", model=W, instructions=brief("05-resume-writer.md") + wnote,
-                documents=wdocs, expect=[f"resume-draft-{L}.md", f"trace-{L}.md"],
-                tail=f"Your lens: {L} ({LENSES[L]}).", run_dir=run_dir))
-            for L in LENSES))
+        wcalls = [AgentCall(label=f"05-writer-{L}", model=W, instructions=brief("05-resume-writer.md") + wnote,
+                            documents=wdocs, expect=[f"resume-draft-{L}.md", f"trace-{L}.md"],
+                            tail=f"Your lens: {L} ({LENSES[L]}).", run_dir=run_dir) for L in LENSES]
+        await warm(self.runner, wcalls[0])          # one cache write for the three, not one each
+        writers = await asyncio.gather(*(self.runner.run(c) for c in wcalls))
         drafts = {f"Draft {L}": w.files[f"resume-draft-{L}.md"] for L, w in zip(LENSES, writers)}
         checks = {}
         for L in LENSES:

@@ -10,7 +10,8 @@ Caching: the candidate materials (impact record, resume variants, rules, rubric)
 the same for every job and every candidate-facing agent, so they sit in the system
 prompt behind a cache breakpoint. Job-only agents (01-03) never see them. OpenAI-compatible
 providers get the same system prompt first in every request, which is what their automatic
-prompt caching (where they have it) reuses.
+prompt caching (where they have it) reuses. Through OpenRouter, Claude and Gemini cache only
+behind breakpoints, so those requests carry the same ones the Claude API gets.
 """
 from __future__ import annotations
 
@@ -54,8 +55,14 @@ def preamble() -> str:
 
 
 def older_claude(model: str) -> bool:
-    """A Claude model from before effort and refusal fallbacks (Haiku 4.5): send it neither."""
+    """A Claude model from before effort (Haiku 4.5): send it no effort."""
     return model.startswith(OLDER_CLAUDE)
+
+
+def refusal_fallback(model: str) -> bool:
+    """Whether the API can hand a declined request to another model. Haiku can't (a list of fallback models
+    is a 400 on Haiku 5.5, and "default" does nothing), so it gets no fallbacks parameter."""
+    return not model.startswith(NO_FALLBACK)
 
 
 def doc(name: str, text: str) -> str:
@@ -108,6 +115,13 @@ class Runner(Protocol):
     async def run(self, call: AgentCall) -> AgentResult: ...
 
 
+async def warm(runner: Runner, call: AgentCall) -> None:
+    """Before calls that start together and share call's prefix (they part at call.tail): have the runner write
+    that prefix to the cache once, so they read it instead of each writing it. Only the Claude API runner can."""
+    if hasattr(runner, "warm"):
+        await runner.warm(call)
+
+
 class _RetryingRunner:
     """Validates an agent's files and retries once, as the skill does for a missing or broken output."""
     usage_log: list[dict]
@@ -130,13 +144,30 @@ class _RetryingRunner:
         return result
 
 
-def user_text(call: AgentCall, extra_note: str = "") -> str:
+def user_blocks(call: AgentCall, extra_note: str = "") -> list[dict]:
+    """The user turn as text blocks: the shared job documents, then the brief. When a per-call tail follows
+    (the three writers share everything up to their lens), a 5-minute breakpoint closes the documents."""
     shared = "\n\n".join(doc(name, text) for name, text in call.documents.items())
-    return "\n\n".join(x for x in (
-        shared or "(no job documents)",
-        call.instructions + ("\n\n" + call.tail if call.tail else "")
-        + "\n\nExpected output files: " + ", ".join(call.expect),
-        extra_note) if x)
+    blocks = [{"type": "text", "text": shared or "(no job documents)"}]
+    if call.tail:
+        blocks[0]["cache_control"] = {"type": "ephemeral"}
+    blocks.append({"type": "text", "text": call.instructions + ("\n\n" + call.tail if call.tail else "")
+                   + "\n\nExpected output files: " + ", ".join(call.expect)})
+    if extra_note:
+        blocks.append({"type": "text", "text": extra_note})
+    return blocks
+
+
+def user_text(call: AgentCall, extra_note: str = "") -> str:
+    return "\n\n".join(b["text"] for b in user_blocks(call, extra_note))
+
+
+def system_blocks(materials: Optional[str], cache: dict) -> list[dict]:
+    """The system prompt as text blocks: the preamble, then the candidate materials behind a breakpoint."""
+    blocks = [{"type": "text", "text": preamble()}]
+    if materials is not None:
+        blocks.append({"type": "text", "text": materials, "cache_control": cache})
+    return blocks
 
 
 def fallback_bins() -> list[Path]:
@@ -187,6 +218,9 @@ class ClaudeCodeRunner(_RetryingRunner):
       documents in its prompt and writes <file> blocks, exactly like the API runner.
     - The system prompt (preamble + candidate materials) goes in a file because it is
       larger than a single command-line argument may be.
+    - Claude Code caches that system prompt on its own. There's no warm() here: `claude -p` can't
+      send a max_tokens 0 request, so warming the writers' cache would cost a whole extra turn before them, and
+      a subscription has no per-token charge for the warm-up to save.
     """
     def __init__(self, *, claude_bin: Optional[str] = None, max_parallel: int = 3,
                  timeout_s: int = 1800):
@@ -270,35 +304,20 @@ class ClaudeRunner(_RetryingRunner):
         self.usage_log: list[dict] = []
 
     def _system(self, candidate: bool) -> list[dict]:
-        blocks = [{"type": "text", "text": preamble()}]
-        if candidate:
-            if self._candidate is None:
-                self._candidate = candidate_materials()
-            blocks.append({"type": "text", "text": self._candidate,
-                           "cache_control": {"type": "ephemeral", "ttl": "1h"}})
-        return blocks
-
-    def _user(self, call: AgentCall) -> list[dict]:
-        shared = "\n\n".join(doc(name, text) for name, text in call.documents.items())
-        blocks = [{"type": "text", "text": shared or "(no job documents)"}]
-        # Second breakpoint: the three writers share everything up to their lens.
-        if call.tail:
-            blocks[0]["cache_control"] = {"type": "ephemeral"}
-        blocks.append({"type": "text", "text": call.instructions + ("\n\n" + call.tail if call.tail else "")
-                       + "\n\nExpected output files: " + ", ".join(call.expect)})
-        return blocks
+        if candidate and self._candidate is None:
+            self._candidate = candidate_materials()
+        return system_blocks(self._candidate if candidate else None, {"type": "ephemeral", "ttl": "1h"})
 
     async def _once(self, call: AgentCall, extra_note: str = "") -> AgentResult:
         kwargs = dict(
             model=call.model.model,
-            max_tokens=64000,
+            max_tokens=MAX_OUTPUT,
             system=self._system(call.candidate),
-            messages=[{"role": "user", "content": self._user(call) + (
-                [{"type": "text", "text": extra_note}] if extra_note else [])}],
+            messages=[{"role": "user", "content": user_blocks(call, extra_note)}],
         )
         if not older_claude(call.model.model):
             kwargs["output_config"] = {"effort": call.model.effort}
-        if self.fallbacks and not older_claude(call.model.model):
+        if self.fallbacks and refusal_fallback(call.model.model):
             kwargs.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
         async with self.sem:
             async with self.client.beta.messages.stream(**kwargs) as stream:
@@ -316,6 +335,29 @@ class ClaudeRunner(_RetryingRunner):
         text = "".join(b.text for b in msg.content if b.type == "text")
         return parse_output(text, usage)
 
+    async def warm(self, call: AgentCall) -> None:
+        """Write the cache for calls sharing call's prefix before they start together (the three writers): the
+        candidate materials, and the shared job documents when call.tail marks them. Started at once, each would
+        write the same ~33k tokens itself, since none can read an entry another is still writing.
+
+        A max_tokens 0 request runs only the prefill: it bills the cache write and no output. It can't stream, so
+        it's a plain create. Thinking is left at the model's default and effort is the calls' own, as both are part
+        of what's cached. A failure only means the calls write the cache themselves."""
+        kwargs = dict(model=call.model.model, max_tokens=0, system=self._system(call.candidate),
+                      messages=[{"role": "user", "content": user_blocks(call)[:1]}])
+        if not older_claude(call.model.model):
+            kwargs["output_config"] = {"effort": call.model.effort}
+        try:
+            async with self.sem:
+                msg = await self.client.beta.messages.create(**kwargs)
+        except anthropic.APIError:
+            return
+        self.usage_log.append({"label": f"{call.label} (cache warm-up)", "model": msg.model,
+                               "stop_reason": msg.stop_reason, "input": msg.usage.input_tokens,
+                               "output": msg.usage.output_tokens,
+                               "cache_read": msg.usage.cache_read_input_tokens or 0,
+                               "cache_write": msg.usage.cache_creation_input_tokens or 0})
+
 
 
 @dataclass(frozen=True)
@@ -326,27 +368,44 @@ class Provider:
     local: bool = False              # runs on this Mac
     signup: str = ""                 # where to get a key, or the app
     efforts: Optional[dict] = None   # the app's effort -> the provider's reasoning_effort (None: EFFORTS)
+    defaults: Optional[dict] = None  # step (triage, analysis, writer, chat, rescore) -> the model the settings form offers
+    limit_field: str = "max_tokens"  # the request field that sets the output limit
 
 
 # models.backend values besides claude-code and api, each an OpenAI-compatible chat API.
 PROVIDERS = {
+    # max_tokens is deprecated there, and its reasoning models reject it.
     "openai": Provider("ChatGPT (OpenAI API)", "https://api.openai.com/v1", "OPENAI_API_KEY",
-                       signup="https://platform.openai.com/api-keys"),
+                       signup="https://platform.openai.com/api-keys", limit_field="max_completion_tokens"),
     "gemini": Provider("Gemini (Google AI API)", "https://generativelanguage.googleapis.com/v1beta/openai",
                        "GEMINI_API_KEY", signup="https://aistudio.google.com/apikey"),
     # Kimi K3 takes reasoning_effort low, high or max (no medium); older Kimi models reject it and get no effort.
     "kimi": Provider("Kimi (Moonshot AI API)", "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY",
                      signup="https://platform.kimi.ai/console/api-keys",
                      efforts={"low": "low", "medium": "high", "high": "max"}),
+    # Its model list is sorted by name, so without these the form would offer whatever sorts first.
     "openrouter": Provider("OpenRouter (many models)", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY",
-                           signup="https://openrouter.ai/keys"),
+                           signup="https://openrouter.ai/keys",
+                           defaults={"triage": "anthropic/claude-sonnet-5.5", "analysis": "anthropic/claude-sonnet-5.5",
+                                     "writer": "anthropic/claude-opus-5.5", "chat": "anthropic/claude-sonnet-5.5",
+                                     "rescore": "anthropic/claude-sonnet-5.5"}),
     "ollama": Provider("Ollama (on this Mac)", "http://localhost:11434/v1", "", local=True, signup="https://ollama.com"),
     "lmstudio": Provider("LM Studio (on this Mac)", "http://localhost:1234/v1", "", local=True,
                          signup="https://lmstudio.ai"),
     "openai-compatible": Provider("Another OpenAI-compatible API", "", "OPENAI_COMPATIBLE_API_KEY"),
 }
-CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5"]
-OLDER_CLAUDE = ("claude-haiku-4-5",)
+CLAUDE_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5"]
+OLDER_CLAUDE = ("claude-haiku-4-5",)                         # takes no effort
+NO_FALLBACK = ("claude-haiku-4-5", "claude-haiku-5-5")      # no server-side refusal fallback
+MAX_OUTPUT = 64000                                          # output tokens asked for (Fireworks' default is 2,048)
+RETRY = (429, 500, 502, 503, 504)                           # statuses worth another try
+# What a 400 or 422 names when it turns down the effort or the output limit sent with a request.
+REJECTS = {"effort": re.compile(r"reasoning|effort", re.I),
+           "limit": re.compile(r"max_(completion_|new_)?tokens|context (length|window)|token limit", re.I)}
+UNSUPPORTED = re.compile(r"unsupported|unrecognized|unknown|not supported|not permitted|extra (fields|inputs)", re.I)
+# OpenRouter's 403 for a spent budget: error.metadata.limit_source -> what ran out.
+SPEND_LIMITS = {"openrouter_key_limit": "this key's credit limit", "openrouter_guardrail_budget": "a guardrail's budget",
+                "openrouter_workspace_budget": "your workspace's budget"}
 BACKEND_LABELS = {"claude-code": "Claude (your subscription)", "api": "Claude API",
                   **{k: p.label for k, p in PROVIDERS.items()}}
 EFFORTS = {"low": "low", "medium": "medium", "high": "high"}   # anything else (max, xhigh) asks for high
@@ -363,8 +422,14 @@ class OpenAICompatRunner(_RetryingRunner):
     """Runs each agent through an OpenAI-compatible chat API (POST /chat/completions).
 
     - The key comes from the provider's .env variable; local servers (Ollama, LM Studio) need none.
-    - Effort is sent as reasoning_effort. A model or server that rejects it gets the request again
-      without it, and keeps getting it without.
+    - Effort is sent as reasoning_effort; on OpenRouter as its `reasoning` setting (the only way it turns on
+      Claude's reasoning).
+    - An output limit is sent too (the provider's limit_field: max_completion_tokens on OpenAI), as some servers'
+      default is far too short for a résumé; OpenRouter works Claude's thinking budget out from it.
+    - A model that rejects the effort or the limit gets the request again without it, and that model keeps
+      getting it without (other models aren't affected: the web app keeps one runner for every run).
+    - Through OpenRouter, Claude and Gemini get cache breakpoints (cache_breakpoint()). OpenAI, DeepSeek and
+      Kimi cache the shared system prompt on their own.
     - A prompt the server cut short (a local model's context window is often far smaller than the
       candidate materials) is an error, not a silently worse answer.
     """
@@ -391,15 +456,57 @@ class OpenAICompatRunner(_RetryingRunner):
             self.client.headers.update(headers)
         self.sem = asyncio.Semaphore(max_parallel)
         self.retry_wait = retry_wait
-        self.send_effort = True
+        self.rejecting: dict[str, set[str]] = {"effort": set(), "limit": set()}   # setting -> models that reject it
+        self.key_works: Optional[bool] = None            # OpenRouter: what GET /key said after the last 401
+        self._limits: Optional[dict] = None              # OpenRouter: model id -> its listed output limit
+        self._limits_lock = asyncio.Lock()
         self.usage_log: list[dict] = []
 
     @property
     def label(self) -> str:
         return PROVIDERS[self.provider].label
 
+    def cache_breakpoint(self, model: str) -> Optional[dict]:
+        """The cache_control that goes on the candidate materials, or None where the provider caches on its own
+        (OpenAI, DeepSeek, Kimi) or not at all. OpenRouter caches Claude and Gemini only behind breakpoints:
+        Claude's last an hour, as ClaudeRunner asks; Gemini's last a fixed 5 minutes."""
+        if self.provider != "openrouter":
+            return None
+        if model.startswith("anthropic/"):
+            return {"type": "ephemeral", "ttl": "1h"}
+        if model.startswith("google/"):
+            return {"type": "ephemeral"}
+        return None
+
+    async def _max_tokens(self, model: str) -> int:
+        """MAX_OUTPUT, or on OpenRouter the model's own output limit when its model list gives a lower one."""
+        if self.provider != "openrouter":
+            return MAX_OUTPUT
+        async with self._limits_lock:
+            if self._limits is None:
+                self._limits = {}
+                try:
+                    r = await self.client.get(self.base_url + "/models")
+                    if r.status_code == 200:
+                        self._limits = {m["id"]: (m.get("top_provider") or {}).get("max_completion_tokens")
+                                        for m in r.json().get("data", []) if isinstance(m, dict) and m.get("id")}
+                except (httpx.HTTPError, ValueError, AttributeError):
+                    pass                                 # unknown: ask for MAX_OUTPUT
+        limit = self._limits.get(model)
+        return min(MAX_OUTPUT, limit) if isinstance(limit, int) and limit > 0 else MAX_OUTPUT
+
+    async def _key_ok(self) -> Optional[bool]:
+        """OpenRouter: whether GET /key accepts the key (401 if not), or None when that can't be told."""
+        try:
+            r = await self.client.get(self.base_url + "/key")
+        except httpx.TransportError:
+            return None
+        return {200: True, 401: False}.get(r.status_code)
+
     async def _post(self, path: str, body: dict) -> httpx.Response:
-        """POST with up to three tries for rate limits, server errors and dropped connections."""
+        """POST with up to three tries for rate limits, server errors and dropped connections, and for the
+        failures OpenRouter reports as a 200 with an error in it, or as a 401 while the key works (its
+        outages have done that)."""
         for attempt in range(3):
             last, wait = attempt == 2, self.retry_wait * (attempt + 1) ** 2
             try:
@@ -408,7 +515,12 @@ class OpenAICompatRunner(_RetryingRunner):
                 if last:
                     raise self._unreachable(e) from None
             else:
-                if last or r.status_code not in (429, 500, 502, 503, 504):
+                if r.status_code == 401 and self.provider == "openrouter":
+                    self.key_works = await self._key_ok()
+                err = body_error(r)
+                again = (r.status_code in RETRY or r.status_code == 401 and self.key_works
+                         or err is not None and (not isinstance(err.get("code"), int) or err["code"] in (408, *RETRY)))
+                if last or not again:
                     return r
                 wait = float(r.headers.get("retry-after") or 0) or wait
             await asyncio.sleep(min(wait, 120))
@@ -421,10 +533,26 @@ class OpenAICompatRunner(_RetryingRunner):
         try:
             err = r.json().get("error") or r.json()
             msg = err.get("message") if isinstance(err, dict) else str(err)
-        except ValueError:
-            msg = r.text[:300]
+        except (ValueError, AttributeError):
+            err, msg = None, r.text[:300]
+        meta = (err.get("metadata") if isinstance(err, dict) else None) or {}
+        env = PROVIDERS[self.provider].key_env
+        if r.status_code == 401 and self.provider == "openrouter" and self.key_works:
+            return AgentError(f"{label}: OpenRouter answered 401 ({msg}), but your key works, so the fault is on "
+                              "OpenRouter's side. Try again in a few minutes (status.openrouter.ai).")
+        if r.status_code == 402:
+            where = " at openrouter.ai/settings/credits" if self.provider == "openrouter" else ""
+            return AgentError(f"{label}: {self.label} is out of credit ({msg}). Add credit{where}, then try again.")
+        if r.status_code == 403 and meta.get("limit_source"):
+            src, resets = meta["limit_source"], meta.get("resets_at")
+            spent = (f": {usd(meta['spend_usd'])} of {usd(meta['limit_usd'])}"
+                     if meta.get("spend_usd") is not None and meta.get("limit_usd") is not None else "")
+            return AgentError(f"{label}: OpenRouter spend limit reached ({SPEND_LIMITS.get(src, src)}{spent}"
+                              + (f"; it resets {resets}" if resets else "") + "). "
+                              + (meta.get("remedy_hint") or "Raise the limit on openrouter.ai, or wait for it to reset."))
+        if r.status_code == 403 and self.provider == "openrouter":   # a moderation flag or a guardrail
+            return AgentError(f"{label}: OpenRouter refused the request (403: {msg}).")
         if r.status_code in (401, 403):
-            env = PROVIDERS[self.provider].key_env
             return AgentError(f"{label}: {self.label} rejected the key ({r.status_code}: {msg}). Check {env} on the "
                               f"Profile tab (AI).")
         if r.status_code == 404:
@@ -433,30 +561,47 @@ class OpenAICompatRunner(_RetryingRunner):
         return AgentError(f"{label}: {self.label} error {r.status_code}: {msg}")
 
     async def _once(self, call: AgentCall, extra_note: str = "") -> AgentResult:
-        system, user = system_text(call.candidate), user_text(call, extra_note)
-        body = {"model": call.model.model, "messages": [{"role": "system", "content": system},
-                                                        {"role": "user", "content": user}]}
+        model, cache = call.model.model, self.cache_breakpoint(call.model.model)
+        if cache:       # the same text as blocks, with the breakpoints ClaudeRunner sends
+            system = system_blocks(candidate_materials() if call.candidate else None, cache)
+            user = user_blocks(call, extra_note)
+        else:
+            system, user = system_text(call.candidate), user_text(call, extra_note)
+        body = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+        p, optional = PROVIDERS[self.provider], {}
+        if call.model.effort and model not in self.rejecting["effort"]:
+            level = (p.efforts or EFFORTS).get(call.model.effort, "high")
+            optional["effort"] = {"reasoning": {"effort": level}} if self.provider == "openrouter" else {"reasoning_effort": level}
+        if model not in self.rejecting["limit"]:
+            optional["limit"] = {p.limit_field: await self._max_tokens(model)}
         async with self.sem:
-            if self.send_effort and call.model.effort:
-                efforts = PROVIDERS[self.provider].efforts or EFFORTS
-                r = await self._post("/chat/completions", {**body, "reasoning_effort": efforts.get(call.model.effort, "high")})
-                if r.status_code == 400 and re.search(r"reasoning|effort|unsupported|unrecognized|unknown", r.text, re.I):
-                    self.send_effort = False
-                    r = await self._post("/chat/completions", body)
-            else:
-                r = await self._post("/chat/completions", body)
+            while True:
+                r = await self._post("/chat/completions", {**body, **{k: v for o in optional.values() for k, v in o.items()}})
+                refused = turned_down(r, optional)
+                if not refused:
+                    break
+                for setting in refused:              # asked again without it, and this model isn't sent it again
+                    self.rejecting[setting].add(model)
+                    del optional[setting]
         if r.status_code >= 400:
             raise self._error(call.label, r)
+        if err := body_error(r):
+            raise AgentError(f"{call.label}: {self.label} failed while answering "
+                             f"({err.get('code') or 'no code'}: {err.get('message') or err}).")
         data = r.json()
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
         u = data.get("usage") or {}
-        cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
-        usage = {"label": call.label, "model": data.get("model") or call.model.model,
-                 "stop_reason": choice.get("finish_reason"), "input": (u.get("prompt_tokens") or 0) - cached,
-                 "output": u.get("completion_tokens") or 0, "cache_read": cached, "cache_write": 0}
+        details = u.get("prompt_tokens_details") or {}
+        cached, written = details.get("cached_tokens") or 0, details.get("cache_write_tokens") or 0
+        usage = {"label": call.label, "model": data.get("model") or model, "stop_reason": choice.get("finish_reason"),
+                 "input": max(0, (u.get("prompt_tokens") or 0) - cached - written),
+                 "output": u.get("completion_tokens") or 0, "cache_read": cached, "cache_write": written}
+        if isinstance(u.get("cost"), (int, float)):     # OpenRouter: what it charged, in dollars
+            usage["cost"] = u["cost"]
         self.usage_log.append(usage)
-        sent = (len(system) + len(user)) / 4                       # rough token count of what was sent
+        sent = sum(len(x) if isinstance(x, str) else sum(len(b["text"]) for b in x)
+                   for x in (system, user)) / 4                    # rough token count of what was sent
         if u.get("prompt_tokens") and u["prompt_tokens"] < sent * 0.5:
             hint = (" For Ollama, raise the context length (e.g. OLLAMA_CONTEXT_LENGTH=65536) and restart it."
                     if self.provider == "ollama" else " Load the model with a larger context length."
@@ -473,14 +618,56 @@ class OpenAICompatRunner(_RetryingRunner):
         return parse_output(content, usage)
 
     async def models(self) -> list[str]:
-        """The model ids the provider lists (GET /models), for the settings form."""
+        """The model ids the provider lists (GET /models), for the settings form, which also checks the key.
+        OpenRouter lists its models to anyone, so there the key is checked first (GET /key)."""
         try:
+            if self.provider == "openrouter":
+                self.key_works = None                    # this 401 is the answer, not a check of one
+                r = await self.client.get(self.base_url + "/key")
+                if r.status_code >= 400:
+                    raise self._error("models", r)
             r = await self.client.get(self.base_url + "/models")
         except httpx.TransportError as e:
             raise self._unreachable(e) from None
         if r.status_code >= 400:
             raise self._error("models", r)
         return sorted(m["id"] for m in r.json().get("data", []) if m.get("id") and not NOT_CHAT.search(m["id"]))
+
+
+def turned_down(r: httpx.Response, sent: dict) -> list[str]:
+    """Which optional settings sent with a request ("effort", "limit") a 400 or 422 turns down: the ones its message
+    names, else the first sent when it only says something is unsupported (how some servers turn effort down)."""
+    if r.status_code not in (400, 422) or not sent:
+        return []
+    named = [s for s in sent if REJECTS[s].search(r.text)]
+    return named or ([next(iter(sent))] if UNSUPPORTED.search(r.text) else [])
+
+
+def body_error(r: httpx.Response) -> Optional[dict]:
+    """The error a 200 can carry. OpenRouter answers 200 once a provider takes the request, so a later failure
+    comes in the body: a top-level error, or choices[0].error with finish_reason "error"."""
+    if r.status_code != 200:
+        return None
+    try:
+        data = r.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    choice = (data.get("choices") or [{}])[0]
+    choice = choice if isinstance(choice, dict) else {}
+    err = data.get("error") or choice.get("error") or (
+        {"message": "the model stopped with an error"} if choice.get("finish_reason") == "error" else None)
+    if not err:
+        return None
+    return err if isinstance(err, dict) else {"message": str(err)}
+
+
+def usd(x) -> str:
+    try:
+        return f"${float(x):,.2f}"
+    except (TypeError, ValueError):
+        return str(x)
 
 
 def parse_output(text: str, usage: Optional[dict] = None) -> AgentResult:

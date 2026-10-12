@@ -121,6 +121,25 @@ def test_a_job_is_in_progress_while_it_is_tailored(tmp_dirs, monkeypatch):
     assert not [r for r in notion.rows.values() if "_create" in r]     # Notion gets it with the run's scores
 
 
+def test_the_writers_cache_is_warmed_once_before_they_start(tmp_dirs):
+    """The three writers start together, so none could read a cache entry another is still writing: a runner that
+    can warm the cache (the Claude API) gets the writers' shared prefix first."""
+    p, runner, _ = build(tmp_dirs, {}, {})
+    warmed = []
+
+    async def warm(call):
+        warmed.append((call, [x.label for x in runner.calls]))
+    runner.warm = warm
+    asyncio.run(p.tailor_job({"id": "manual", "job_title": TITLE, "company": "Acme", "url": "https://acme.com/jobs/9",
+                              "description": make_job()["description"]}))
+    assert len(warmed) == 1
+    call, before = warmed[0]
+    assert before[-1] == "04-matcher" and not [l for l in before if l.startswith("05-writer")]
+    writer = next(x for x in runner.calls if x.label == "05-writer-A")
+    assert (call.model, call.candidate, call.documents) == (writer.model, writer.candidate, writer.documents)
+    assert call.tail                          # so the shared documents carry their own breakpoint
+
+
 def test_retailoring_archives_web_edit_history(tmp_dirs):
     p, runner, notion = build(tmp_dirs, {}, {})
     job = {"id": "manual", "job_title": TITLE, "company": "Acme", "url": "https://acme.com/jobs/9",

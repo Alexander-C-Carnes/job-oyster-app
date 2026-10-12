@@ -275,6 +275,8 @@ class Config:
     triage_model: ModelCfg = field(default_factory=lambda: ModelCfg(effort="low"))
     analysis_model: ModelCfg = field(default_factory=ModelCfg)
     writer_model: ModelCfg = field(default_factory=lambda: ModelCfg(effort="high"))
+    # The résumé chat (answers and edits): every message is a call, so a mid-priced model.
+    chat_model: ModelCfg = field(default_factory=lambda: ModelCfg(model=CHAT_MODEL, effort="medium"))
     # Re-rating each résumé edit in the chat (live ATS and résumé scores): frequent, so a mid-priced model.
     rescore_model: ModelCfg = field(default_factory=lambda: ModelCfg(model=LIVE_SCORE_MODEL, effort="medium"))
     fallbacks: bool = True
@@ -336,6 +338,7 @@ def _search(raw: dict, defaults: dict) -> Search:
 
 
 LIVE_SCORE_MODEL = "claude-sonnet-5-5"
+CHAT_MODEL = "claude-sonnet-5-5"
 
 
 def rescore_default(backend: str, triage: dict) -> dict:
@@ -344,6 +347,14 @@ def rescore_default(backend: str, triage: dict) -> dict:
     if backend in ("claude-code", "api"):
         return {"model": LIVE_SCORE_MODEL, "effort": "medium"}
     return {"model": triage.get("model") or ModelCfg.model, "effort": triage.get("effort") or "low"}
+
+
+def chat_default(backend: str, writer: dict) -> dict:
+    """The résumé chat's model when searches.yaml names none: Sonnet at medium effort on Claude, else the writing
+    model at medium (another provider has its own names for models)."""
+    if backend in ("claude-code", "api"):
+        return {"model": CHAT_MODEL, "effort": "medium"}
+    return {"model": writer.get("model") or ModelCfg.model, "effort": "medium"}
 
 
 def _model(raw: Optional[dict], default: ModelCfg) -> ModelCfg:
@@ -398,6 +409,8 @@ def load(path: Optional[Path] = None) -> Config:
         triage_model=_model(models.get("triage"), ModelCfg(effort="low")),
         analysis_model=_model(models.get("analysis"), ModelCfg(effort="medium")),
         writer_model=_model(models.get("writer"), ModelCfg(effort="high")),
+        chat_model=_model(models.get("chat"), ModelCfg(**chat_default(
+            models.get("backend", "claude-code"), models.get("writer") or {}))),
         rescore_model=_model(models.get("rescore"), ModelCfg(**rescore_default(
             models.get("backend", "claude-code"), models.get("triage") or {}))),
         fallbacks=bool(models.get("fallbacks", True)),

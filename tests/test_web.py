@@ -1692,7 +1692,13 @@ def test_ai_settings(env, monkeypatch):
     a = c.get("/api/ai", headers=H).json()
     assert a["backend"] == "claude-code" and a["stages"]["writer"] == {"model": "claude-opus-5-5", "effort": "high"}
     assert a["stages"]["rescore"] == {"model": "claude-sonnet-5-5", "effort": "medium"}
+    assert a["stages"]["chat"] == {"model": "claude-sonnet-5-5", "effort": "medium"}       # not the writer's Opus at high
     assert {p["id"] for p in a["providers"]} >= {"claude-code", "api", "openai", "gemini", "ollama"}
+    openrouter = next(p for p in a["providers"] if p["id"] == "openrouter")         # not whatever sorts first
+    assert openrouter["defaults"]["writer"] == "anthropic/claude-opus-5.5"
+    assert openrouter["defaults"]["analysis"] == "anthropic/claude-sonnet-5.5"
+    assert openrouter["defaults"]["chat"] == "anthropic/claude-sonnet-5.5"
+    assert "claude-haiku-5-5" in a["claude_models"]
     assert c.post("/api/ai/models", headers=H, json={"backend": "claude-code"}).json()["models"][0] == "claude-opus-5-5"
     assert c.post("/api/ai/models", headers=H, json={"backend": "openai"}).status_code == 400   # no key yet
 
@@ -1711,6 +1717,9 @@ def test_ai_settings(env, monkeypatch):
     assert config.load(searches).writer_model == config.ModelCfg("gpt-x", "medium")
     # a page without the live-score row: OpenAI has no Sonnet, so it takes the quick-score model
     assert config.load(searches).rescore_model == config.ModelCfg("gpt-x", "medium") == env["cfg"].rescore_model
+    # nor the chat row: OpenAI has no Sonnet, so it takes the writing model, at medium effort
+    assert config.load(searches).chat_model == config.ModelCfg("gpt-x", "medium") == env["cfg"].chat_model
+    assert "chat: {model: gpt-x, effort: medium}" in searches.read_text()
     assert c.get("/api/summary", headers=H).json()["backend_label"] == "ChatGPT (OpenAI API)"
     a = c.put("/api/ai", headers=H, json={"backend": "ollama", "base_url": "http://127.0.0.1:11434/v1", "stages": stages}).json()
     assert a["base_url"] == "http://127.0.0.1:11434/v1" and "OPENAI_API_KEY=sk-new" in (config.PROFILE / ".env").read_text()
@@ -1719,6 +1728,38 @@ def test_ai_settings(env, monkeypatch):
     assert a["saved"]["claude-code"]["stages"]["writer"] == {"model": "claude-opus-5-5", "effort": "high"}
     assert a["saved"]["ollama"]["base_url"] == "http://127.0.0.1:11434/v1"
     assert any(p["id"] == "kimi" and p["key_env"] == "MOONSHOT_API_KEY" for p in a["providers"])
+
+
+def test_the_chat_has_its_own_model_and_a_message_can_still_pick_another(env, monkeypatch):
+    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "MOONSHOT_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(k, raising=False)                    # only Claude in the menu: no provider is asked
+    c, runner = env["client"], env["runner"]
+    chats = lambda: [x for x in runner.calls if x.label == "resume-edit"]
+    m = c.get("/api/ai/chat-models", headers=H).json()
+    assert m["default"] == {"backend": "claude-code", "model": "claude-sonnet-5-5"}
+    assert m["groups"][0]["models"][:2] == ["claude-sonnet-5-5", "claude-opus-5-5"]     # the chat's, then the writer's
+    c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "What's weakest?"})
+    assert chats()[-1].model == config.ModelCfg("claude-sonnet-5-5", "medium")
+    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "And the skills?", "backend": "claude-code",
+                                                      "model": "claude-opus-5-5"}).json()
+    assert chats()[-1].model == config.ModelCfg("claude-opus-5-5", "medium")             # the menu's pick, the chat's effort
+    assert r["chat"][-1]["via"].endswith("claude-opus-5-5")
+
+    stages = c.get("/api/ai", headers=H).json()["stages"]                            # set on the Profile tab
+    a = c.put("/api/ai", headers=H, json={"backend": "claude-code",
+                                          "stages": {**stages, "chat": {"model": "claude-haiku-5-5", "effort": "low"}}})
+    assert a.status_code == 200 and "chat: {model: claude-haiku-5-5, effort: low}" in env["searches"].read_text()
+    c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Too long?"})
+    assert chats()[-1].model == config.ModelCfg("claude-haiku-5-5", "low")
+    assert c.get("/api/ai/chat-models", headers=H).json()["default"]["model"] == "claude-haiku-5-5"
+    assert config.load(env["searches"]).writer_model == config.ModelCfg("claude-opus-5-5", "high")   # writing unchanged
+
+    # a profile saved before the chat had its own model: Sonnet on Claude, the writing model elsewhere
+    text = env["searches"].read_text()
+    env["searches"].write_text("\n".join(l for l in text.splitlines() if not l.lstrip().startswith("chat:")) + "\n")
+    assert config.load(env["searches"]).chat_model == config.ModelCfg("claude-sonnet-5-5", "medium")
+    assert c.get("/api/ai", headers=H).json()["stages"]["chat"] == {"model": "claude-sonnet-5-5", "effort": "medium"}
+    assert config.chat_default("kimi", {"model": "kimi-k3"}) == {"model": "kimi-k3", "effort": "medium"}
 
 
 def test_claude_sign_in_helper(env, monkeypatch):
