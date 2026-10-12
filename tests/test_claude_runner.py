@@ -156,6 +156,20 @@ def test_retries_once_on_missing_file_then_fails():
     assert "previous attempt had these problems" in seen[1][1]["messages"][0]["content"][-1]["text"]
 
 
+def test_a_chat_reply_written_as_plain_prose_counts_as_its_file():
+    runner, seen = runner_with([("Here's a draft you can paste in.\n\n> I ran onboarding.", "end_turn")])
+    res = asyncio.run(runner.run(call(expect=["reply.md"], prose_file="reply.md")))
+    assert res.files["reply.md"] == "Here's a draft you can paste in.\n\n> I ran onboarding.\n" and len(seen) == 1
+    edit = '<file name="resume-edited.md">\n# R\n</file>\nTightened the summary.'
+    runner, _ = runner_with([(edit, "end_turn")])
+    res = asyncio.run(runner.run(call(expect=["reply.md"], prose_file="reply.md")))
+    assert res.files == {"resume-edited.md": "# R\n", "reply.md": "Tightened the summary.\n"}
+    runner, seen = runner_with([("", "end_turn")])        # no prose either: retried, then an error
+    with pytest.raises(AgentError, match="missing file reply.md"):
+        asyncio.run(runner.run(call(expect=["reply.md"], prose_file="reply.md")))
+    assert len(seen) == 2
+
+
 def test_refusal_and_max_tokens_raise():
     for stop in ("refusal", "max_tokens"):
         runner, _ = runner_with([("x", stop)])

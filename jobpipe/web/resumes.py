@@ -375,7 +375,7 @@ class ResumeWorkspace:
         chat_runner, model, via = chat or (runner, cfg.chat_model, "")
         call = AgentCall(label="resume-edit", model=model,
                          instructions=cand.personalize(EDIT_BRIEF) + "\n" + formats.length_rules(target),
-                         documents=docs, expect=["reply.md"], tail=tail)
+                         documents=docs, expect=["reply.md"], tail=tail, prose_file="reply.md")
         # The message is kept before Claude answers, so a page reloaded meanwhile still shows it.
         self._say("user", instruction)
         try:

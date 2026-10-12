@@ -725,6 +725,7 @@ def test_chat_answers_questions_and_remembers_the_conversation(env):
     assert [m["role"] for m in r["chat"]] == ["user", "claude"] and "<p>" in r["chat"][1]["html"]
     assert c.get("/api/jobs/j1/edit", headers=H).json()["proposal"] is None    # a question makes no edit
     assert "first message)" in runner.calls[0].tail and runner.calls[0].expect == ["reply.md"]
+    assert runner.calls[0].prose_file == "reply.md"           # an answer without its file block still counts
 
     r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Yes, tighten it"}).json()
     assert r["proposal"]["instruction"] == "Yes, tighten it" and r["chat"][-1]["proposal"] is True

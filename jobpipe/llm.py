@@ -102,6 +102,7 @@ class AgentCall:
     candidate: bool = True                 # include the cached candidate materials
     tail: str = ""                         # per-call text after the shared documents (e.g. writer lens)
     run_dir: Optional[Path] = None
+    prose_file: str = ""                   # an expected file that the agent's prose outside file blocks can stand in for
 
 
 @dataclass
@@ -130,12 +131,12 @@ class _RetryingRunner:
         raise NotImplementedError
 
     async def run(self, call: AgentCall) -> AgentResult:
-        result = await self._once(call)
+        result = prose_as_file(call, await self._once(call))
         problems = validate(result, call.expect)
         if problems:
             note = ("Your previous attempt had these problems: " + "; ".join(problems)
                     + ". Produce every expected file again, complete and valid.")
-            result = await self._once(call, note)
+            result = prose_as_file(call, await self._once(call, note))
             problems = validate(result, call.expect)
             if problems:
                 raise AgentError(f"{call.label}: " + "; ".join(problems))
@@ -674,6 +675,14 @@ def parse_output(text: str, usage: Optional[dict] = None) -> AgentResult:
     files = {name.strip(): body.strip() + "\n" for name, body in FILE_RE.findall(text)}
     summary = FILE_RE.sub("", text).strip()
     return AgentResult(files=files, summary=summary, usage=usage or {})
+
+
+def prose_as_file(call: AgentCall, result: AgentResult) -> AgentResult:
+    """A chat reply written as plain prose, without its <file> block, still counts as that file: asked
+    for something conversational (a question to answer, a line to explain), a model often just answers."""
+    if call.prose_file and call.prose_file not in result.files and result.summary.strip():
+        result.files[call.prose_file] = result.summary.strip() + "\n"
+    return result
 
 
 def validate(result: AgentResult, expect: list[str]) -> list[str]:
