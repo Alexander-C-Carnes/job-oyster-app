@@ -438,3 +438,8 @@ html[data-theme="bauhaus"] .dash-table th { border-bottom: var(--rule); color: v
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="bauhaus"] .cat-bauhaus .tail, html[data-theme="bauhaus"] .cat-bauhaus .body { animation: none; }
 }
+
+/* the divider between the résumé PDF and the chat: a black bar that turns yellow when you take it */
+html[data-theme="bauhaus"] .split-handle::before { border-radius: 0; border: var(--rule); background: var(--white); }
+html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::before { background: var(--yellow); border-color: var(--black); }
+html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::after { background: var(--black); }

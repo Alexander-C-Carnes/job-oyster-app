@@ -459,7 +459,17 @@ html[data-theme] .fit.run-ring { border: 0; box-shadow: none; background: var(--
 .score-foot .muted { flex: 1; min-width: 240px; }
 
 /* résumé workspace */
-.resume { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(360px, 1fr); flex: 1; min-height: 0; }
+.resume { display: grid; grid-template-columns: minmax(0, var(--pdf-fr, 1.1fr)) auto minmax(320px, var(--edit-fr, 1fr)); flex: 1; min-height: 0; }
+/* the divider: no width of its own (it straddles the PDF pane's border), a grip in the middle */
+.split-handle { position: relative; z-index: 2; width: 12px; margin: 0 -6px; cursor: col-resize; touch-action: none; outline: none; }
+.split-handle::after { content: ""; position: absolute; inset: 0 5px; transition: background-color .15s; }
+.split-handle::before { content: ""; position: absolute; top: 50%; left: 3px; width: 6px; height: 40px; margin-top: -20px; border-radius: 3px;
+                        background: var(--panel); border: 1px solid var(--line); box-sizing: border-box; transition: background-color .15s, border-color .15s; }
+.split-handle:hover::after, .split-handle:focus-visible::after, .resume.dragging .split-handle::after { background: var(--link); }
+.split-handle:hover::before, .split-handle:focus-visible::before, .resume.dragging .split-handle::before { background: var(--link); border-color: var(--link); }
+.resume.dragging { cursor: col-resize; user-select: none; }
+.resume.dragging iframe { pointer-events: none; }
+.sent-edits { white-space: normal; }
 .pdfpane { display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
 .pdfbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .pdfbar select { width: auto; }
@@ -851,6 +861,7 @@ dialog h2 + p { margin: -6px 0 12px; }
   .stage-wrap { flex-basis: 100%; }
   .stage .l { font-size: 11px; }
   .resume { grid-template-columns: 1fr; }
+  .split-handle { display: none; }
   .posting-split { display: flex; flex-direction: column; overflow: auto; }
   .posting-pane, .score-pane { overflow: visible; border-right: 0; }
   .score-pane { order: -1; border-bottom: 1px solid var(--line); }

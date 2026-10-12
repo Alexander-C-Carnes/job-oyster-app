@@ -126,7 +126,7 @@ const prefs = (() => {
   try { return JSON.parse(localStorage.getItem("jobpipe-ui") || "{}"); } catch (_) { return {}; }
 })();
 function savePrefs() {
-  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend })); }
+  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split })); }
   catch (_) { /* optional */ }
 }
 const S = { jobs: [], byId: new Map(), etag: null, notion: false, syncing: false, notionError: "",
@@ -141,6 +141,7 @@ const S = { jobs: [], byId: new Map(), etag: null, notion: false, syncing: false
             summary: null, searches: [], defaults: {}, picked: null, runId: null, runSince: 0, tab: "tracker",
             dashRange: ["14", "30", "all"].includes(prefs.dashRange) ? prefs.dashRange : "30",
             trend: ["ats", "keywords", "skills", "experience"].includes(prefs.trend) ? prefs.trend : "ats",
+            split: prefs.split > 0.1 && prefs.split < 0.9 ? prefs.split : null,    // the PDF's share of the résumé workspace
             docViews: Object.fromEntries(["impact", "prep"].map((k) => {
               const v = prefs.docViews?.[k] ?? (k === "impact" ? prefs.impactView : null);   // impactView: before Interview prep
               return [k, ["formatted", "edit", "split"].includes(v) ? v : "formatted"];
@@ -1466,8 +1467,9 @@ async function renderSent(j, panel) {
   });
   const upload = (label, cls = "ghost") => h("button", { class: cls, onclick: () => file.click() }, label);
   const useCurrent = o.current_version && h("button", { class: o.sent ? "ghost" : "primary", onclick: async () => {
-    try { await post(`/api/jobs/${id}/sent/current`); done(`Saved v${o.current_version} as the résumé sent.`); }
-    catch (e) { toast(e.message, true); } } }, `Use the app's résumé (v${o.current_version})`);
+    try { await post(`/api/jobs/${id}/sent/current`); SENT_VIEW.delete(j.id); done(`Saved v${o.current_version} as the résumé sent.`); }
+    catch (e) { toast(e.message, true); } } },
+    o.sent?.source === "app" ? `Save v${o.current_version} as the résumé sent` : `Use the app's résumé (v${o.current_version})`);
   if (!o.sent) {
     panel.replaceChildren(h("div", { class: "pad" }, h("div", { class: "notice" },
       h("h3", {}, "No résumé on file for this application"),
@@ -1483,12 +1485,34 @@ async function renderSent(j, panel) {
     if (!confirm("Remove the copy kept here? Notion's Resume Used isn't changed.")) return;
     try { await api(`/api/jobs/${id}/sent`, { method: "DELETE" }); done("Removed."); }
     catch (e) { toast(e.message, true); } } }, "Remove");
-  panel.replaceChildren(h("div", { class: "outside" },
-    h("div", { class: "outside-bar" },
-      h("span", {}, h("b", {}, x.name), h("span", { class: "muted" }, ` · ${SENT_SOURCE[x.source](x)}${where}`)),
-      h("a", { href: src, target: "_blank" }, "Open PDF ↗"),
-      upload("Replace…"), x.source !== "app" && useCurrent, forget, file),
-    h("iframe", { class: "sent-pdf", src, title: "The résumé sent" })));
+  // Beside it, the résumé the app can edit for this role (its own, or the one made outside the app that it
+  // shows), with the chat and Edit on page as on the Résumé tab. An edit is a new version of that résumé:
+  // the copy on file stays as it was sent until you save the new version as the one sent.
+  let r = null, d = S.details.get(j.id)?.d;
+  if (o.current_version) {
+    if (j.local && j.tailored && d?.resume) r = d.resume;
+    else {
+      try { r = (await api(`/api/jobs/${id}/outside-resume`)).resume; } catch { r = null; }
+      if (S.selected !== j.id || !panel.isConnected) return;
+      if (r) { d = { id: j.id, resume: r }; chatFromServer(j.id, r.chat, r.chat_busy); }
+    }
+  }
+  const sentN = x.source === "app" && /^v\d+$/.test(x.note || "") ? Number(x.note.slice(1)) : null;
+  const same = sentN != null && sentN === o.current_version;
+  const bar = h("div", { class: "outside-bar" },
+    h("span", {}, h("b", {}, x.name), h("span", { class: "muted" }, ` · ${SENT_SOURCE[x.source](x)}${where}`),
+      r && !same && h("span", { class: "muted sent-edits" }, ` · Edits go to the app's résumé, now v${o.current_version}; this copy stays as sent.`),
+      !r && h("span", { class: "muted sent-edits" }, " · To edit it here, the app needs the résumé's text: make one or pick one in the Résumé tab.")),
+    !r && h("a", { href: src, target: "_blank" }, "Open PDF ↗"),
+    upload("Replace…"), !same && useCurrent, forget, file);
+  if (!r) {
+    panel.replaceChildren(h("div", { class: "outside" }, bar, h("iframe", { class: "sent-pdf", src, title: "The résumé sent" })));
+    return;
+  }
+  const label = `As sent${sentN ? ` (v${sentN})` : x.source === "upload" ? " (your upload)" : " (from Notion)"}`;
+  const wrap = h("div", { class: "outside" }, bar);
+  panel.replaceChildren(wrap);
+  renderResume(d, wrap, { src, label, n: sentN });
 }
 
 // A résumé made outside the app (the resume-job-fit skill's run folder, or a saved résumé in
@@ -1760,20 +1784,76 @@ const chatModelOf = (sel) => {
 };
 const chatModelName = (sel) => (sel.selectedOptions[0]?.textContent || "").split(" · ")[0] || "The AI";
 
-function renderResume(d, panel) {
+// The line between the PDF and the chat: drag it (or focus it and use ← →) to give either side the room;
+// a double-click puts it back. The PDF's share is kept for every role, in this browser.
+function splitHandle(grid) {
+  const MIN_PDF = 280, MIN_EDIT = 320;
+  const handle = h("div", { class: "split-handle", role: "separator", tabindex: "0", "aria-orientation": "vertical",
+    "aria-label": "Resize the PDF and the chat", title: "Drag to resize the PDF and the chat. Double-click puts it back." });
+  const apply = (f) => {
+    const w = grid.clientWidth;
+    if (f != null && w) f = Math.min(1 - MIN_EDIT / w, Math.max(MIN_PDF / w, f));
+    S.split = f;
+    grid.style.setProperty("--pdf-fr", f == null ? "" : `${f.toFixed(4)}fr`);
+    grid.style.setProperty("--edit-fr", f == null ? "" : `${(1 - f).toFixed(4)}fr`);
+  };
+  const share = () => grid.firstElementChild.getBoundingClientRect().width / (grid.clientWidth || 1);
+  if (S.split != null) apply(S.split);
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    grid.classList.add("dragging");            // the PDFs stop taking the pointer while it moves over them
+    const box = grid.getBoundingClientRect();
+    const move = (ev) => apply((ev.clientX - box.left) / box.width);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("lostpointercapture", () => {
+      handle.removeEventListener("pointermove", move);
+      grid.classList.remove("dragging");
+      savePrefs();
+    }, { once: true });
+  });
+  handle.addEventListener("dblclick", () => { apply(null); savePrefs(); });
+  handle.addEventListener("keydown", (e) => {
+    const step = { ArrowLeft: -0.03, ArrowRight: 0.03 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    apply(share() + step);
+    savePrefs();
+  });
+  return handle;
+}
+
+// Which PDF the Sent résumé tab shows for a role: the copy on file ("sent"), or after an edit made there, the
+// app's newest version ("current"), so the change is what you see when the tab redraws.
+const SENT_VIEW = new Map();
+// sent: on the Sent résumé tab, the copy on file ({src, label, n: the app's version it is, if it is one}),
+// shown first and kept in the version menu. Editing there works on the current version, as on the Résumé tab.
+function renderResume(d, panel, sent = null) {
   const r = d.resume;
   const id = encodeURIComponent(d.id);
-  const versionSel = h("select", {}, ...r.versions.slice().reverse().map((v) =>
-    h("option", { value: v.n, selected: v.n === r.current }, `v${v.n}${v.n === r.current ? " (current)" : ""}`)));
-  const frame = h("iframe", { src: resumeUrl(id, r.current, r), title: "Résumé PDF" });
-  versionSel.addEventListener("change", () => { pdf.single(); frame.src = resumeUrl(id, versionSel.value, r); });
-  const pdfLink = h("a", { href: resumeUrl(id, r.current, r), target: "_blank" }, "Open PDF ↗");
+  const urlOf = (v) => (v === "sent" ? sent.src : resumeUrl(id, v, r));
+  const first = sent && SENT_VIEW.get(d.id) !== "current" ? "sent" : r.current;
+  const toCurrent = () => { if (sent) SENT_VIEW.set(d.id, "current"); };
+  const versionSel = h("select", { "aria-label": "Version to show" },
+    sent && h("option", { value: "sent", selected: first === "sent" }, sent.label),
+    ...r.versions.slice().reverse().map((v) => {
+      const tags = [v.n === r.current && "current", v.n === sent?.n && "sent"].filter(Boolean).join(", ");
+      return h("option", { value: v.n, selected: v.n === first }, `v${v.n}${tags ? ` (${tags})` : ""}`);
+    }));
+  const frame = h("iframe", { src: urlOf(first), title: "Résumé PDF" });
+  const pdfLink = h("a", { href: urlOf(first), target: "_blank" }, "Open PDF ↗");
+  versionSel.addEventListener("change", () => {
+    pdf.single();
+    frame.src = pdfLink.href = urlOf(versionSel.value);
+    if (sent) SENT_VIEW.set(d.id, versionSel.value === "sent" ? "sent" : "current");
+  });
   const editBtn = h("button", { class: "ghost small", title: "Change the wording yourself, right on the page" }, "Edit on page");
   const fmtNote = formatNote(d, r, (text, fmt) => { instr.value = chat.draft = text; send(fmt); });
   const pdfbar = h("div", { class: "pdfbar" }, "Version", versionSel, pdfLink, h("span", { class: "grow" }), editBtn);
   const pdfpane = h("div", { class: "pdfpane" }, pdfbar, fmtNote, frame);
   const pdf = sideBySide(d, r, pdfpane);
-  editBtn.addEventListener("click", () => { pdf.single(); openPageEditor(d, pdfpane); });
+  editBtn.addEventListener("click", () => { pdf.single(); toCurrent(); openPageEditor(d, pdfpane); });
 
   const editpane = h("div", { class: "editpane" });
   const cur = r.versions.find((v) => v.n === r.current);
@@ -1802,7 +1882,9 @@ function renderResume(d, panel) {
   const readOnly = r.editable === false && h("div", { class: "card" }, h("h3", {}, "Chat with Claude isn't available"),
     h("p", { class: "muted" }, "This résumé was saved without its posting and match brief, which Claude needs to check edits against. Use Make résumé in the app to get a copy Claude can edit. You can still change the wording yourself: Edit on page, above the PDF."));
   editpane.append(readOnly || askCard, proposalBox, metrics, ...versionCards(d, r, pdf, ask));
-  panel.append(h("div", { class: "resume" }, pdfpane, editpane));
+  const grid = h("div", { class: "resume" }, pdfpane);
+  grid.append(splitHandle(grid), editpane);
+  panel.append(grid);
 
   const starters = ["What's the weakest part of this résumé for this role?", "What would a recruiter question here?",
                     "Which posting keywords am I missing?"];
@@ -1827,6 +1909,7 @@ function renderResume(d, panel) {
   };
   const showProposal = (p) => {
     pdf.single();
+    toCurrent();
     renderProposal(d, p, proposalBox, frame, cur);
     proposalBox.scrollIntoView({ block: "start" });
   };
@@ -1871,7 +1954,7 @@ function renderResume(d, panel) {
     try { chat.msgs = (await post(`/api/jobs/${id}/chat/clear`)).chat; paint(); }
     catch (e) { toast(e.message, true); }
   });
-  if (r.proposal) api(`/api/jobs/${id}/edit`).then((res) => { if (res.proposal) { pdf.single(); renderProposal(d, res.proposal, proposalBox, frame, cur); } });
+  if (r.proposal) api(`/api/jobs/${id}/edit`).then((res) => { if (res.proposal) { pdf.single(); toCurrent(); renderProposal(d, res.proposal, proposalBox, frame, cur); } });
   paint();
 }
 

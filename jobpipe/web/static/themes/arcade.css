@@ -454,3 +454,8 @@ html[data-theme="arcade"] .stage[data-kind="path"] .l { order: 2; font-size: 13p
 }
 html[data-theme="arcade"] .tabs { gap: 2px; } html[data-theme="arcade"] .tab-sep { background: var(--ink); opacity: .35; }
 html[data-theme="arcade"] #backend { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+
+/* the divider between the résumé PDF and the chat: a pixel block that lights up green */
+html[data-theme="arcade"] .split-handle::before { border-radius: 0; border: var(--px) solid var(--ink); background: var(--panel); }
+html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::before { background: var(--green); border-color: var(--ink); }
+html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::after { background: var(--ink); }
