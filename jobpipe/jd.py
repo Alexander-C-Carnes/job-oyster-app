@@ -352,12 +352,13 @@ def description(job: dict, fetch: bool = True) -> tuple[str, str]:
         return api_text, "pasted from the posting by you"
     if "<" in api_text and ">" in api_text:
         api_text = html_to_text(api_text)
+    listing = f"{job.get('source') or 'JobsPipe'} description"
     if len(api_text) >= MIN_DESCRIPTION_CHARS or not fetch:
-        return api_text, "JobsPipe description"
+        return api_text, listing
     page = fetch_posting_text(posting_url(job))
     if len(page) > len(api_text):
         return page, "employer posting page"
-    return api_text, "JobsPipe description"
+    return api_text, listing
 
 
 def build_jd(job: dict, fetch: bool = True) -> tuple[str, bool]:
@@ -371,7 +372,7 @@ def build_jd(job: dict, fetch: bool = True) -> tuple[str, bool]:
         "",
         f"# {job.get('job_title', '').strip()} — {job.get('company') or 'Company not stated'}",
         "",
-        "Listing metadata (from JobsPipe, not the posting text):",
+        f"Listing metadata (from {job.get('source') or 'JobsPipe'}, not the posting text):",
         f"- Location: {job.get('location') or job.get('long_location') or 'Not stated'}",
         f"- Work arrangement: {work_mode(job)}",
         f"- Pay: {salary_text(job)}",

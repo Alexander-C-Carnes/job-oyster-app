@@ -115,7 +115,11 @@ class FakeWeb:
                 return httpx.Response(200, json=meta) if meta else httpx.Response(404)
             jobs = self.greenhouse_jobs.get(board)
             return httpx.Response(200, json=jobs) if jobs else httpx.Response(404)
-        if host in ("api.lever.co", "api.ashbyhq.com"):
+        if host == "api.eu.lever.co" and "/postings/nordwind" in url:
+            return httpx.Response(200, json=[{"id": "e1", "text": "Engineering Manager, Platform", "hostedUrl": "https://jobs.eu.lever.co/nordwind/e1",
+                                              "categories": {"location": "Berlin, Germany"}, "workplaceType": "remote",
+                                              "descriptionPlain": "x", "createdAt": 1791700000000}])
+        if host in ("api.lever.co", "api.eu.lever.co", "api.ashbyhq.com"):
             return httpx.Response(404)
         if host == "www.tryfundable.ai":
             return httpx.Response(200, json={"name": "Gamma", "latest_deal": {"type": "SERIES_C", "total_round_raised": 40000000, "date": "2026-03-01T00:00:00Z"},
@@ -281,6 +285,16 @@ def test_scan_reads_boards_and_adds_matching_roles_to_find_jobs(tmp_dirs, client
     assert store.get("omega")["no_board_at"] and counts["boards"] == 0 and su.scan_candidates(store, 10) == []
     # the list puts raises first, newest first, then the startups with no round
     assert [s["id"] for s in store.list()][:3] == ["acme", "gamma", "no-site"] or [s["id"] for s in store.list()][:2] == ["acme", "gamma"]
+
+
+def test_lever_eu_boards_are_found_and_read(client):
+    # Lever's EU host: linked from a careers page, or guessed when the US host has no such board
+    assert su.boards_in('<a href="https://jobs.eu.lever.co/nordwind">Jobs</a>') == [su.Board("lever-eu", "nordwind")]
+    assert su.boards_in('<a href="https://jobs.lever.co/acme">Jobs</a>') == [su.Board("lever", "acme")]
+    assert su.Board("lever-eu", "nordwind").url == "https://jobs.eu.lever.co/nordwind"
+    jobs = su.board_jobs(su.Board("lever-eu", "nordwind"), client)
+    assert [(j["title"], j["remote"], j["location"]) for j in jobs] == [("Engineering Manager, Platform", True, "Berlin, Germany")]
+    assert su.find_board("", "Nordwind", client)[0] == su.Board("lever-eu", "nordwind")
 
 
 def test_a_guessed_board_must_be_the_companys_own(client, web):

@@ -9,7 +9,7 @@ Optional, with a key in .env: Fundable (FUNDABLE_API_KEY) or People Data Labs (P
 lookups, which give the latest round of a company the news didn't cover.
 
 Each startup is kept in data/startups.json, merged across sources by its name (and website).
-Open roles come from the company's own careers board (Greenhouse, Lever or Ashby public APIs),
+Open roles come from the company's own careers board (Greenhouse, Lever (US or EU host) or Ashby public APIs),
 found from its website, so they cost no JobsPipe credits. A role added from here is stored like
 any other job, with a `funding` block the board shows as a round chip.
 """
@@ -763,6 +763,7 @@ def enrich(s: dict, keys: dict[str, str], client: Optional[httpx.Client] = None)
 ATS_RE = {
     "greenhouse": re.compile(r"(?:boards|job-boards)\.greenhouse\.io/(?:embed/job_board\?for=)?([A-Za-z0-9_-]+)|greenhouse\.io/embed/job_board\?for=([A-Za-z0-9_-]+)"),
     "lever": re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)"),
+    "lever-eu": re.compile(r"jobs\.eu\.lever\.co/([A-Za-z0-9_-]+)"),      # Lever's EU host: many European companies
     "ashby": re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)|api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9_.-]+)"),
 }
 CAREERS_PATHS = ("/careers", "/jobs", "/careers/", "/jobs/", "/join", "/join-us", "/company/careers", "/about/careers", "/en/careers")
@@ -776,6 +777,7 @@ class Board:
     @property
     def url(self) -> str:
         return {"greenhouse": f"https://boards.greenhouse.io/{self.board}", "lever": f"https://jobs.lever.co/{self.board}",
+                "lever-eu": f"https://jobs.eu.lever.co/{self.board}",
                 "ashby": f"https://jobs.ashbyhq.com/{self.board}"}[self.kind]
 
 
@@ -790,8 +792,9 @@ def board_jobs(b: Board, client: httpx.Client) -> Optional[list[dict]]:
                      "remote": "remote" in ((j.get("location") or {}).get("name") or "").lower(),
                      "description": html_to_text(html.unescape(j.get("content") or "")), "posted": (j.get("updated_at") or "")[:10],
                      "id": str(j.get("id") or "")} for j in r.json().get("jobs") or []]
-        if b.kind == "lever":
-            r = client.get(f"https://api.lever.co/v0/postings/{b.board}", params={"mode": "json"})
+        if b.kind in ("lever", "lever-eu"):
+            host = "api.eu.lever.co" if b.kind == "lever-eu" else "api.lever.co"
+            r = client.get(f"https://{host}/v0/postings/{b.board}", params={"mode": "json"})
             if r.status_code != 200 or not isinstance(r.json(), list):
                 return None
             out = []
@@ -871,10 +874,10 @@ def find_board(website: str, name: str, client: httpx.Client, log: Callable[[str
         if g and len(g) >= 4 and g not in guesses:     # "flow" or "step" would hit some other company's board
             guesses.append(g)
     for g in guesses:
-        for kind in ("greenhouse", "lever", "ashby"):
+        for kind in ("greenhouse", "lever", "lever-eu", "ashby"):
             b = Board(kind, g)
             jobs = board_jobs(b, client)
-            if jobs is None or (not jobs and kind == "lever") or len(jobs) > GUESSED_BOARD_MAX_JOBS:
+            if jobs is None or (not jobs and kind.startswith("lever")) or len(jobs) > GUESSED_BOARD_MAX_JOBS:
                 continue
             if kind == "greenhouse" and not _greenhouse_board_is(b, name, client):
                 continue

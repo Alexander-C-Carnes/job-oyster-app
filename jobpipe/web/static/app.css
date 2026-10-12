@@ -54,6 +54,7 @@
 [data-round="Unknown"] { --r: var(--rd-unknown); }
 .tag.round-tag { color: var(--r); border-color: color-mix(in srgb, var(--r) 45%, var(--line)); background: color-mix(in srgb, var(--r) 9%, var(--panel)); font-weight: 600; }
 .tag.round-tag b { font-weight: 400; color: var(--muted); }
+.tag.source-tag { color: var(--muted); font-style: italic; }
 .chip.round-chip[aria-pressed="false"] { color: var(--r); border-color: color-mix(in srgb, var(--r) 40%, var(--line)); }
 .chip.round-chip[aria-pressed="true"] { background: var(--r); border-color: var(--r); color: var(--panel); }
 .chips.rounds { flex-wrap: wrap; }

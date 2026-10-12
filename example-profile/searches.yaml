@@ -70,6 +70,8 @@ pipeline:
   # Salary floor enforced locally too. Jobs that do not state pay are kept and
   # flagged, since JobsPipe may still have matched them on a parsed salary.
   enforce_min_salary: true
+  # Also search Himalayas (himalayas.app), a free remote-jobs board, for each remote filter. No key, no credits.
+  himalayas: true
 
 notion:
   # Copy tracked jobs to a Notion database (docs/setup-from-code.md: "Set up the Notion tracker"). Off until you set it up;

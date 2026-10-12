@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from . import config
 from .config import Config, Search
+from .himalayas import Himalayas
 from .jd import build_jd, posting_url
 from .jobs_api import BudgetExhausted, JobsClient, post_filter, salary_text, work_mode
 from .llm import PROVIDERS, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner, Runner
@@ -165,11 +166,13 @@ def digest(cands: list[Candidate], credits_spent: int, out_dir: Path, today: str
 class Pipeline:
     def __init__(self, cfg: Config, *, store: Optional[Store] = None, jobs: Optional[JobsClient] = None,
                  runner: Optional[Runner] = None, tracker: Optional[NotionTracker | LocalTracker] = None,
-                 use_notion: bool = True, log: Callable[[str], None] = print, fetch_pages: bool = True):
+                 use_notion: bool = True, log: Callable[[str], None] = print, fetch_pages: bool = True,
+                 himalayas: Optional[Himalayas] = None):
         self.cfg = cfg
         self.log = log
         self.store = store or Store()
         self.jobs = jobs or JobsClient(cfg, self.store)
+        self.himalayas = himalayas or (Himalayas(log=log) if cfg.himalayas else None)
         self.runner = runner or make_runner(cfg)
         if isinstance(tracker, NotionTracker):      # a bare Notion client: give it the local tracker in front
             tracker = LocalTracker(self.store.root / "tracker.db", notion=tracker)
@@ -183,19 +186,24 @@ class Pipeline:
     def search(self, searches: list[Search]) -> tuple[list[Candidate], list[str]]:
         cands: dict[str, Candidate] = {}
         skipped: list[str] = []
+        out_of_credits = False
         for s in searches:
-            try:
-                res = self.jobs.run(s)
-            except BudgetExhausted as e:
-                skipped.append(f"{s.id}: {e}")
-                break
-            charged = res.credits_charged if res.credits_charged is not None else len(res.jobs)
-            self.log(f"{s.id}: {len(res.jobs)} jobs"
-                     + (f" of {res.total_results}" if res.total_results is not None else "")
-                     + f", {charged} credit(s)" + (f" ({res.skipped_reason})" if res.skipped_reason else ""))
-            if res.skipped_reason and not res.jobs:
-                skipped.append(f"{s.id}: {res.skipped_reason}")
-            for job in res.jobs:
+            found = self._himalayas(s)
+            if not out_of_credits:
+                try:
+                    res = self.jobs.run(s)
+                except BudgetExhausted as e:
+                    skipped.append(f"{s.id}: {e}")
+                    out_of_credits = True       # Himalayas is free: the other filters still ask it
+                else:
+                    charged = res.credits_charged if res.credits_charged is not None else len(res.jobs)
+                    self.log(f"{s.id}: {len(res.jobs)} jobs"
+                             + (f" of {res.total_results}" if res.total_results is not None else "")
+                             + f", {charged} credit(s)" + (f" ({res.skipped_reason})" if res.skipped_reason else ""))
+                    if res.skipped_reason and not res.jobs:
+                        skipped.append(f"{s.id}: {res.skipped_reason}")
+                    found = res.jobs + found
+            for job in found:
                 keep, flags = post_filter(job, s, self.cfg.enforce_min_salary)
                 jid = str(job["id"])
                 if not keep:
@@ -203,6 +211,20 @@ class Pipeline:
                 elif jid not in cands:
                     cands[jid] = Candidate(job, s.id, flags)
         return list(cands.values()), skipped
+
+    def _himalayas(self, s: Search) -> list[dict]:
+        """This filter's jobs on Himalayas (free), stored like JobsPipe's. A job JobsPipe already stored keeps its data."""
+        if not self.himalayas:
+            return []
+        jobs = []
+        for job in self.himalayas.search(s):
+            old = self.store.job(job["id"])
+            job = {**job, **old} if old else job
+            self.store.save_job(job, s.id)
+            jobs.append(job)
+        if jobs or not self.himalayas.limited:
+            self.log(f"{s.id}: {len(jobs)} job(s) on Himalayas (free)")
+        return jobs
 
     def drop_known(self, cands: list[Candidate], retriage: bool) -> tuple[list[Candidate], list[str]]:
         state = self.store.state()

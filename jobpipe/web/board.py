@@ -238,7 +238,8 @@ class JobBoard:
                 "location": job.get("location") or "", "mode": "Remote" if remote else "Hybrid" if mode == "Remote" else mode,
                 "remote": remote, "pay": salary_text(job),
                 "url": posting_url(job), "posted": job.get("date_posted") or "",
-                "company_domain": job.get("company_domain") or "", "funding": job.get("funding")}
+                "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
+                "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else "")}
         self._jobs[jid] = (mtime, slim)
         return slim
 
@@ -262,7 +263,7 @@ class JobBoard:
             out.append({
                 "id": jid, "title": job["title"] or st.get("exact_title") or "", "company": job["company"],
                 "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"],
-                "url": job["url"], "funding": self._funding(job),
+                "url": job["url"], "source": job.get("source", ""), "funding": self._funding(job),
                 "fit": tri.get("fit_score") if tri else None, "one_line": tri.get("one_line", ""),
                 "searches": st.get("searches", []), "tailored": bool(st.get("run_dir")),
                 "impact_score": st.get("impact_score"), "resume_score": st.get("resume_score"),

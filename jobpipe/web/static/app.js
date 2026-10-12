@@ -346,7 +346,7 @@ function stageCounts() {
            applied: n("Applied"), done: n("Done"), denied: n("Denied"), interviewing: n("Interviewing"), offer: n("Offer") };
 }
 function indexJob(j) {
-  j._hay = [j.title, j.company, j.location, j.mode, j.status, j.one_line, j.referral_name, j.referral_url, j.referral_note, j.funding?.line, j.funding?.stage, ...j.searches].join(" ").toLowerCase();
+  j._hay = [j.title, j.company, j.location, j.mode, j.status, j.one_line, j.referral_name, j.referral_url, j.referral_note, j.funding?.line, j.funding?.stage, j.source, ...j.searches].join(" ").toLowerCase();
   j._el = j._card = null;
 }
 async function loadJobs({ refresh = false, wait = false, announce = false } = {}) {
@@ -1009,6 +1009,8 @@ const referralTag = (j) => j.referral_url && h("span", { class: "tag ref", title
   icon("person"), refLabel(j), j.referral_step && h("span", { class: "ref-step" }, ` · ${refStepName(j.referral_step)}`));
 // The company's funding round: "Series B", or "YC W26" when only the batch is known. See the Startups tab.
 const roundLabel = (f) => (f.stage && f.stage !== "Unknown" ? f.stage : f.batch ? `YC ${f.batch}` : f.round || "Raised");
+// Where a job board listed the role (Himalayas asks to be named as the source, with a link to its page).
+const sourceTag = (j) => j.source && h("span", { class: "tag source-tag", title: `Listed on ${j.source}` }, j.source);
 const fundingTag = (j) => j.funding && h("span", { class: "tag round-tag", "data-round": j.funding.stage || "Unknown", title: j.funding.line },
   roundLabel(j.funding), j.funding.amount && h("b", {}, ` ${j.funding.amount}`));
 
@@ -1024,6 +1026,7 @@ function rowEl(j) {
         h("div", { class: "tags" },
           j.status && h("span", { class: "tag stage-tag", "data-stage": j.status }, j.status),
           fundingTag(j),
+          sourceTag(j),
           j.tailored && h("span", { class: "tag ok" }, `Résumé${j.ats_total != null ? " " + pct(j.ats_total) : ""}`),
           noSentTag(j),
           referralTag(j),
@@ -1742,6 +1745,7 @@ function postingMeta(j, d) {
   return h("div", { class: "posting-meta" },
     posted && !isNaN(posted) && h("span", {}, "Posted ", posted.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })),
     found.length ? h("span", {}, "Found by ", found.join(", ")) : null,
+    j.source && h("span", { class: "source-note" }, "Listed on ", extLink(j.url, j.source)),
     extLink(j.url, "Open the original"),
     d.description_pasted && h("span", {}, d.description_read ? "Added from its link " : "Pasted by you ", fmtDate(d.description_pasted)),
     !d.description_pasted && d.posting_kept && h("span", { title: "Kept because you applied: it stays here after the posting comes down." }, "Saved when you applied ", fmtDate(d.posting_kept)),
@@ -2730,6 +2734,7 @@ function applySearches(d) {
   S.searches = d.searches;
   S.defaults = d.defaults;
   S.regions = d.regions || [];
+  S.himalayas = !!d.himalayas;
   const ids = S.searches.map((s) => s.id);
   S.picked = new Set(S.picked ? ids.filter((id) => S.picked.has(id) || id === d.id) : ids);
   renderSearches();
@@ -2792,12 +2797,13 @@ function searchFacts(s) {
   return [s.remote ? "Remote" : wa.length ? wa.join(", ").replace(/^./, (c) => c.toUpperCase()) : "Any arrangement",
           (s.locations || []).join(", "), whereLabel(eff("country")),
           eff("min_salary_usd") ? money(eff("min_salary_usd")) : eff("min_salary_usd") === 0 ? "any pay" : "", eff("posted_within_days") != null ? `posted in the last ${plural(eff("posted_within_days"), "day")}` : "",
-          `up to ${plural(eff("limit") ?? 10, "job")} per run`].filter(Boolean).join(" · ");
+          `up to ${plural(eff("limit") ?? 10, "job")} per run`,
+          S.himalayas && (s.remote || !(s.work_arrangement || []).length) ? "+ Himalayas (free)" : ""].filter(Boolean).join(" · ");
 }
 function renderSearches() {
   const df = S.defaults;
   if (shownRequests.size && !S.requests) loadRequests();
-  $("#search-defaults").textContent = `Defaults: ${whereLabel(df.country)}, posted within ${df.posted_within_days ?? "any"} days, ${df.min_salary_usd ? money(df.min_salary_usd) : "any"} pay, ${df.limit ?? 10} jobs per search.`;
+  $("#search-defaults").textContent = `Defaults: ${whereLabel(df.country)}, posted within ${df.posted_within_days ?? "any"} days, ${df.min_salary_usd ? money(df.min_salary_usd) : "any"} pay, ${df.limit ?? 10} jobs per search.${S.himalayas ? " Remote filters also search Himalayas, free." : ""}`;
   $("#searches").replaceChildren(...S.searches.map(searchCard),
     ...(S.searches.length ? [] : [h("div", { class: "notice" }, "No saved filters yet. Add one to start finding roles.")]));
   const picked = S.searches.filter((s) => S.picked.has(s.id));

@@ -1039,7 +1039,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.get("/api/searches")
     def get_searches():
         _, searches, defaults = searches_file.load(searches_path)
-        return {"searches": searches, "defaults": defaults, "regions": regions.choices()}
+        return {"searches": searches, "defaults": defaults, "regions": regions.choices(),
+                "himalayas": config.load(searches_path).himalayas}
 
     def save_searches(searches: list[dict]):
         try:

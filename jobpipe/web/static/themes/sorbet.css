@@ -194,6 +194,7 @@ html[data-theme="sorbet"] .tag.ref { background: var(--sel); color: var(--link);
 html[data-theme="sorbet"] .tag.warn-tag { background: #FBE9E0; color: #8A3B12; }
 html[data-theme="sorbet"] .tag.round-tag { background: color-mix(in srgb, var(--r) 18%, white); color: var(--ink); }
 html[data-theme="sorbet"] .tag.round-tag b { color: var(--muted); }
+html[data-theme="sorbet"] .tag.source-tag { font-style: normal; background: color-mix(in srgb, var(--link) 10%, white); color: var(--link); border-color: transparent; }
 html[data-theme="sorbet"] .ref-chip, html[data-theme="sorbet"] .status-select { border-radius: 999px; }
 /* Referral: a dashed scoop that unfolds a candy card on the look's spring, and folds back into a pink pill */
 html[data-theme="sorbet"] .ref-toggle.add { border: 2px dashed var(--edge); border-radius: 999px; color: var(--link); font-weight: 700; background: var(--panel); }

@@ -270,6 +270,7 @@ class Config:
     shortlist_min_fit: int = 7
     tailor_top: int = 3
     enforce_min_salary: bool = True
+    himalayas: bool = True          # also search Himalayas (free remote jobs) for each remote filter; see himalayas.py
     notion_enabled: bool = True
     notion_data_source_id: str = ""
     notion_project_page_id: str = ""
@@ -408,6 +409,7 @@ def load(path: Optional[Path] = None) -> Config:
         shortlist_min_fit=int(pipe.get("shortlist_min_fit", 7)),
         tailor_top=int(pipe.get("tailor_top", 3)),
         enforce_min_salary=bool(pipe.get("enforce_min_salary", True)),
+        himalayas=bool(pipe.get("himalayas", True)) and os.environ.get("JOBPIPE_HIMALAYAS") != "off",
         notion_enabled=bool(notion.get("enabled", True)),
         notion_data_source_id=notion.get("data_source_id", ""),
         notion_project_page_id=notion.get("project_page_id", ""),

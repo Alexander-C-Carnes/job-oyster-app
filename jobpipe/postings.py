@@ -55,9 +55,9 @@ def is_closed(job: dict, client: httpx.Client) -> Optional[bool]:
         if m and m.group(1) and m.group(2):
             r = client.get(f"https://boards-api.greenhouse.io/v1/boards/{m.group(1)}/jobs/{m.group(2)}")
             return True if r.status_code == 404 else False if r.status_code == 200 else None
-        m = re.search(r"jobs\.lever\.co/([^/?#]+)/([0-9a-f-]{36})", url)
+        m = re.search(r"jobs\.(eu\.)?lever\.co/([^/?#]+)/([0-9a-f-]{36})", url)
         if m:
-            r = client.get(f"https://api.lever.co/v0/postings/{m.group(1)}/{m.group(2)}")
+            r = client.get(f"https://api.{m.group(1) or ''}lever.co/v0/postings/{m.group(2)}/{m.group(3)}")
             return True if r.status_code == 404 else False if r.status_code == 200 else None
         m = re.search(r"jobs\.ashbyhq\.com/([^/?#]+)/([0-9a-f-]{36})", url)
         if m:

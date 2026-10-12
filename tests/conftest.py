@@ -212,6 +212,18 @@ def notion_row(pid, url, status="Not started", fit=None, notes=""):
 
 
 @pytest.fixture(autouse=True)
+def no_himalayas():
+    """Searches don't ask Himalayas in tests (a real web call); a test that wants it passes a Himalayas with a fake client."""
+    env = os.environ.get("JOBPIPE_HIMALAYAS")
+    os.environ["JOBPIPE_HIMALAYAS"] = "off"
+    yield
+    if env is None:
+        os.environ.pop("JOBPIPE_HIMALAYAS", None)
+    else:
+        os.environ["JOBPIPE_HIMALAYAS"] = env
+
+
+@pytest.fixture(autouse=True)
 def no_evidence_models():
     """The local evidence models are off in tests (they'd load gigabytes); a test that wants them swaps in fakes.
     Set by hand, not with monkeypatch, so a test's monkeypatch.undo() can't switch the real models on."""

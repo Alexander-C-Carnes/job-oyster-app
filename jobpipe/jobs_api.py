@@ -135,7 +135,7 @@ def post_filter(job: dict, search: Search, enforce_min_salary: bool) -> tuple[bo
     if enforce_min_salary and search.min_salary_usd:
         top = job.get("max_annual_salary_usd") or job.get("min_annual_salary_usd")
         if top is None:
-            flags.append("pay not stated")
+            flags.append("pay not in USD" if job.get("salary_string") else "pay not stated")
         elif top < search.min_salary_usd:
             return False, [f"pay tops out at ${top:,.0f}"]
     if job.get("closed_at"):
