@@ -10,9 +10,11 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import yaml
+
+from . import regions
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILL = ROOT / "skill"                       # the method: agent briefs, rules, scoring rubric, check scripts
@@ -189,9 +191,9 @@ class Search:
     name: str
     titles: list[str] = field(default_factory=list)
     exclude_titles: list[str] = field(default_factory=list)
-    country: Optional[str] = "US"
+    country: Union[str, list[str], None] = "US"     # a country code, a region (EU, Schengen, EMEA…), a list of them, or Any
     posted_within_days: Optional[int] = 7
-    min_salary_usd: Optional[int] = None
+    min_salary_usd: Optional[int] = None            # 0: no floor, even when the defaults set one
     remote: Optional[bool] = None
     work_arrangement: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
@@ -205,9 +207,9 @@ class Search:
             "limit": self.limit if limit is None else limit,
             "job_title_or": self.titles or None,
             "job_title_not": self.exclude_titles or None,
-            "job_country_code_or": [self.country] if self.country else None,
+            "job_country_code_or": regions.codes(self.country),
             "posted_at_max_age_days": self.posted_within_days,
-            "min_salary_usd": self.min_salary_usd,
+            "min_salary_usd": self.min_salary_usd or None,
             "remote": self.remote,
             "work_arrangement_or": self.work_arrangement or None,
             "job_location_or": self.locations or None,
@@ -317,6 +319,10 @@ class Config:
 
 def _search(raw: dict, defaults: dict) -> Search:
     merged = {**defaults, **raw}
+    try:
+        country = regions.canonical(merged.get("country"))
+    except ValueError as e:
+        raise ValueError(f"searches.yaml, search {merged.get('id')!r}: country: {e}") from None
     wa = merged.get("work_arrangement") or []
     if isinstance(wa, str):
         wa = [wa]
@@ -325,7 +331,7 @@ def _search(raw: dict, defaults: dict) -> Search:
         name=merged.get("name", merged["id"]),
         titles=list(merged.get("titles") or []),
         exclude_titles=list(merged.get("exclude_titles") or []),
-        country=merged.get("country"),
+        country=country,
         posted_within_days=merged.get("posted_within_days"),
         min_salary_usd=merged.get("min_salary_usd"),
         remote=merged.get("remote"),
@@ -441,7 +447,7 @@ def adhoc_search(*, title: list[str], remote: bool, hybrid: bool, min_salary: Op
         name="Ad-hoc: " + ", ".join(title),
         titles=title,
         exclude_titles=defaults.exclude_titles if defaults else [],
-        country=country,
+        country=regions.canonical(country),
         posted_within_days=days,
         min_salary_usd=min_salary,
         remote=True if remote else None,

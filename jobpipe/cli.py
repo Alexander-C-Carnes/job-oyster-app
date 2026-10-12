@@ -79,7 +79,8 @@ def _add_query_flags(p: argparse.ArgumentParser) -> None:
     g.add_argument("--min-salary", type=int, default=300000)
     g.add_argument("--days", type=int, default=7, help="posted within N days")
     g.add_argument("--limit", type=int, default=10, help="max jobs (= max credits) for this query")
-    g.add_argument("--country", default="US")
+    g.add_argument("--country", default="US", help='a country code, a region (EU, Schengen, EEA, Europe, EMEA), '
+                                                  'several joined by commas ("EU,Schengen"), or Any')
 
 
 def cmd_show_request(cfg, args):

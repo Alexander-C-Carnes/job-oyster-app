@@ -182,6 +182,11 @@ html[data-theme="bauhaus"] .tag.warn-tag { background: var(--grey-warm); color: 
 html[data-theme="bauhaus"] .tag.round-tag { background: var(--r); color: var(--black); border: 0; }
 html[data-theme="bauhaus"] .tag.round-tag b { color: var(--black); font-weight: 400; }
 html[data-theme="bauhaus"] .ref-chip { border: var(--rule); border-radius: 0; background: var(--white); color: var(--black); }
+html[data-theme="bauhaus"] :is(.ref-card, .ref-steps button, .ref-add, .ref-toggle.add) { border-radius: 0; }
+html[data-theme="bauhaus"] .ref-card { border: var(--rule); background: var(--white); }
+html[data-theme="bauhaus"] .ref-steps button.now { background: var(--yellow); color: var(--black); border-color: var(--black); }
+html[data-theme="bauhaus"] .ref-steps button.done { color: var(--black); border-color: var(--black); }
+html[data-theme="bauhaus"] .ref-avatar { background: var(--blue); color: var(--white); }
 html[data-theme="bauhaus"] .star[aria-pressed="true"], html[data-theme="bauhaus"] .star:hover { color: var(--black); }
 html[data-theme="bauhaus"] .star:hover { background: var(--yellow); border-radius: 0; }
 html[data-theme="bauhaus"] .resume-mark { border-radius: 0; color: var(--black); background: var(--green); padding: 4px; }

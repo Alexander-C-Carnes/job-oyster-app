@@ -7,6 +7,9 @@ or, until one is picked, the source whose name matches the job's company and tit
 
 The chosen résumé is copied into `data/linked/<job>/` (with the run's posting and match brief,
 when it has them), so the app's version history and edits never write into the repo.
+
+A résumé uploaded for one job (read into markdown by resume_import.py) is that job's own source, kept in
+`data/uploads/<job>/` with the file it came from; it is offered for that job only, under the key "upload".
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from typing import Optional
 from .. import config
 
 # Files copied from a skill run folder, so the résumé editor and checks have what they read.
-RUN_FILES = ("resume-final.md", "jd.md", "04-match.md", "01-objectives.md", "keywords.json")
+RUN_FILES = ("resume-final.md", "jd.md", "04-match.md", "01-objectives.md", "keywords.json", "uploaded-from.txt")
 ABBREV = {"tpm": "technical program manager", "pm": "product manager", "em": "engineering manager",
           "sr": "senior", "eng": "engineering", "mgr": "manager"}
 STOP = {"and", "of", "the", "for", "a", "an", "to", "in", "at", "resume", "final"}
@@ -91,9 +94,40 @@ def best_match(title: str, company: str, srcs: list[dict]) -> Optional[dict]:
     return full[0] if len(full) == 1 else None
 
 
+UPLOAD = "upload"   # the source key of the résumé uploaded for this job
+
+
+def job_dir(kind: str, jid: str, data: Optional[Path]) -> Path:
+    return (data or config.DATA) / kind / re.sub(r"[^a-zA-Z0-9_-]", "_", jid)
+
+
+def upload_source(jid: str, data: Optional[Path] = None) -> Optional[dict]:
+    """The résumé uploaded for this job, if there is one."""
+    d = job_dir("uploads", jid, data)
+    md = d / "resume-final.md"
+    if not md.exists():
+        return None
+    name = (d / "uploaded-from.txt").read_text().strip() if (d / "uploaded-from.txt").exists() else "your file"
+    return {"key": UPLOAD, "label": f"{name} (uploaded for this role)", "headline": _headline(md), "path": d, "kind": "run"}
+
+
+def save_upload(jid: str, md: str, filename: str, original: Optional[Path] = None,
+                data: Optional[Path] = None) -> dict:
+    """Keep an uploaded résumé as the job's own source (replacing an earlier upload), with the file it was read from."""
+    d = job_dir("uploads", jid, data)
+    if d.exists():
+        shutil.rmtree(d)
+    d.mkdir(parents=True)
+    (d / "resume-final.md").write_text(md.rstrip("\n") + "\n", encoding="utf-8")
+    (d / "uploaded-from.txt").write_text(Path(filename).name + "\n", encoding="utf-8")
+    if original and original.exists():
+        shutil.copy(original, d / original.name)
+    return upload_source(jid, data)
+
+
 def workspace_dir(jid: str, src: dict, data: Optional[Path] = None) -> Path:
     """The job's copy of the source, made (or remade, if the job now points elsewhere) on first use."""
-    d = (data or config.DATA) / "linked" / re.sub(r"[^a-zA-Z0-9_-]", "_", jid)
+    d = job_dir("linked", jid, data)
     marker = d / "source.txt"
     if marker.exists() and marker.read_text().strip() == src["key"] and (d / "resume-final.md").exists():
         return d

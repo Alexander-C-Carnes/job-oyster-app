@@ -309,6 +309,12 @@ def test_roles_pinned_to_another_region_do_not_answer_a_us_search():
     anywhere = Search(id="any", name="any", titles=["Engineering Manager"], country=None)
     assert su.role_searches(role("Engineering Manager - UK", "London", False), [anywhere]) == ["any"]
     assert su.role_searches(role("Principal Program Manager, Taiwan Lab", "Redmond, WA", False), [remote]) == []
+    # a search across Europe keeps the European roles and skips the US ones
+    eu = Search(id="em-eu", name="EM EU", titles=["Engineering Manager"], remote=True, country=["EU", "Schengen"])
+    assert su.role_searches(role("Engineering Manager", "Remote (EU)", True), [remote, eu]) == ["em-eu"]
+    assert su.role_searches(role("Engineering Manager", "Amsterdam, Netherlands", True), [remote, eu]) == ["em-eu"]
+    assert su.role_searches(role("Engineering Manager", "Austin, TX (Remote)", True), [remote, eu]) == ["em-remote"]
+    assert su.role_searches(role("Engineering Manager", "Remote", True), [remote, eu]) == ["em-remote", "em-eu"]
 
 
 def test_acquired_or_public_companies_keep_their_roles_to_themselves(tmp_dirs):

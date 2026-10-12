@@ -56,9 +56,10 @@ class JsonFile:
 
 
 class Marks:
-    """Per-job stars, referral links and the outside résumé picked for the job:
-    {job id: {starred, starred_at, referral_url, referral_name, resume_source}}."""
-    FIELDS = ("starred", "referral_url", "referral_name", "resume_source")
+    """Per-job stars, referrals and the outside résumé picked for the job:
+    {job id: {starred, starred_at, referral_url, referral_name, referral_step, referral_dates, referral_note, resume_source}}.
+    referral_url is a web link or a mailto: address; referral_dates holds the day each step was reached."""
+    FIELDS = ("starred", "referral_url", "referral_name", "referral_step", "referral_dates", "referral_note", "resume_source")
 
     def __init__(self, path: Path):
         self.file = JsonFile(path, dict)
@@ -103,6 +104,24 @@ def clean_url(raw: Any) -> str:
     if p.scheme not in ("http", "https") or "." not in p.netloc or any(c.isspace() for c in url) or len(url) > 2000:
         raise ValueError("Enter a web address, e.g. https://www.linkedin.com/in/name")
     return url
+
+
+# Where a referral stands, in order.
+REFERRAL_STEPS = ("toask", "asked", "referred", "thanked")
+_EMAIL = re.compile(r"[^@\s/:]+@[^@\s/]+\.[^@\s/.]+")
+
+
+def clean_contact(raw: Any) -> str:
+    """The person referring you, as typed: a web link (see clean_url) or an email address, kept as
+    mailto:address. '' clears it. Raises ValueError."""
+    text = str(raw or "").strip()
+    addr = text[7:] if text.lower().startswith("mailto:") else text
+    if _EMAIL.fullmatch(addr) and len(addr) <= 254:
+        return "mailto:" + addr
+    try:
+        return clean_url(text)
+    except ValueError:
+        raise ValueError("Enter a LinkedIn link, a referral link or an email address") from None
 
 
 class TrackerSync:
@@ -371,6 +390,11 @@ def _tracker_fields(n: Optional[dict]) -> dict:
             "pending": n["pending"], "applied_on": n.get("applied_on", "")}
 
 
+def referral_fields(m: dict) -> dict:
+    return {"referral_url": m.get("referral_url", ""), "referral_name": m.get("referral_name", ""),
+            "referral_step": m.get("referral_step", ""), "referral_dates": m.get("referral_dates") or {},
+            "referral_note": m.get("referral_note", "")}
+
+
 def _mark_fields(m: dict) -> dict:
-    return {"starred": bool(m.get("starred")), "referral_url": m.get("referral_url", ""),
-            "referral_name": m.get("referral_name", ""), "resume_source": m.get("resume_source", "")}
+    return {"starred": bool(m.get("starred")), **referral_fields(m), "resume_source": m.get("resume_source", "")}

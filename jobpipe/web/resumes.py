@@ -147,8 +147,10 @@ class ResumeWorkspace:
         md = (self.vdir / "v1.md").read_text()
         pdf_txt = self.run_dir / "resume-final.pdf.txt"     # the text the tailoring run's ATS total was measured on
         rows = self.requirements()
+        upload = self.run_dir / "uploaded-from.txt"         # a résumé uploaded for the job (linked.save_upload)
+        source, changes = ("upload", f"Uploaded {upload.read_text().strip()}.") if upload.exists() else ("pipeline", "")
         self._save({"current": 1, "format": fid, "proposal": None, "versions": [{
-            "n": 1, "created": _now(), "source": "pipeline", "instruction": "", "changes": "", "format": fid,
+            "n": 1, "created": _now(), "source": source, "instruction": "", "changes": changes, "format": fid,
             "keywords_pct": self.keyword_pct(md), "check": check,
             **(self.scores(rows["ratings"], rows["score"], pdf_txt.read_text() if pdf_txt.exists() else md)
                if rows else {})}]})
@@ -483,11 +485,15 @@ class ResumeWorkspace:
         self._check_base(base)
         return self._save_by_hand(base, md, "Edited as text.")
 
+    def save_upload(self, md: str, filename: str) -> dict:
+        """Save an uploaded résumé (already read into markdown) as the next version."""
+        return self._save_by_hand(self.history()["current"], md, f"Uploaded {filename}.", source="upload")
+
     def _check_base(self, base: int) -> None:
         if base != self.history()["current"]:
             raise EditError("The résumé changed since you opened the editor. Reopen it and make your edit again.")
 
-    def _save_by_hand(self, base: int, md: str, changes: str) -> dict:
+    def _save_by_hand(self, base: int, md: str, changes: str, source: str = "by hand") -> dict:
         if md.strip() == self.md(base).strip():
             raise EditError("Nothing changed.")
         try:
@@ -508,7 +514,7 @@ class ResumeWorkspace:
         prior = self.prior(h, base)
         scores = {**self.scores(prior["ratings"], prior["score"], pdf_text or md, rerated=False),
                   "rating": True} if prior else {}
-        h["versions"].append({"n": n, "created": _now(), "source": "by hand", "instruction": "", "changes": changes,
+        h["versions"].append({"n": n, "created": _now(), "source": source, "instruction": "", "changes": changes,
                               "keywords_pct": self.keyword_pct(md), "check": self.check(self.vdir / f"v{n}.md"),
                               "pages": pages, "base": base, "format": fmt.id, **scores})
         dropped = bool(h.get("proposal"))

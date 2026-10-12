@@ -10,12 +10,13 @@
 # Field names sent to POST /v1/jobs/search:
 #   titles              -> job_title_or           (any of these phrases in the title)
 #   exclude_titles      -> job_title_not
-#   country             -> job_country_code_or
+#   country             -> job_country_code_or    (a code like US or GB; a region: EU, Schengen,
+#                                                  EEA, Europe, EMEA; a list like [EU, Schengen]; or Any)
 #   posted_within_days  -> posted_at_max_age_days
 #   remote: true        -> remote
 #   work_arrangement    -> work_arrangement_or    (e.g. hybrid)
 #   locations           -> job_location_or
-#   min_salary_usd      -> min_salary_usd
+#   min_salary_usd      -> min_salary_usd         (0 on a search: no floor, whatever the default)
 #   seniority           -> job_seniority_or
 #   api_filters         -> sent verbatim, for any other API field
 # `work_arrangement_or`, `job_location_or` and `min_salary_usd` come from the

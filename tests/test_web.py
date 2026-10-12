@@ -208,11 +208,13 @@ def test_star_and_referral(env):
     assert by_id()["j2"]["starred"] is False and by_id()["j2"]["referral_url"] == ""
     assert c.patch("/api/jobs/j2", headers=H, json={"starred": True}).json()["starred"] is True
     r = c.patch("/api/jobs/j2", headers=H, json={"referral_url": "linkedin.com/in/jordan", "referral_name": " Jordan Lee "})
-    assert r.json() == {"id": "j2", "starred": True, "referral_url": "https://linkedin.com/in/jordan", "referral_name": "Jordan Lee"}
+    today = date.today().isoformat()
+    assert r.json() == {"id": "j2", "starred": True, "referral_url": "https://linkedin.com/in/jordan", "referral_name": "Jordan Lee",
+                        "referral_step": "toask", "referral_dates": {"toask": today}, "referral_note": ""}
     j2 = by_id()["j2"]
     assert j2["starred"] and j2["referral_url"] == "https://linkedin.com/in/jordan" and j2["referral_name"] == "Jordan Lee"
     assert json.loads((config.DATA / "marks.json").read_text())["j2"]["referral_name"] == "Jordan Lee"
-    for bad in ("javascript:alert(1)", "not a url", "ftp://x.example/y"):
+    for bad in ("javascript:alert(1)", "not a url", "ftp://x.example/y", "a@b", "mailto:not an address"):
         assert c.patch("/api/jobs/j2", headers=H, json={"referral_url": bad}).status_code == 400
     assert c.patch("/api/jobs/j2", headers=H, json={"referral_url": ""}).json()["referral_url"] == ""
     assert c.patch("/api/jobs/j2", headers=H, json={"starred": False}).json()["starred"] is False
@@ -227,7 +229,38 @@ def test_star_and_referral(env):
     assert by_id()["j1"]["starred"] is True
     c.patch("/api/jobs/j1", headers=H, json={"referral_url": "https://example.com/refer"})
     assert json.loads((config.DATA / "marks.json").read_text()) == {
-        "j1": {"starred": True, "referral_url": "https://example.com/refer"}}
+        "j1": {"starred": True, "referral_url": "https://example.com/refer", "referral_step": "toask", "referral_dates": {"toask": today}}}
+
+
+def test_referral_email_steps_and_note(env):
+    c = env["client"]
+    today = date.today().isoformat()
+    j2 = lambda: {j["id"]: j for j in c.get("/api/jobs", headers=H).json()["jobs"]}["j2"]
+    # no steps or note before there is a referral
+    assert c.patch("/api/jobs/j2", headers=H, json={"referral_step": "asked"}).status_code == 400
+    assert c.patch("/api/jobs/j2", headers=H, json={"referral_note": "hi"}).status_code == 400
+    # an email address is kept as mailto:
+    r = c.patch("/api/jobs/j2", headers=H, json={"referral_url": " sam.lee@example.com ", "referral_name": "Sam Lee"}).json()
+    assert r["referral_url"] == "mailto:sam.lee@example.com" and r["referral_step"] == "toask"
+    assert c.patch("/api/jobs/j2", headers=H, json={"referral_url": "mailto:sam.lee@example.com"}).json()["referral_url"] == "mailto:sam.lee@example.com"
+    # each step keeps the day it was first reached; going back forgets the later ones
+    marks = json.loads((config.DATA / "marks.json").read_text())
+    marks["j2"]["referral_dates"] = {"toask": "2026-01-02"}
+    (config.DATA / "marks.json").write_text(json.dumps(marks))
+    r = c.patch("/api/jobs/j2", headers=H, json={"referral_step": "referred"}).json()
+    assert r["referral_step"] == "referred" and r["referral_dates"] == {"toask": "2026-01-02", "referred": today}
+    r = c.patch("/api/jobs/j2", headers=H, json={"referral_step": "asked"}).json()
+    assert r["referral_dates"] == {"toask": "2026-01-02", "asked": today}
+    assert c.patch("/api/jobs/j2", headers=H, json={"referral_step": "hired"}).status_code == 400
+    # a changed contact keeps where the referral stands; the note is trimmed and capped
+    r = c.patch("/api/jobs/j2", headers=H, json={"referral_url": "linkedin.com/in/sam-lee", "referral_name": "Sam Lee"}).json()
+    assert r["referral_step"] == "asked" and r["referral_url"] == "https://linkedin.com/in/sam-lee"
+    assert c.patch("/api/jobs/j2", headers=H, json={"referral_note": "  " + "x" * 3000}).json()["referral_note"] == "x" * 2000
+    assert j2()["referral_note"] == "x" * 2000 and j2()["referral_step"] == "asked"
+    # removing the referral clears all of it
+    r = c.patch("/api/jobs/j2", headers=H, json={"referral_url": ""}).json()
+    assert r == {"id": "j2", "starred": False, "referral_url": "", "referral_name": "", "referral_step": "", "referral_dates": {}, "referral_note": ""}
+    assert "j2" not in json.loads((config.DATA / "marks.json").read_text())
 
 
 def test_score_experience_from_impact_record(env, monkeypatch):
@@ -795,6 +828,15 @@ def test_searches_edit_round_trip(env):
     both = [{"id": "x", "titles": ["x"], "remote": True, "work_arrangement": ["hybrid"]}]
     assert c.put("/api/searches", headers=H, json={"searches": both}).status_code == 400
     assert "min_salary_usd" in c.get("/api/searches/requests", headers=H).json()["tpm-remote"]
+    # Where: a region, or several, kept as written and sent to JobsPipe as their countries
+    assert {r["id"] for r in d["regions"]} == {"EU", "Schengen", "EEA", "Europe", "EMEA"}
+    ss.append({"id": "em-eu", "name": "EM, Europe", "titles": ["Engineering Manager"], "remote": True, "country": ["eu", "Schengen"]})
+    assert c.put("/api/searches", headers=H, json={"searches": ss}).status_code == 200
+    assert 'country: ["EU", "Schengen"]' in env["searches"].read_text()
+    assert len(c.get("/api/searches/requests", headers=H).json()["em-eu"]["job_country_code_or"]) == 31
+    assert c.get("/api/searches", headers=H).json()["searches"][-1]["country"] == ["EU", "Schengen"]
+    narnia = [{"id": "x", "titles": ["x"], "country": "Narnia"}]
+    assert "Where" in c.put("/api/searches", headers=H, json={"searches": narnia}).json()["detail"]
 
 
 def test_add_edit_delete_one_search(env):
@@ -1916,6 +1958,46 @@ def test_upload_falls_back_to_a_rough_sort_and_refuses_what_it_cant_read(env):
     r = _upload(c, "cv.doc", b"x")
     assert r.status_code == 400 and "save it as .docx" in r.json()["detail"]
     assert c.post("/api/profile/resumes/import/nothex/check", headers=H, json={"markdown": "x"}).status_code == 404
+
+
+def test_upload_a_resume_for_a_job(env):
+    c, store = env["client"], env["store"]
+    _sorter(env["runner"])
+    up = lambda name, md: _upload(c, name, md.encode()).json()
+
+    # A job with the app's résumé: the upload is its next version, and the deliverable follows it.
+    d = up("resume-acme.md", _resume().replace("Ran the ledger", "Owned the ledger"))
+    h = c.post("/api/jobs/j1/resume/upload", headers=H, json={"import_id": d["id"], "markdown": d["markdown"]}).json()
+    v = h["versions"][-1]
+    assert h["added_version"] and h["current"] == 2 and (v["source"], v["changes"]) == ("upload", "Uploaded resume-acme.md.")
+    assert "Owned the ledger" in (env["run_dir"] / "resume-final.md").read_text()
+    assert c.post(f"/api/profile/resumes/import/{d['id']}/check", headers=H, json={"markdown": "x"}).status_code == 404
+
+    # A job with no résumé: the upload becomes its own, offered for it alone, kept with the file it came from.
+    d = up("my-cv.md", _resume())
+    h = c.post("/api/jobs/notion-p9/resume/upload", headers=H, json={"import_id": d["id"], "markdown": d["markdown"]}).json()
+    assert not h["added_version"] and h["current"] == 1 and h["versions"][0]["changes"] == "Uploaded my-cv.md."
+    o = c.get("/api/jobs/notion-p9/outside-resume", headers=H).json()
+    assert o["source"]["key"] == "upload" and o["source"]["label"] == "my-cv.md (uploaded for this role)" and not o["matched"]
+    assert c.get("/api/jobs/notion-p9/resume/1.pdf", headers=H).content[:4] == b"%PDF"
+    assert (next(store.root.glob("uploads/*/original.md"))).read_text() == _resume()
+    assert "upload" not in [x["key"] for x in c.get("/api/jobs/j2/outside-resume", headers=H).json()["options"]]
+
+    # Uploading again adds a version; after picking none, an upload starts afresh from the new file.
+    d = up("my-cv-2.md", _resume().replace("Ran the ledger", "Led the ledger"))
+    assert c.post("/api/jobs/notion-p9/resume/upload", headers=H, json={"import_id": d["id"], "markdown": d["markdown"]}).json()["current"] == 2
+    c.post("/api/jobs/notion-p9/outside-resume", headers=H, json={"source": "none"})
+    d = up("my-cv-3.md", _resume().replace("Ran the ledger", "Shipped the ledger"))
+    h = c.post("/api/jobs/notion-p9/resume/upload", headers=H, json={"import_id": d["id"], "markdown": d["markdown"]}).json()
+    assert h["current"] == 1 and "Shipped the ledger" in c.get("/api/jobs/notion-p9/resume/1.md", headers=H).json()["markdown"]
+    assert c.post("/api/jobs/notion-p9/outside-resume", headers=H, json={"source": "upload"}).json()["source"]["key"] == "upload"
+
+    # A résumé the app can't lay out, or an upload that's gone, is refused before anything is saved.
+    d = up("bad.md", _resume())
+    bad = c.post("/api/jobs/j1/resume/upload", headers=H, json={"import_id": d["id"], "markdown": "just words"})
+    assert bad.status_code == 400 and "can't be laid out" in bad.json()["detail"]
+    assert c.post("/api/jobs/j1/resume/upload", headers=H, json={"import_id": "0" * 16, "markdown": _resume()}).status_code == 404
+    assert c.post("/api/jobs/nope/resume/upload", headers=H, json={"import_id": d["id"], "markdown": _resume()}).status_code == 404
 
 
 # ---- formats of your own --------------------------------------------------------------------------------

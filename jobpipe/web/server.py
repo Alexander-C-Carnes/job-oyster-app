@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, own_formats, record_import, render, resume_import
+from .. import formats, jd, own_formats, record_import, regions, render, resume_import
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -45,7 +45,7 @@ from ..tracker import LocalTracker
 from ..triage import triage_one
 from . import linked, searches_file
 from .sent import SentResumes
-from .board import JobBoard, Marks, TrackerSync, clean_url
+from .board import REFERRAL_STEPS, JobBoard, Marks, TrackerSync, clean_contact, clean_url, referral_fields
 from .resumes import EditError, ResumeWorkspace
 from .progress import Estimator
 from .runs import Busy, Run, RunManager
@@ -350,7 +350,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if not row:
             raise HTTPException(404, "Unknown job")
         ranked = linked.rank(row["title"], row["company"], linked.sources(resume_root))
-        srcs = [s for _, s in ranked]
+        own = linked.upload_source(jid, store.root)
+        srcs = [own] * bool(own) + [s for _, s in ranked]
         picked = row.get("resume_source") or ""
         if picked == linked.NONE:
             return None, False, srcs
@@ -490,25 +491,49 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.patch("/api/jobs/{jid}")
     def mark_job(jid: str, body: dict):
-        """Star a job or set its referral link (kept in data/marks.json; '' clears the link)."""
+        """Star a job or set its referral (kept in data/marks.json). referral_url is a link or an email
+        address ('' clears the referral); referral_step is where it stands, and the day each step is
+        first reached is kept in referral_dates; referral_note is free text."""
         row = board.row(jid)
         if not row:
             raise HTTPException(404, "Unknown job")
+        aliases = ["notion-" + row["tracker_id"]] if row["local"] and row["tracker_id"] else []
+        old = marks.get(jid, *aliases)
+        today = date.today().isoformat()
         fields: dict[str, Any] = {}
         if "starred" in body:
             fields["starred"] = bool(body["starred"])
         if "referral_url" in body:
             try:
-                fields["referral_url"] = clean_url(body["referral_url"])
+                fields["referral_url"] = clean_contact(body["referral_url"])
             except ValueError as e:
                 raise HTTPException(400, str(e)) from None
-            fields["referral_name"] = str(body.get("referral_name") or "").strip()[:120] if fields["referral_url"] else ""
+            if not fields["referral_url"]:
+                fields.update(referral_name="", referral_step="", referral_dates={}, referral_note="")
+            else:
+                fields["referral_name"] = str(body.get("referral_name") or "").strip()[:120]
+                if not old.get("referral_url"):     # a new referral starts at To ask
+                    fields.update(referral_step="toask", referral_dates={"toask": today})
+        has_referral = fields["referral_url"] if "referral_url" in fields else old.get("referral_url")
+        if "referral_step" in body:
+            step = body["referral_step"]
+            if step not in REFERRAL_STEPS:
+                raise HTTPException(400, "Unknown referral step")
+            if not has_referral:
+                raise HTTPException(400, "Add the referral first")
+            # The day each step was reached; going back a step forgets the later ones.
+            dates = {k: v for k, v in dict(fields.get("referral_dates") or old.get("referral_dates") or {}).items()
+                     if k in REFERRAL_STEPS[:REFERRAL_STEPS.index(step) + 1]}
+            dates.setdefault(step, today)
+            fields.update(referral_step=step, referral_dates=dates)
+        if "referral_note" in body:
+            if not has_referral:
+                raise HTTPException(400, "Add the referral first")
+            fields["referral_note"] = str(body["referral_note"] or "").strip()[:2000]
         if not fields:
             raise HTTPException(400, "Nothing to change")
-        aliases = ["notion-" + row["tracker_id"]] if row["local"] and row["tracker_id"] else []
         rec = marks.set(jid, *aliases, **fields)
-        return {"id": jid, "starred": bool(rec.get("starred")), "referral_url": rec.get("referral_url", ""),
-                "referral_name": rec.get("referral_name", "")}
+        return {"id": jid, "starred": bool(rec.get("starred")), **referral_fields(rec)}
 
     def posting_link(raw: Any) -> str:
         try:
@@ -748,11 +773,14 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if not row:
             raise HTTPException(404, "Unknown job")
         key = str(body.get("source") or "")
-        if key not in ("", linked.NONE) and key not in {s["key"] for s in linked.sources(resume_root)}:
+        if key not in ("", linked.NONE) and key not in {s["key"] for s in outside_resume(jid)[2]}:
             raise HTTPException(400, "Unknown résumé")
+        pick_outside(row, jid, key)
+        return get_outside_resume(jid)
+
+    def pick_outside(row: dict, jid: str, key: str) -> None:
         aliases = ["notion-" + row["tracker_id"]] if row["local"] and row["tracker_id"] else []
         marks.set(jid, *aliases, resume_source=key)
-        return get_outside_resume(jid)
 
     # ---- the résumé sent with the application ---------------------------------------------
     def tracked(jid: str) -> dict:
@@ -1011,7 +1039,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.get("/api/searches")
     def get_searches():
         _, searches, defaults = searches_file.load(searches_path)
-        return {"searches": searches, "defaults": defaults}
+        return {"searches": searches, "defaults": defaults, "regions": regions.choices()}
 
     def save_searches(searches: list[dict]):
         try:
@@ -1662,6 +1690,45 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         (d / "meta.json").write_text(json.dumps(meta))
         (d / "sorted.md").write_text(md, encoding="utf-8")
         return import_payload(d, md)
+
+    @app.post("/api/jobs/{jid}/resume/upload")
+    def upload_job_resume(jid: str, body: dict):
+        """Use an upload ({"import_id", "markdown"} from the review screen) as this job's résumé: the next version
+        of the one it has (the app's own, or its upload), else the job's own résumé, shown in place of any other."""
+        row = board.row(jid)
+        if not row:
+            raise HTTPException(404, "Unknown job")
+        if edit_busy(jid):
+            raise HTTPException(409, "Claude is still answering; wait for the reply, then upload.")
+        md = str(body.get("markdown") or "")
+        if not md.strip() or len(md) > 300_000:
+            raise HTTPException(400, "That's not a résumé the app can save.")
+        imp = import_dir(str(body.get("import_id") or ""))
+        filename = json.loads((imp / "meta.json").read_text())["filename"] or "your file"
+        original = next(imp.glob("original.*"), None)
+        tailored = bool(local_path((board.state().get(jid) or {}).get("run_dir")))
+        src = None if tailored else outside_resume(jid)[0]
+        try:
+            render.render(md)
+        except Exception:  # noqa: BLE001 - any parse failure means the shape is broken
+            raise HTTPException(400, "The résumé can't be laid out: keep the first three lines as # Name, "
+                                     "**headline** and the contact line.") from None
+        as_version = tailored or bool(src and src["key"] == linked.UPLOAD)
+        if not tailored:          # the job's upload is now this file
+            linked.save_upload(jid, md, filename, original, store.root)
+        if as_version:
+            ws = workspace(jid)
+            try:
+                h = ws.save_upload(md, filename)
+            except EditError as e:
+                raise HTTPException(400, str(e)) from None
+            keep_scores(jid, ws)
+        else:                     # shown in place of any other résumé, set up afresh from the upload
+            shutil.rmtree(linked.job_dir("linked", jid, store.root), ignore_errors=True)
+            pick_outside(row, jid, linked.UPLOAD)
+            h = workspace(jid).history()
+        shutil.rmtree(imp, ignore_errors=True)
+        return {**h, "added_version": as_version}
 
     @app.post("/api/profile/resumes/import/{iid}/check")
     def check_import(iid: str, body: dict):

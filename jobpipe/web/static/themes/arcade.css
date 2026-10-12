@@ -205,6 +205,10 @@ html[data-theme="arcade"] .tag.ref { color: var(--link); border-color: var(--lin
 html[data-theme="arcade"] .tag.warn-tag { border-color: var(--st-in-progress); color: var(--ink); background: color-mix(in srgb, var(--st-in-progress) 14%, white); }
 html[data-theme="arcade"] .tag.round-tag { border-width: 2px; border-radius: 0; }
 html[data-theme="arcade"] .ref-chip { border: 2px solid var(--ink); border-radius: 0; color: var(--link); }
+html[data-theme="arcade"] :is(.ref-card, .ref-steps button, .ref-add, .ref-avatar) { border-radius: 0; }
+html[data-theme="arcade"] .ref-card { border: 2px solid var(--ink); box-shadow: var(--shadow); background: var(--panel); }
+html[data-theme="arcade"] .ref-steps button { border: 2px solid var(--ink); }
+html[data-theme="arcade"] .ref-steps button.now { background: var(--accent); border-color: var(--ink); color: var(--panel); }
 html[data-theme="arcade"] .round-tile { border-radius: 0; border: 2px solid var(--ink); font: 400 10px var(--pixel); }
 html[data-theme="arcade"] .round-tile.big { font-size: 12px; }
 

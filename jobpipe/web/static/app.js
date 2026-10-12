@@ -65,6 +65,7 @@ function h(tag, attrs = {}, ...kids) {
 const ICONS = {
   star: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.4l2.35 4.76 5.25.77-3.8 3.7.9 5.23L10 14.39l-4.7 2.47.9-5.23-3.8-3.7 5.25-.77z"/></svg>',
   person: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3.1"/><path d="M3.8 16.8c.7-3 3.2-4.6 6.2-4.6s5.5 1.6 6.2 4.6"/></svg>',
+  personAdd: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="7" r="3.1"/><path d="M2.4 16.8c.7-3 3.1-4.6 6.1-4.6 1.3 0 2.5.3 3.5.9M15.5 11.2v5.6M12.7 14h5.6"/></svg>',
   close: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>',
   info: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.2v.1"/></svg>',
   up: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 12.5L10 8l4.5 4.5"/></svg>',
@@ -129,7 +130,7 @@ function savePrefs() {
   try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split })); }
   catch (_) { /* optional */ }
 }
-const S = { jobs: [], byId: new Map(), etag: null, notion: false, syncing: false, notionError: "",
+const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, syncing: false, notionError: "",
             query: "", tokens: [], stages: new Set(), flags: new Set(), facets: { score: new Set(), company: new Set() }, visible: [],
             sort: ["fit", "newest", "company"].includes(prefs.sort) ? prefs.sort : "fit",
             view: prefs.view === "board" ? "board" : "list", boardAll: new Set(),
@@ -345,7 +346,7 @@ function stageCounts() {
            applied: n("Applied"), done: n("Done"), denied: n("Denied"), interviewing: n("Interviewing"), offer: n("Offer") };
 }
 function indexJob(j) {
-  j._hay = [j.title, j.company, j.location, j.mode, j.status, j.one_line, j.referral_name, j.funding?.line, j.funding?.stage, ...j.searches].join(" ").toLowerCase();
+  j._hay = [j.title, j.company, j.location, j.mode, j.status, j.one_line, j.referral_name, j.referral_url, j.referral_note, j.funding?.line, j.funding?.stage, ...j.searches].join(" ").toLowerCase();
   j._el = j._card = null;
 }
 async function loadJobs({ refresh = false, wait = false, announce = false } = {}) {
@@ -990,7 +991,9 @@ function starButton(j, label = false) {
 const resumeMark = (j) => j.tailored && h("button", { class: "resume-mark", "aria-label": `Open the résumé made for ${j.title}`,
   title: `Résumé made${j.ats_total != null ? ` · ATS ${pct(j.ats_total)}` : ""}${j.resume_score != null ? ` · résumé ${j.resume_score}/10` : ""}. Open it.`,
   onclick: (e) => { e.stopPropagation(); S.detailTab = "resume"; S.detailTabJob = j.id; selectJob(j.id, true); } }, icon("resume"));
-const rowEnd = (j) => h("div", { class: "row-end" }, starButton(j), resumeMark(j));
+const rowEnd = (j) => h("div", { class: "row-end" }, starButton(j), resumeMark(j),
+  !j.referral_url && h("button", { class: "ref-add", title: "Add a referral (R)", "aria-label": `Add a referral for ${j.title || "this role"}`,
+    onclick: (e) => { e.stopPropagation(); selectJob(j.id, true); openReferral(j); } }, icon("personAdd")));
 const fitTile = (j, cls = "") => RUNP.jobs.has(j.id) ? ringTile(j, cls) : h("div", {
   class: `fit ${fitClass(score(j))} ${j.impact_score != null ? "full" : ""} ${RUNP.done.has(j.id) ? "pop" : ""} ${cls}`, "data-job": j.id, "data-cls": cls,
   onanimationend: (e) => e.currentTarget.classList.remove("pop"),   // springs once, not each time the list is redrawn
@@ -1001,8 +1004,9 @@ const SENT_STAGES = APPLIED_STAGES;
 const showsSent = (j) => !!j.tracker_id && (SENT_STAGES.includes(j.status) || !!j.sent_resume);
 const noSent = (j) => !!j.tracker_id && SENT_STAGES.includes(j.status) && !j.sent_resume;
 const noSentTag = (j) => noSent(j) && h("span", { class: "tag warn-tag", title: "Add the résumé you sent in its Sent résumé tab." }, "No résumé on file");
-const referralTag = (j) => j.referral_url && h("span", { class: "tag ref", title: `Referral: ${j.referral_name || j.referral_url}` },
-  icon("person"), j.referral_name || "Referral");
+const referralTag = (j) => j.referral_url && h("span", { class: "tag ref", title: `Referral: ${refLabel(j)}. Click to open it`,
+  onclick: (e) => { e.stopPropagation(); selectJob(j.id, true); openReferral(j); } },
+  icon("person"), refLabel(j), j.referral_step && h("span", { class: "ref-step" }, ` · ${refStepName(j.referral_step)}`));
 // The company's funding round: "Series B", or "YC W26" when only the batch is known. See the Startups tab.
 const roundLabel = (f) => (f.stage && f.stage !== "Unknown" ? f.stage : f.batch ? `YC ${f.batch}` : f.round || "Raised");
 const fundingTag = (j) => j.funding && h("span", { class: "tag round-tag", "data-round": j.funding.stage || "Unknown", title: j.funding.line },
@@ -1156,39 +1160,181 @@ async function setStatus(j, status) {
   } catch (e) { j.status = prev; repaint(j); toast(e.message, true); }
 }
 
-const refDialog = $("#referral-dialog"), refForm = $("#referral-form");
-function openReferral(j) {
-  refDialog._job = j;
-  refForm.reset();
-  formError(refForm);
-  refForm.elements.namedItem("url").value = j.referral_url;
-  refForm.elements.namedItem("name").value = j.referral_name;
-  $("#referral-for").textContent = `${j.title}${j.company ? " at " + j.company : ""}. Link the person referring you, or the referral page they sent.`;
-  $("[data-act=remove]", refForm).classList.toggle("hidden", !j.referral_url);
-  refDialog.showModal();
+// ---- jobs: referral ----------------------------------------------------------------------------
+// A toggle in the role's header unfolds a small form (no referral yet, or Edit) or the referral's steps
+// and note. One role's is open at a time (S.refOpen); what's typed survives a repaint (S.refDraft).
+const REF_STEPS = [["toask", "To ask"], ["asked", "Asked"], ["referred", "Referred"], ["thanked", "Thanked"]];
+const REF_FIELDS = ["referral_url", "referral_name", "referral_step", "referral_dates", "referral_note"];
+const refStepName = (k) => REF_STEPS.find((x) => x[0] === k)?.[1] || "";
+const refEmail = (j) => (/^mailto:/i.test(j.referral_url || "") ? j.referral_url.slice(7) : "");
+const refLabel = (j) => j.referral_name || refEmail(j) || host(j.referral_url);
+const refHref = (j) => (refEmail(j) ? j.referral_url : safeHref(j.referral_url));
+const looksLikeEmail = (v) => /^(mailto:)?[^@\s/:]+@[^@\s/]+\.[^@\s/.]+$/i.test(v.trim());
+// The name a pasted contact gives: linkedin.com/in/maya-okafor-4b1 or maya.okafor@example.com → "Maya Okafor".
+function nameFromContact(raw) {
+  const v = raw.trim();
+  const li = /linkedin\.com\/in\/([^/?#]+)/i.exec(v);
+  let parts;
+  if (li) {
+    try { parts = decodeURIComponent(li[1]).split("-"); } catch (_) { return ""; }
+  } else if (looksLikeEmail(v)) {
+    parts = v.replace(/^mailto:/i, "").split("@")[0].split(/[._-]+/);
+    if (parts.length < 2) return "";      // "sam@" could be anyone's first name or initials
+  } else return "";
+  parts = parts.filter((p) => p && !/\d/.test(p));
+  return parts.map((p) => p[0].toUpperCase() + p.slice(1).toLowerCase()).join(" ");
 }
-async function saveReferral(url, name) {
-  const j = refDialog._job;
+// Other tracked roles at the same company with no referral yet: one tick adds the person to those too.
+const refOthers = (j) => j.company ? [...S.byId.values()].filter((o) =>
+  o.id !== j.id && o.tracker_id && !o.referral_url && companyKey(o) === companyKey(j)) : [];
+
+function openReferral(j, edit = false) {
+  S.refOpen = j.id; S.refEdit = edit; S.refDraft = null;
+  renderDetailHead();
+  const card = $("#ref-card");
+  if (!card) return;
+  card.classList.add("unfold");
+  ($("input[name=contact]", card) || $(".ref-steps [aria-pressed=true]", card) || $(".ref-steps button", card))?.focus();
+}
+function foldReferral() {
+  S.refOpen = null; S.refEdit = false; S.refDraft = null;
+  renderDetailHead();
+  $("#job-detail .ref-toggle")?.focus();
+}
+function refToggle(j) {
+  const open = S.refOpen === j.id;
+  const attrs = { "aria-expanded": String(open), "aria-controls": open ? "ref-card" : null, onclick: () => (open ? foldReferral() : openReferral(j)) };
+  if (!j.referral_url) return h("button", { class: "ghost small ref-toggle add", title: "Add the person referring you (R)", ...attrs },
+    icon("personAdd"), "Referral", icon("down"));
+  return h("button", { class: "ref-chip ref-toggle", title: `${refEmail(j) || j.referral_url}. Its steps and note (R)`, ...attrs },
+    icon("person"), h("span", { class: "ref-name" }, refLabel(j)),
+    j.referral_step && h("span", { class: "ref-step" }, `· ${refStepName(j.referral_step)}`), icon("down"));
+}
+async function setReferral(j, body) {
+  const r = await patch(`/api/jobs/${encodeURIComponent(j.id)}`, body);
+  for (const k of REF_FIELDS) j[k] = r[k];
+  indexJob(j);
+}
+function refCard(j) {
+  if (S.refOpen !== j.id) return null;
+  const fold = h("button", { class: "icon-btn ref-fold", title: "Fold the referral away (Esc)", "aria-label": "Fold the referral away", onclick: foldReferral }, icon("up"));
+  const card = h("section", { class: "ref-card", id: "ref-card", "aria-label": "Referral",
+    onkeydown: (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); foldReferral(); } } }, fold);
+  if (!j.referral_url || S.refEdit) card.append(refForm(j));
+  else card.append(...refDetails(j));
+  return card;
+}
+function refForm(j) {
+  const d = S.refDraft?.id === j.id ? S.refDraft
+    : (S.refDraft = { id: j.id, contact: refEmail(j) || j.referral_url || "", name: j.referral_name || "", auto: false, all: false });
+  const others = refOthers(j);
+  const contact = h("input", { name: "contact", value: d.contact, autocomplete: "off", spellcheck: "false", "aria-label": "LinkedIn, link or email",
+    placeholder: "Paste their LinkedIn, the referral link they sent, or their email" });
+  const name = h("input", { name: "name", value: d.name, autocomplete: "off", maxlength: "120", placeholder: "Who is referring you", "aria-label": "Name" });
+  const auto = h("span", { class: "ref-auto", hidden: !d.auto }, "from the ", looksLikeEmail(d.contact) ? "email" : "link");
+  const more = h("div", { class: "ref-more", hidden: !(d.contact || j.referral_url) },
+    h("label", { class: "ref-field" }, h("span", {}, "Name"), name, auto),
+    others.length > 0 && h("label", { class: "check" }, h("input", { type: "checkbox", name: "all", checked: d.all }),
+      ` Also for the ${others.length === 1 ? "other" : others.length + " other"} ${j.company} role${others.length === 1 ? "" : "s"}`),
+    h("p", { class: "form-error hidden" }),
+    h("div", { class: "ref-actions" },
+      h("button", { class: "primary small", type: "submit" }, "Save referral"),
+      h("button", { class: "ghost small", type: "button", onclick: () => (j.referral_url ? (S.refEdit = false, S.refDraft = null, renderDetailHead()) : foldReferral()) }, "Cancel"),
+      j.referral_url && h("button", { class: "ghost small danger", type: "button", onclick: () => removeReferral(j) }, "Remove referral")));
+  const find = !j.referral_url && j.company && h("a", { class: "ref-find", hidden: !!d.contact, target: "_blank", rel: "noopener",
+    href: `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(j.company)}`,
+    title: `A LinkedIn people search for ${j.company}` }, `Find people at ${j.company} ↗`);
+  const form = h("form", { class: "ref-form", autocomplete: "off" },
+    h("div", { class: "ref-line" }, contact, find), more);
+  form.addEventListener("input", (e) => {
+    if (e.target === contact) {
+      const v = contact.value.trim(), guess = nameFromContact(v);
+      more.hidden = !(v || j.referral_url);
+      if (find) find.hidden = !!v;
+      if (guess && (!name.value || d.auto)) { name.value = guess; d.auto = true; }
+      else if (!guess && d.auto) { name.value = ""; d.auto = false; }
+      auto.replaceChildren("from the ", looksLikeEmail(v) ? "email" : "link");
+    }
+    if (e.target === name) d.auto = false;
+    auto.hidden = !d.auto;
+    d.contact = contact.value; d.name = name.value; d.all = !!form.elements.namedItem("all")?.checked;
+  });
+  form.addEventListener("submit", (e) => { e.preventDefault(); saveReferral(j, form); });
+  return form;
+}
+async function saveReferral(j, form) {
+  const d = S.refDraft;
+  const contact = d.contact.trim(), name = d.name.trim();
+  if (!contact) { form.elements.namedItem("contact").focus(); return; }
+  const btn = $("button[type=submit]", form);
+  btn.disabled = true;
   try {
-    const r = await patch(`/api/jobs/${encodeURIComponent(j.id)}`, { referral_url: url, referral_name: name });
-    j.referral_url = r.referral_url; j.referral_name = r.referral_name;
-    repaint(j);
-    refDialog.close();
-    toast(url ? "Referral saved." : "Referral removed.");
-  } catch (e) { formError(refForm, e.message); }
+    await setReferral(j, { referral_url: contact, referral_name: name });
+  } catch (e) { btn.disabled = false; formError(form, e.message); return; }
+  const others = d.all ? refOthers(j) : [];
+  let missed = 0;
+  for (const o of others) {
+    try { await setReferral(o, { referral_url: contact, referral_name: name }); } catch (_) { missed++; }
+  }
+  S.refOpen = null; S.refEdit = false; S.refDraft = null;
+  renderJobs();
+  renderDetailHead();
+  const t = $("#job-detail .ref-toggle");
+  t?.classList.add("saved");
+  t?.focus();
+  const who = name || refLabel(j);
+  toast(missed ? `Referral saved for ${who}, but ${plural(missed, "other role")} didn't take it.`
+    : others.length ? `Referral saved: ${who}, on ${plural(others.length + 1, "role")}.` : `Referral saved: ${who}.`, !!missed);
 }
-refForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  saveReferral(refForm.elements.namedItem("url").value.trim(), refForm.elements.namedItem("name").value.trim());
-});
-$("[data-act=remove]", refForm).addEventListener("click", () => saveReferral("", ""));
-$("[data-act=cancel]", refForm).addEventListener("click", () => refDialog.close());
+async function removeReferral(j) {
+  try {
+    await setReferral(j, { referral_url: "" });
+    S.refOpen = null; S.refEdit = false; S.refDraft = null;
+    repaint(j);
+    toast("Referral removed.");
+  } catch (e) { toast(e.message, true); }
+}
+function refDetails(j) {
+  const at = REF_STEPS.findIndex(([k]) => k === j.referral_step);
+  const href = refHref(j);
+  const note = h("textarea", { class: "ref-note", name: "note", rows: "2", maxlength: "2000", "aria-label": "Note",
+    placeholder: "How you know them, what they said, when to follow up" });
+  note.value = j.referral_note || "";
+  // Saved a moment after typing stops, and on leaving the box, so a redraw can't lose it.
+  const saveNote = async () => {
+    clearTimeout(refDetails._t);
+    if (note.value.trim() === (j.referral_note || "")) return;
+    try { await setReferral(j, { referral_note: note.value }); renderJobs(); }
+    catch (e) { toast(e.message, true); }
+  };
+  note.addEventListener("input", () => { clearTimeout(refDetails._t); refDetails._t = setTimeout(saveNote, 800); });
+  note.addEventListener("change", saveNote);
+  const setStep = async (k) => {
+    try { await setReferral(j, { referral_step: k }); repaint(j); $(`#ref-card [data-step=${k}]`)?.focus(); }
+    catch (e) { toast(e.message, true); }
+  };
+  const initials = refLabel(j).split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  return [
+    h("div", { class: "ref-who" },
+      h("span", { class: "ref-avatar", "aria-hidden": "true" }, initials || "?"),
+      h("div", { class: "ref-id" }, h("b", {}, refLabel(j)),
+        href && h("a", { href, target: refEmail(j) ? null : "_blank", rel: "noopener", title: refEmail(j) || j.referral_url },
+          refEmail(j) || host(j.referral_url), refEmail(j) ? "" : " ↗")),
+      h("button", { class: "ghost small", onclick: () => openReferral(j, true) }, "Edit"),
+      h("button", { class: "ghost small", onclick: () => removeReferral(j) }, "Remove")),
+    h("div", { class: "ref-steps", role: "group", "aria-label": "Where the referral stands" },
+      ...REF_STEPS.map(([k, label], i) => h("button", { class: i < at ? "done" : i === at ? "now" : "", "data-step": k, "aria-pressed": String(i === at),
+        onclick: () => setStep(k) }, label, j.referral_dates?.[k] && i <= at && h("small", {}, fmtDate(j.referral_dates[k] + "T12:00"))))),
+    note,
+  ];
+}
 
 // ---- jobs: detail ------------------------------------------------------------------------------
 function selectJob(id, open = false) {
   const prev = S.byId.get(S.selected);
   S.selected = S.sel[S.scope] = id;
   if (open) S.drawer = true;
+  if (S.refOpen && S.refOpen !== id) S.refOpen = S.refEdit = S.refDraft = null;   // another role's referral folds away
   for (const j of [prev, S.byId.get(id)]) {
     if (!j) continue;
     j._el?.classList.toggle("selected", j.id === id);
@@ -1292,12 +1438,6 @@ function quickStatus(j) {
     default: return [go("Back to in progress", "In progress")];
   }
 }
-function referralControl(j) {
-  if (!j.referral_url) return h("button", { class: "ghost small", onclick: () => openReferral(j) }, icon("person"), "Add referral");
-  return h("span", { class: "ref-chip" }, icon("person"),
-    h("a", { href: safeHref(j.referral_url), target: "_blank", rel: "noopener", title: j.referral_url }, j.referral_name || host(j.referral_url), " ↗"),
-    h("button", { class: "link-btn", onclick: () => openReferral(j) }, "Edit"));
-}
 function detailHead(j) {
   if (S.fold.head) return h("div", { class: "dhead compact" },
     fitTile(j),
@@ -1305,10 +1445,12 @@ function detailHead(j) {
     statusControl(j),
     j.tailored ? h("span", { class: "score" }, "Résumé ", h("b", {}, j.resume_score ?? "–"), "/10 · ATS ", h("b", {}, pct(j.ats_total)))
       : j.impact_score != null && h("span", { class: "score" }, "Full score ", h("b", {}, j.impact_score), "/10"),
+    refToggle(j),
     starButton(j),
-    h("button", { class: "icon-btn fold-btn", title: "Show the details: location, referral, links and the stage path", "aria-label": "Show the details",
+    h("button", { class: "icon-btn fold-btn", title: "Show the details: location, links and the stage path", "aria-label": "Show the details",
       "aria-expanded": "false", onclick: () => setFold("head", false) }, icon("down")),
-    h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")));
+    h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")),
+    refCard(j));
   return h("div", { class: "dhead" },
     h("div", { class: "dhead-top" },
       fitTile(j, "big"),
@@ -1330,12 +1472,13 @@ function detailHead(j) {
         h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")))),
     h("div", { class: "bar" },
       statusControl(j),
-      referralControl(j),
+      refToggle(j),
       extLink(j.url, "Posting"),
       extLink(j.notion_url, "Notion"),
       j.tailored ? h("span", { class: "score" }, "Full score ", h("b", {}, j.impact_score ?? "–"), "/10 · Résumé ",
         h("b", {}, j.resume_score ?? "–"), "/10 · ATS ", h("b", {}, pct(j.ats_total)))
         : j.impact_score != null && h("span", { class: "score" }, "Full score ", h("b", {}, j.impact_score), "/10")),
+    refCard(j),
     j.tracker_id && stagePath(j));
 }
 // Where a tracked role stands: the main line with the steps reached so far, and the exits, with the one taken.
@@ -1353,10 +1496,24 @@ function stagePath(j) {
       ...EXITS.map((s) => h("span", { class: "xstep" + (s === exit ? " taken" : ""), "data-stage": s }, h("i"), s))));
 }
 function renderDetailHead() {
-  const j = S.byId.get(S.selected);
-  const old = $("#job-detail .dhead");
-  if (j && old) old.replaceWith(detailHead(j));
+  keepRefFocus(() => {
+    const j = S.byId.get(S.selected);
+    const old = $("#job-detail .dhead");
+    if (j && old) old.replaceWith(detailHead(j));
+  });
 }
+// A redraw keeps the cursor where it was in the referral card (the role's details load after it opens).
+function keepRefFocus(draw) {
+  const a = document.activeElement;
+  const key = a?.closest?.("#ref-card") && (a.name ? `[name=${a.name}]` : a.dataset.step ? `[data-step=${a.dataset.step}]` : "");
+  const at = key && a.selectionStart != null ? [a.selectionStart, a.selectionEnd] : null;
+  draw();
+  const el = key && $(`#ref-card ${key}`);
+  if (!el || el === document.activeElement) return;
+  el.focus();
+  if (at) el.setSelectionRange(...at);
+}
+function renderDetail() { keepRefFocus(drawDetail); }
 function scoreButton(id, kind, scored, primary = false) {
   const busy = S.scoring.get(id);
   const label = kind === "full" ? (scored ? "Run full score again" : "Run full score") : scored ? "Signal score again" : "Signal score";
@@ -1364,7 +1521,7 @@ function scoreButton(id, kind, scored, primary = false) {
     onclick: () => scoreJobs([id], kind) },
     busy?.kind === kind ? [spinner(), busy.state === "queued" ? " Waiting its turn…" : ` Scoring… ${actionTime(kind)}`] : [label, timeTag(kind)]);
 }
-function renderDetail() {
+function drawDetail() {
   const box = $("#job-detail");
   const j = S.byId.get(S.selected);
   if (!j) {
@@ -1539,11 +1696,13 @@ async function renderOutside(j, panel) {
     panel.replaceChildren(h("div", { class: "pad" }, h("div", { class: "notice" },
       h("h3", {}, "No résumé for this role yet"),
       h("p", {}, j.local
-        ? "Make one here, or pick a résumé you made with the résumé skill in a Claude chat. Make résumé also writes the Fit report and the heat map."
-        : "Pick a résumé you made with the résumé skill in a Claude chat. To make one here, the app needs the posting: paste its description."),
+        ? "Make one here, upload one you have (PDF, Word or text), or pick a résumé you made with the résumé skill in a Claude chat. Make résumé also writes the Fit report and the heat map."
+        : "Upload one you have (PDF, Word or text), or pick a résumé you made with the résumé skill in a Claude chat. To make one here, the app needs the posting: paste its description."),
       o.options.length ? pick : h("p", { class: "muted" }, "No résumé runs (resume-runs/) or saved résumés (references/resume-*.md) in your profile folder."),
-      j.local ? makeResumeButton(j)
-        : h("button", { class: "ghost", onclick: () => openDescribe(j) }, "Paste the description…"))));
+      h("div", { class: "actions-inline" },
+        j.local ? makeResumeButton(j)
+          : h("button", { class: "ghost", onclick: () => openDescribe(j) }, "Paste the description…"),
+        uploadForJobButton(j, "Upload a résumé…")))));
     return;
   }
   const wrap = h("div", { class: "outside" }, h("div", { class: "outside-bar" },
@@ -1850,7 +2009,8 @@ function renderResume(d, panel, sent = null) {
   });
   const editBtn = h("button", { class: "ghost small", title: "Change the wording yourself, right on the page" }, "Edit on page");
   const fmtNote = formatNote(d, r, (text, fmt) => { instr.value = chat.draft = text; send(fmt); });
-  const pdfbar = h("div", { class: "pdfbar" }, "Version", versionSel, pdfLink, h("span", { class: "grow" }), editBtn);
+  const pdfbar = h("div", { class: "pdfbar" }, "Version", versionSel, pdfLink, h("span", { class: "grow" }),
+    !sent && uploadForJobButton(S.byId.get(d.id), "Upload…", "ghost small"), editBtn);
   const pdfpane = h("div", { class: "pdfpane" }, pdfbar, fmtNote, frame);
   const pdf = sideBySide(d, r, pdfpane);
   editBtn.addEventListener("click", () => { pdf.single(); toCurrent(); openPageEditor(d, pdfpane); });
@@ -2144,6 +2304,7 @@ function versionShort(v) {
   if (v.source === "pipeline") return "Make résumé";
   if (v.source?.startsWith("restored")) return `Restored ${v.source.slice(9)}`;
   if (v.source === "by hand") return /^Edited as text/.test(v.changes || "") ? "Edited as text" : "Edit on page";
+  if (v.source === "upload") return "Uploaded";
   const t = v.instruction || v.changes || "";
   return t.length > 24 ? `${t.slice(0, 23).trimEnd()}…` : t;
 }
@@ -2568,23 +2729,75 @@ function applySearches(d) {
   S.requests = null;                     // the request bodies change with the filters and the defaults
   S.searches = d.searches;
   S.defaults = d.defaults;
+  S.regions = d.regions || [];
   const ids = S.searches.map((s) => s.id);
   S.picked = new Set(S.picked ? ids.filter((id) => S.picked.has(id) || id === d.id) : ids);
   renderSearches();
 }
 const money = (n) => `$${Math.round(n / 1000)}k+`;
+// A filter's `country`: a country code, a region (EU, Schengen, EEA, Europe, EMEA), a list of them, or Any.
+const countries = (n) => `${n} ${n === 1 ? "country" : "countries"}`;
+const whereParts = (c) => (Array.isArray(c) ? c : c ? String(c).split(/[\s,+;]+/) : []).filter(Boolean);
+function whereCodes(c) {
+  const parts = whereParts(c);
+  if (!parts.length || parts.some((p) => p.toLowerCase() === "any")) return null;
+  const found = new Set();
+  for (const p of parts) {
+    const r = S.regions.find((x) => x.id.toLowerCase() === p.toLowerCase());
+    (r ? r.codes : [p.toUpperCase() === "UK" ? "GB" : p.toUpperCase()]).forEach((x) => found.add(x));   // ISO says GB
+  }
+  return [...found].sort();
+}
+function whereLabel(c) {
+  const parts = whereParts(c), codes = whereCodes(c);
+  if (!codes) return "any country";
+  const regional = parts.some((p) => S.regions.some((r) => r.id.toLowerCase() === p.toLowerCase()));
+  return parts.map((p) => (/^gb$/i.test(p) ? "UK" : p)).join(" + ") + (regional ? ` (${countries(codes.length)})` : "");
+}
+// The Where picker's choices: the default, the US, the UK (in no EU region), EU + Schengen, each region, anywhere,
+// or codes of your own.
+const WHERE_PAIR = "EU+Schengen";
+function whereOptions() {
+  const df = S.defaults.country;
+  const opt = (value, label) => h("option", { value }, label);
+  return [opt("", `Default (${whereLabel(df)})`), opt("US", "United States"), opt("GB", "United Kingdom"),
+    opt(WHERE_PAIR, `EU + Schengen area (${countries(whereCodes(["EU", "Schengen"]).length)})`),
+    ...S.regions.map((r) => opt(r.id, `${r.label} (${countries(r.codes.length)})`)),
+    opt("Any", "Anywhere"), opt("other", "Other countries…")];
+}
+function whereChoice(c) {
+  const parts = whereParts(c).map((p) => p.toLowerCase());
+  if (!parts.length) return "";
+  if (parts.length === 2 && parts.includes("eu") && parts.includes("schengen")) return WHERE_PAIR;
+  if (parts.length === 1) {
+    const own = { us: "US", gb: "GB", uk: "GB", any: "Any" }[parts[0]];
+    if (own) return own;
+    const r = S.regions.find((x) => x.id.toLowerCase() === parts[0]);
+    if (r) return r.id;
+  }
+  return "other";
+}
+function whereNote() {
+  const choice = sField("where").value;
+  $(".where-codes", searchForm).classList.toggle("hidden", choice !== "other");
+  const c = choice === "other" ? sField("where_codes").value : choice === WHERE_PAIR ? ["EU", "Schengen"] : choice || S.defaults.country;
+  const codes = whereCodes(c);
+  $(".where-note", searchForm).textContent = !codes ? "Every country JobsPipe covers. Startup roles from anywhere answer this filter."
+    : codes.length > 1 ? `${countries(codes.length)}: ${codes.join(", ")}. Startup roles pinned to other countries are skipped.`
+    : "";
+}
 function searchFacts(s) {
   const df = S.defaults, eff = (k) => s[k] ?? df[k];
   const wa = s.work_arrangement || [];
   return [s.remote ? "Remote" : wa.length ? wa.join(", ").replace(/^./, (c) => c.toUpperCase()) : "Any arrangement",
-          (s.locations || []).join(", "), eff("country"),
-          eff("min_salary_usd") ? money(eff("min_salary_usd")) : "", eff("posted_within_days") != null ? `posted in the last ${plural(eff("posted_within_days"), "day")}` : "",
+          (s.locations || []).join(", "), whereLabel(eff("country")),
+          eff("min_salary_usd") ? money(eff("min_salary_usd")) : eff("min_salary_usd") === 0 ? "any pay" : "", eff("posted_within_days") != null ? `posted in the last ${plural(eff("posted_within_days"), "day")}` : "",
           `up to ${plural(eff("limit") ?? 10, "job")} per run`].filter(Boolean).join(" · ");
 }
 function renderSearches() {
   const df = S.defaults;
   if (shownRequests.size && !S.requests) loadRequests();
-  $("#search-defaults").textContent = `Defaults: ${df.country || "any country"}, posted within ${df.posted_within_days ?? "any"} days, ${df.min_salary_usd ? money(df.min_salary_usd) : "any"} pay, ${df.limit ?? 10} jobs per search.`;
+  $("#search-defaults").textContent = `Defaults: ${whereLabel(df.country)}, posted within ${df.posted_within_days ?? "any"} days, ${df.min_salary_usd ? money(df.min_salary_usd) : "any"} pay, ${df.limit ?? 10} jobs per search.`;
   $("#searches").replaceChildren(...S.searches.map(searchCard),
     ...(S.searches.length ? [] : [h("div", { class: "notice" }, "No saved filters yet. Add one to start finding roles.")]));
   const picked = S.searches.filter((s) => S.picked.has(s.id));
@@ -2660,10 +2873,16 @@ function openSearch(s, mode) {
   $("option[value=keep]", modeSel)?.remove();
   if (wa.length && wa.join() !== "hybrid") modeSel.append(h("option", { value: "keep" }, wa.join(", ")));
   modeSel.value = s.remote ? "remote" : wa.join() === "hybrid" ? "hybrid" : wa.length ? "keep" : "any";
+  sField("where").replaceChildren(...whereOptions());
+  sField("where").value = whereChoice(s.country);
+  sField("where_codes").value = sField("where").value === "other" ? whereParts(s.country).join(", ") : "";
+  whereNote();
   searchDialog.showModal();
   sField("name").focus();
 }
 $("#add-search").addEventListener("click", () => openSearch(null, "new"));
+sField("where").addEventListener("change", () => { whereNote(); if (sField("where").value === "other") sField("where_codes").focus(); });
+sField("where_codes").addEventListener("input", whereNote);
 $("[data-act=cancel]", searchForm).addEventListener("click", () => searchDialog.close());
 function searchBody() {
   const body = { ...searchDialog._base, name: sField("name").value.trim() };
@@ -2673,6 +2892,8 @@ function searchBody() {
   if (mode !== "keep") { delete body.remote; delete body.work_arrangement; }
   if (mode === "remote") body.remote = true;
   if (mode === "hybrid") body.work_arrangement = ["hybrid"];
+  const where = sField("where").value;
+  body.country = where === "other" ? sField("where_codes").value : where === WHERE_PAIR ? ["EU", "Schengen"] : where;
   return body;
 }
 searchForm.addEventListener("submit", async (e) => {
@@ -3209,10 +3430,22 @@ $("#resume-upload").addEventListener("change", (e) => {
 // checked word by word against the file. You see both side by side, fix anything flagged, name it and save.
 const impDialog = $("#import-dialog");
 impDialog.addEventListener("close", () => { F.forLook = false; });
-async function importResume(file) {
+// A button that uploads a résumé for one job: read and checked as on Profile, then saved as that job's résumé.
+function uploadForJobButton(j, label, cls = "ghost") {
+  if (!j) return null;
+  const file = h("input", { type: "file", accept: $("#resume-upload").accept, hidden: true });
+  file.addEventListener("change", () => {
+    const f = file.files[0];
+    file.value = "";
+    if (f) importResume(f, j);
+  });
+  return h("span", { class: "upload-for-job" },
+    h("button", { type: "button", class: cls, title: "Use a résumé you already have for this role: a PDF, Word or text file", onclick: () => file.click() }, label), file);
+}
+async function importResume(file, job = null) {
   const body = $("#import-body");
-  $("#import-title").textContent = "Add a résumé";
-  $("#import-sub").textContent = file.name;
+  $("#import-title").textContent = job ? "Add a résumé for this role" : "Add a résumé";
+  $("#import-sub").textContent = job ? `${file.name} · for ${job.title}${job.company ? " at " + job.company : ""}` : file.name;
   body.replaceChildren(h("div", { class: "import-reading" }, h("span", { class: "import-blob", "aria-hidden": "true" }),
     h("p", {}, h("b", {}, "Reading your résumé…")),
     h("p", { class: "muted" }, "Claude is sorting it into sections, word for word. This takes about a minute.")));
@@ -3226,7 +3459,7 @@ async function importResume(file) {
       h("div", { class: "actions" }, h("span", { class: "grow" }), h("button", { class: "ghost", onclick: () => impDialog.close() }, "Close")));
     return;
   }
-  if (impDialog.open) renderImport(d);
+  if (impDialog.open) renderImport(job ? { ...d, job } : d);
 }
 function renderImport(d) {
   const body = $("#import-body");
@@ -3252,7 +3485,7 @@ function renderImport(d) {
   });
   recheck.addEventListener("click", async () => {
     if (md.value === d.markdown) return;
-    try { const nd = await post(`/api/profile/resumes/import/${d.id}/check`, { markdown: md.value }); renderImport({ ...nd, _editing: !md.hidden }); }
+    try { const nd = await post(`/api/profile/resumes/import/${d.id}/check`, { markdown: md.value }); renderImport({ ...nd, job: d.job, _editing: !md.hidden }); }
     catch (err) { toast(err.message, true); }
   });
   const flags = h("ul", { class: "import-flags" }, ...d.flags.map((f) =>
@@ -3279,11 +3512,13 @@ function renderImport(d) {
   words.addEventListener("change", sync);
   look.addEventListener("change", sync);
   record.addEventListener("change", sync);
+  const cols = h("div", { class: "import-cols" },
+    h("section", {}, h("h3", {}, "What you uploaded"), orig),
+    h("section", {}, h("div", { class: "import-col-head" }, h("h3", {}, "What the app read"), h("span", { class: "grow" }), recheck, toggle),
+      sheet, md, flags));
+  if (d.job) { jobImportSave(d, body, cols, md, recheck, toggle); return; }
   body.replaceChildren(
-    h("div", { class: "import-cols" },
-      h("section", {}, h("h3", {}, "What you uploaded"), orig),
-      h("section", {}, h("div", { class: "import-col-head" }, h("h3", {}, "What the app read"), h("span", { class: "grow" }), recheck, toggle),
-        sheet, md, flags)),
+    cols,
     h("div", { class: "import-uses" },
       h("label", { class: "check import-use" }, words, h("b", {}, "Save its words as a résumé")),
       h("div", { class: "import-save" },
@@ -3331,6 +3566,42 @@ function renderImport(d) {
     Object.assign(row, { ticked: score.checked, missing: false, name: name.value.trim() || row.name || fileLabel(res.file) });
     renderResumeRows(); profileChanged();
     toast(score.checked ? `Added ${res.file}. Save the profile to start scoring against it.` : `Added ${res.file}.`);
+  });
+}
+
+// An upload for one job: it becomes that job's résumé, as its next version when it has one. Its words can also go
+// to the impact record (picked line by line next), as from Profile.
+function jobImportSave(d, body, cols, md, recheck, toggle) {
+  const j = d.job;
+  const record = h("input", { type: "checkbox" });
+  const save = h("button", { class: "primary", disabled: !d.html }, "Use for this role");
+  body.replaceChildren(cols,
+    h("div", { class: "import-uses" },
+      h("p", { class: "import-for" }, h("b", {}, `${j.title}${j.company ? " at " + j.company : ""}`), h("br"),
+        h("span", { class: "muted" }, j.local && j.tailored
+          ? "It becomes the next version of this role's résumé, drawn in its format. Earlier versions stay in the version menu."
+          : "It becomes this role's résumé, drawn in your résumé format, with Edit on page and versions. You can switch back to another résumé from the menu above it.")),
+      h("label", { class: "check import-use" }, record, h("b", {}, "Add what's new to my impact record"),
+        h("span", { class: "muted" }, " (you pick each line next; nothing is added on its own)"))),
+    h("p", { class: "form-error hidden" }),
+    h("div", { class: "actions" }, h("button", { class: "ghost", onclick: () => impDialog.close() }, "Cancel"), h("span", { class: "grow" }), save));
+  if (d._editing) toggle.click();
+  save.addEventListener("click", async () => {
+    if (!md.hidden && md.value !== d.markdown) { recheck.click(); return; }
+    save.disabled = true;
+    let res;
+    try { res = await post(`/api/jobs/${encodeURIComponent(j.id)}/resume/upload`, { import_id: d.id, markdown: md.value }); }
+    catch (e) { formError(body, e.message); save.disabled = false; return; }
+    if (record.checked) renderSuggestions({ markdown: md.value, source: d.filename });
+    else impDialog.close();
+    toast(res.added_version ? `Saved as v${res.current} of this role's résumé.` : `${d.filename} is now this role's résumé.`);
+    S.detailTab = "resume"; S.detailTabJob = j.id;
+    reloadResume(j.id);
+    if (res.versions.find((v) => v.n === res.current)?.rating) {   // keywords are in; re-rate skills and experience
+      post(`/api/jobs/${encodeURIComponent(j.id)}/resume/rescore`, { n: res.current })
+        .then(() => reloadResume(j.id))
+        .catch((e) => toast(`Couldn't re-rate the upload: ${e.message}`, true));
+    }
   });
 }
 
@@ -4094,8 +4365,9 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/") { e.preventDefault(); showTab(S.scope); if (S.fold.filters) setFold("filters", false); $("#job-filter").focus(); return; }
   if (!(S.tab in SCOPES)) return;
   const j = S.byId.get(S.selected);
-  if (e.key === "Escape") closeDrawer();
+  if (e.key === "Escape") S.refOpen === j?.id ? foldReferral() : closeDrawer();
   else if (e.key === "s" && j) toggleStar(j);
+  else if (e.key === "r" && j) { e.preventDefault(); if (!S.drawer) selectJob(j.id, true); openReferral(j); }
   else if ((e.key === "j" || e.key === "k") && !boardMode() && S.visible.some((x) => !collapsed(x))) {
     const shown = S.visible.filter((x) => !collapsed(x));
     const i = shown.indexOf(j);

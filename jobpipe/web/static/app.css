@@ -171,6 +171,8 @@ label.inline input { width: 56px; margin: 0; }
 .check { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; margin: 0; cursor: pointer; }
 .check input { width: auto; margin: 0; }
 .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.where-note { margin: -4px 0 10px; font-size: 12px; line-height: 1.45; }
+.where-note:empty { display: none; }
 .seg { display: flex; flex: none; }
 .seg button { border-radius: 0; margin-left: -1px; color: var(--muted); }
 .seg button:first-child { border-radius: 7px 0 0 7px; margin-left: 0; }
@@ -254,7 +256,8 @@ label.inline input { width: 56px; margin: 0; }
 .tag { font-size: 11px; line-height: 17px; padding: 0 6px; border-radius: 4px; background: var(--paper); color: var(--muted); border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .tag .ico { width: 11px; height: 11px; }
 .tag.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); background: none; }
-.tag.ref { color: var(--link); border-color: color-mix(in srgb, var(--link) 40%, var(--line)); background: none; max-width: 150px; overflow: hidden; }
+.tag.ref { color: var(--link); border-color: color-mix(in srgb, var(--link) 40%, var(--line)); background: none; max-width: 190px; overflow: hidden; cursor: pointer; }
+.tag.ref .ref-step { color: var(--muted); }
 .stage-tag { color: var(--c); border-color: color-mix(in srgb, var(--c) 40%, var(--line)); background: color-mix(in srgb, var(--c) 8%, var(--panel)); font-weight: 600; }
 .fit { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; flex: none;
   font: 700 14px var(--mono); background: var(--paper); color: var(--faint); }
@@ -346,6 +349,51 @@ html[data-theme] .fit.run-ring { border: 0; box-shadow: none; background: var(--
 .status-select { width: auto; font-weight: 600; color: var(--c); border-color: color-mix(in srgb, var(--c) 45%, var(--line)); background: color-mix(in srgb, var(--c) 8%, var(--panel)); }
 .ref-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid color-mix(in srgb, var(--link) 40%, var(--line)); border-radius: 999px; background: var(--panel); color: var(--link); }
 .ref-chip a { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Referral: a toggle in the header unfolds a small form, or the referral's steps and note, under the bar. */
+.ref-toggle .ico { width: 14px; height: 14px; }
+.ref-toggle .ico:last-child { width: 12px; height: 12px; transition: transform .2s ease; }
+.ref-toggle[aria-expanded="true"] .ico:last-child { transform: rotate(180deg); }
+.ref-toggle.add { display: inline-flex; align-items: center; gap: 5px; border-style: dashed; color: var(--link); }
+button.ref-chip { font: inherit; cursor: pointer; padding: 3px 8px 3px 10px; }
+button.ref-chip:hover { border-color: var(--link); }
+.ref-chip .ref-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-chip .ref-step { color: var(--muted); white-space: nowrap; }
+.ref-toggle[aria-expanded="true"] { border-style: solid; border-color: var(--link); background: color-mix(in srgb, var(--link) 7%, var(--panel)); }
+.ref-card { position: relative; flex-basis: 100%; margin-top: 10px; padding: 10px 40px 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--paper); display: flex; flex-direction: column; gap: 8px; }
+.dhead.compact .ref-card { margin-top: 2px; }
+.ref-card [hidden] { display: none !important; }
+.ref-fold { position: absolute; top: 5px; right: 5px; }
+.ref-line { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.ref-line input { flex: 1 1 260px; min-width: 0; width: auto; }
+.ref-find { font-size: 12.5px; white-space: nowrap; }
+.ref-more { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ref-field { display: flex; align-items: center; gap: 10px; margin: 0; }
+.ref-field > span:first-child { width: 44px; flex: none; color: var(--muted); font-size: 12.5px; }
+.ref-field input { flex: 1; min-width: 0; width: auto; }
+.ref-auto { font-size: 12px; color: var(--good); white-space: nowrap; }
+.ref-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ref-actions .danger { margin-left: auto; }
+.ref-form .form-error { margin: 0; }
+.ref-who { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ref-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 700; font-size: 13px;
+  background: color-mix(in srgb, var(--link) 14%, var(--panel)); color: var(--link); }
+.ref-id { display: flex; flex-direction: column; min-width: 0; flex: 1 1 160px; }
+.ref-id a { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-steps { display: flex; flex-wrap: wrap; gap: 4px; }
+.ref-steps button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--muted);
+  display: inline-flex; gap: 5px; align-items: baseline; }
+.ref-steps button:hover { border-color: var(--faint); color: var(--ink); }
+.ref-steps button.done { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.ref-steps button.now { background: var(--ink); color: var(--panel); border-color: var(--ink); font-weight: 600; }
+.ref-steps small { font-size: 11px; opacity: .8; }
+.ref-note { width: 100%; resize: vertical; min-height: 40px; }
+/* A row's add-a-referral button, shown on hover like the star (always, where there's no hover). */
+.ref-add { border: 0; background: none; padding: 5px; border-radius: 6px; color: var(--link); display: inline-flex; opacity: 0; }
+.ref-add .ico { width: 16px; height: 16px; }
+.ref-add:hover { background: color-mix(in srgb, var(--link) 10%, transparent); }
+.jobs li:hover .ref-add, .jobs li:focus-within .ref-add, .jobs li.selected .ref-add, .kcard:hover .ref-add, .kcard:focus-within .ref-add { opacity: 1; }
+@media (hover: none) { .ref-add { opacity: 1; } }
 .score { font-size: 12px; color: var(--muted); margin-left: auto; }
 .score b { color: var(--ink); font-family: var(--mono); }
 .subtabs { display: flex; gap: 18px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
@@ -817,7 +865,6 @@ dialog { border: 1px solid var(--line); border-radius: 12px; padding: 20px; widt
 dialog::backdrop { background: rgba(10, 12, 16, .36); }
 dialog h2 { font-size: 17px; letter-spacing: -.01em; margin-bottom: 12px; }
 dialog h2 + p { margin: -6px 0 12px; }
-#referral-dialog { width: min(480px, 92vw); }
 /* Adding a résumé: the file as uploaded beside the page as the app reads it, the checks, then name and save. */
 .import-dialog { width: min(1180px, 96vw); max-height: 94vh; overflow: auto; }
 .import-head { margin-bottom: 12px; }
@@ -1013,6 +1060,8 @@ dialog h2 + p { margin: -6px 0 12px; }
 .import-uses { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 4px; }
 .import-use { font-size: 14px; }
 .import-uses .import-save { margin: 0 0 4px 24px; }
+.import-for { margin: 0 0 6px; font-size: 14px; line-height: 1.45; }
+.upload-for-job { display: contents; }
 .import-look { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 14px; align-items: start; margin-left: 24px; font-size: 13px; }
 .import-look p { margin: 0 0 6px; }
 .import-look-img { width: 100%; aspect-ratio: 8.5 / 11; background: #fff; border: 1px solid var(--line); border-radius: 6px; }

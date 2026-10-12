@@ -477,28 +477,18 @@
     </form>
   </dialog>
 
-  <dialog id="referral-dialog">
-    <form id="referral-form">
-      <h2>Referral</h2>
-      <p class="muted" id="referral-for"></p>
-      <label>Link <input name="url" inputmode="url" autocomplete="off" required placeholder="https://www.linkedin.com/in/…"></label>
-      <label>Name <span class="hint">optional</span> <input name="name" autocomplete="off" maxlength="120" placeholder="Who is referring you"></label>
-      <p class="form-error hidden"></p>
-      <div class="actions">
-        <button type="button" data-act="remove" class="ghost danger">Remove referral</button>
-        <span class="grow"></span>
-        <button type="button" data-act="cancel" class="ghost">Cancel</button>
-        <button class="primary">Save referral</button>
-      </div>
-    </form>
-  </dialog>
-
   <dialog id="search-dialog">
     <form id="search-form">
       <h2></h2>
       <label>Name <input name="name" required autocomplete="off" placeholder="Director of Engineering, remote"></label>
       <label>Job titles <span class="hint">one per line; a job matches if its title contains any of them</span>
         <textarea name="titles" rows="3" required placeholder="Technical Program Manager&#10;Principal Program Manager"></textarea></label>
+      <div class="row2 where-row">
+        <label>Where <span class="hint">the countries JobsPipe searches</span><select name="where"></select></label>
+        <label class="where-codes hidden">Countries <span class="hint">codes or regions, comma-separated</span>
+          <input name="where_codes" autocomplete="off" placeholder="DE, NL, GB"></label>
+      </div>
+      <p class="where-note hint"></p>
       <div class="row3">
         <label>Work arrangement
           <select name="mode">
@@ -510,7 +500,7 @@
         <label>Exclude titles <span class="hint">one per line</span><textarea name="exclude_titles" rows="2"></textarea></label>
       </div>
       <div class="row3">
-        <label>Minimum pay (USD) <input name="min_salary_usd" type="number" min="0" step="1000"></label>
+        <label>Minimum pay (USD) <span class="hint">0 for none</span><input name="min_salary_usd" type="number" min="0" step="1000"></label>
         <label>Posted within (days) <input name="posted_within_days" type="number" min="0"></label>
         <label>Jobs per run <span class="hint">1 credit each</span><input name="limit" type="number" min="1" max="100"></label>
       </div>

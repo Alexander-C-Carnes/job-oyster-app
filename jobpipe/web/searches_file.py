@@ -9,7 +9,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-from .. import config
+from .. import config, regions
 
 FIELDS = ("id", "name", "titles", "exclude_titles", "country", "posted_within_days", "min_salary_usd",
           "remote", "work_arrangement", "locations", "seniority", "limit", "api_filters")
@@ -38,6 +38,8 @@ def load(path: Path) -> tuple[Any, list[dict], dict]:
         for k in LIST_FIELDS:
             if k in s and s[k] is not None:
                 s[k] = list(s[k])
+        if isinstance(s.get("country"), list):
+            s["country"] = list(s["country"])
     return doc, searches, dict(doc.get("defaults") or {})
 
 
@@ -78,7 +80,10 @@ def clean(raw: dict) -> dict:
         if out[k] < 0 or (k == "limit" and not 1 <= out[k] <= 100):
             raise SearchError(f"{k}: out of range")
     if raw.get("country"):
-        out["country"] = str(raw["country"]).strip().upper()
+        try:
+            out["country"] = regions.canonical(raw["country"])
+        except ValueError as e:
+            raise SearchError(f"Where: {e}") from None
     if raw.get("remote") is True:
         out["remote"] = True
     if out.get("remote") and out.get("work_arrangement"):

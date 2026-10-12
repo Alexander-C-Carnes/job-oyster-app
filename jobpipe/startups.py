@@ -29,6 +29,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
+from . import regions
 from .jd import html_to_text
 from .store import _read, _write, now_iso, slug
 
@@ -962,26 +963,10 @@ def role_fits(role: dict, search: Any, exclude: Optional[list[str]] = None) -> b
     return True
 
 
-# Regions a role can be pinned to. A US search skips "Engineering Manager - UK" and "Remote (EU)", unless the
-# role also names the US or the Americas.
-_REGIONS = re.compile(r"\b(uk|u\.k\.|united kingdom|england|london|ireland|dublin|eu|europe|european|emea|germany|berlin|"
-                      r"munich|france|paris|netherlands|amsterdam|spain|madrid|barcelona|portugal|lisbon|poland|warsaw|italy|"
-                      r"sweden|stockholm|denmark|copenhagen|switzerland|zurich|israel|tel aviv|india|bangalore|bengaluru|"
-                      r"mumbai|hyderabad|delhi|pune|singapore|apac|asia|japan|tokyo|korea|seoul|china|australia|sydney|"
-                      r"melbourne|new zealand|canada|toronto|vancouver|montreal|latam|latin america|brazil|s[aã]o paulo|"
-                      r"mexico|argentina|colombia|africa|nigeria|dubai|uae|taiwan|taipei|hong kong|vietnam|thailand|indonesia|"
-                      r"philippines|malaysia|pakistan|egypt|south africa|kenya|chile|peru|costa rica|turkey|saudi|qatar|romania|"
-                      r"czech|prague|hungary|austria|vienna|belgium|brussels|norway|oslo|finland|helsinki|estonia|ukraine|"
-                      r"lithuania|latvia|greece|scotland|edinburgh|manchester|cambridge|oxford|bristol)\b")
-_US = re.compile(r"\b(us|u\.s\.|usa|united states|americas|north america|america|remote[- ]us|us[- ]remote)\b|, [a-z]{2}\b")
-
-
-def elsewhere(text: str, country: Optional[str]) -> bool:
-    """Does this location or title pin the role to a region outside the search's country (US only for now)?"""
-    if (country or "").upper() != "US":
-        return False
-    t = (text or "").lower()
-    return bool(_REGIONS.search(t)) and not _US.search(t)
+def elsewhere(text: str, country) -> bool:
+    """Does this location or title pin the role somewhere outside where the search looks (its country or region)?
+    A US search skips "Engineering Manager - UK" and "Remote (EU)"; an EU one skips "Austin, TX" (see regions.py)."""
+    return regions.elsewhere(text, country)
 
 
 def role_searches(role: dict, searches: list, exclude: Optional[list[str]] = None) -> list[str]:
