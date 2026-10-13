@@ -416,7 +416,7 @@ function renderSync() {
 const FLAGS = { starred: (j) => j.starred, referral: (j) => !!j.referral_url, remote: (j) => j.remote, tailored: (j) => j.tailored };
 // Filters with a choice of values, where a role matches any value picked: the score it shows (the full score
 // where there is one, else the signal score), its kind of company (a startup is one whose round is known), and
-// where it is (the server reads its country and location; "London or New York" is in the US, the UK and EMEA).
+// where it is (the server reads its country and location; "London or New York" is in the US and the UK).
 // A facet with `keys` puts a role under several values; one with `key`, under one.
 const FACETS = {
   score: { label: "Score", key: (j) => (score(j) == null ? "none" : String(Math.round(score(j)))),
@@ -437,7 +437,7 @@ const REGION_ORDER = ["US", "UK", "EMEA", "Anywhere", "Other", "none"];
 const REGION_NAMES = {
   US: ["US", "Roles in the United States"],
   UK: ["UK", "Roles in the United Kingdom"],
-  EMEA: ["EMEA", "Roles in Europe (the UK too), the Middle East or Africa"],
+  EMEA: ["EMEA", "Roles in Europe, the Middle East or Africa outside the UK (a role open across EMEA is under UK too)"],
   Anywhere: ["Anywhere", "Roles whose location says they're open worldwide"],
   Other: ["Elsewhere", "Roles only somewhere outside the US and EMEA, such as Canada, India or Latin America"],
   none: ["Not stated", "Roles that name no place (often just \"Remote\")"],
@@ -1029,6 +1029,8 @@ const sourceTag = (j) => j.source && h("span", { class: "tag source-tag", title:
 const fundingTag = (j) => j.funding && h("span", { class: "tag round-tag", "data-round": j.funding.stage || "Unknown", title: j.funding.line },
   roundLabel(j.funding), j.funding.amount && h("b", {}, ` ${j.funding.amount}`));
 
+// The row's second line: company · pay · where (the US state or the country, from the server), and Remote or Hybrid.
+const rowWhere = (j) => [j.company, known(j.pay), j.place, ["Remote", "Hybrid"].includes(j.mode) && j.mode].filter(Boolean).join(" · ");
 function rowEl(j) {
   if (!j._el) {
     j._el = h("li", { "data-id": j.id, tabindex: "0" },
@@ -1037,7 +1039,7 @@ function rowEl(j) {
       h("div", { class: "row-main" },
         h("div", { class: "t" }, j.title || "(untitled)"),
         runStep(j),
-        h("div", { class: "s" }, [j.company, known(j.mode), known(j.pay)].filter(Boolean).join(" · ")),
+        h("div", { class: "s", title: j.location || null }, rowWhere(j)),
         h("div", { class: "tags" },
           j.status && h("span", { class: "tag stage-tag", "data-stage": j.status }, j.status),
           fundingTag(j),

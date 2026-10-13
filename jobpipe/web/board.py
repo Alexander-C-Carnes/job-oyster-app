@@ -242,7 +242,8 @@ class JobBoard:
                 "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
                 "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else ""),
                 "regions": regions.areas([*(job.get("country_codes") or []), job.get("country_code") or ""],
-                                         job.get("location") or "", job.get("job_title") or "")}
+                                         job.get("location") or "", job.get("job_title") or ""),
+                "place": regions.place([*(job.get("country_codes") or []), job.get("country_code") or ""], job.get("location") or "")}
         self._jobs[jid] = (mtime, slim)
         return slim
 
@@ -267,7 +268,7 @@ class JobBoard:
                 "id": jid, "title": job["title"] or st.get("exact_title") or "", "company": job["company"],
                 "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"],
                 "url": job["url"], "source": job.get("source", ""), "funding": self._funding(job),
-                "regions": job["regions"],
+                "regions": job["regions"], "place": job.get("place", ""),
                 "fit": tri.get("fit_score") if tri else None, "one_line": tri.get("one_line", ""),
                 "searches": st.get("searches", []), "tailored": bool(st.get("run_dir")),
                 "impact_score": st.get("impact_score"), "resume_score": st.get("resume_score"),
@@ -287,7 +288,7 @@ class JobBoard:
             jid = "notion-" + r["page_id"]
             remote = says_remote(r["notes"] or "")   # a row made in Notion has no location; its notes often say
             out.append({"id": jid, "title": title, "company": r["company"], "location": "", "mode": "Remote" if remote else "",
-                        "remote": remote, "pay": "", "funding": self._funding({"company": r["company"]}), "regions": regions.areas([], "", title),
+                        "remote": remote, "pay": "", "funding": self._funding({"company": r["company"]}), "regions": regions.areas([], "", title), "place": "",
                         "url": r["job_url"], "fit": r["fit"], "one_line": r["notes"], "searches": [],
                         "tailored": False, "impact_score": None, "resume_score": None, "ats_total": None,
                         "posted": "", "first_seen": "", **_tracker_fields(r),

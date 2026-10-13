@@ -63,10 +63,12 @@ def test_roles_pinned_elsewhere(text, us, eu):
 @pytest.mark.parametrize("codes, location, title, want", [
     ([], "Austin, TX", "", ["US"]),
     (["US"], "United States, Remote", "", ["US"]),
-    (["GB"], "London", "", ["UK", "EMEA"]),
+    (["GB"], "London", "", ["UK"]),                              # the UK isn't counted as EMEA too
+    (["GB"], "London, UK", "", ["UK"]),
     ([], "Remote (EU)", "", ["EMEA"]),
     ([], "Dubai, UAE", "", ["EMEA"]),
-    ([], "London or New York", "", ["US", "UK", "EMEA"]),
+    ([], "London or New York", "", ["US", "UK"]),
+    ([], "London or Berlin", "", ["UK", "EMEA"]),
     ([], "Cambridge, MA, USA", "", ["US"]),                     # the American Cambridge, not the British one
     ([], "Berlin, MD", "", ["US"]),
     ([], "Portland, OR", "", ["US"]),                           # OR is the state, not "or"
@@ -78,3 +80,30 @@ def test_roles_pinned_elsewhere(text, us, eu):
 ])
 def test_where_a_role_is_for_the_region_filter(codes, location, title, want):
     assert regions.areas(codes, location, title) == want
+
+
+@pytest.mark.parametrize("codes, location, want", [
+    ([], "London, UK", "UK"),
+    (["GB"], "Birmingham, England, United Kingdom", "UK"),
+    (["DE"], "Berlin, Berlin, Germany", "Germany"),
+    ([], "Austin, TX (Remote)", "TX"),
+    (["US"], "New York, NY", "NY"),
+    ([], "Irving, TX 75039", "TX"),
+    ([], "US-CA-Menlo Park", "CA"),
+    ([], "Utah, USA", "UT"),
+    ([], "Berlin, MD, USA", "MD"),                                # the American Berlin
+    ([], "Toronto, ON, Canada", "Canada"),                        # ON isn't a state
+    ([], "San Francisco Bay Area", "CA"),
+    ([], "New York City; San Francisco", "NY, CA"),
+    ([], "San Francisco, CA, USA; New York, NY, USA; Seattle, WA, USA; Austin, TX", "CA, NY +2"),
+    ([], "United States; New York, NY, USA", "NY"),               # a state says more than the country
+    (["US"], "United States", "US"),
+    ([], "Remote - Europe", "Europe"),
+    ([], "Novi Sad, South Bačka, Serbia, EMEA", "Serbia"),
+    (["US"], "Remote", "US"),                                     # the posting's country when the location names none
+    ([], "Remote, anywhere", "Anywhere"),
+    ([], "Remote", ""),
+    ([], "", ""),
+])
+def test_where_a_role_is_in_a_word(codes, location, want):
+    assert regions.place(codes, location) == want

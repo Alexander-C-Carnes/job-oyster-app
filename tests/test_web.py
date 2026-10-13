@@ -127,8 +127,9 @@ def test_each_role_says_its_regions(env):
     env["store"].save_job(make_job("j9", location="Remote"), "tpm-remote")
     by_id = {j["id"]: j for j in env["client"].get("/api/jobs", headers=H).json()["jobs"]}
     assert by_id["j1"]["regions"] == ["US"]                     # "New York, NY"
-    assert by_id["j7"]["regions"] == ["UK", "EMEA"] and by_id["j8"]["regions"] == ["EMEA"] and by_id["j9"]["regions"] == []
+    assert by_id["j7"]["regions"] == ["UK"] and by_id["j8"]["regions"] == ["EMEA"] and by_id["j9"]["regions"] == []
     assert by_id["notion-p9"]["regions"] == []
+    assert [by_id[k]["place"] for k in ("j1", "j7", "j8", "j9", "notion-p9")] == ["NY", "UK", "Germany", "", ""]
 
 
 def test_job_board_merges_local_jobs_and_notion(env):

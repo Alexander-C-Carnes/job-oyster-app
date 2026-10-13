@@ -167,19 +167,94 @@ def elsewhere(text: str, country: Union[str, Iterable[str], None]) -> bool:
 _PARTS = re.compile(r";|\s[/|]\s|\sor\s")    # one place from the next ("or" in lower case: "Portland, OR" is a state)
 _IN_US = re.compile(r", (" + "|".join(_STATES) + r")(?=\s*(?:$|[,)(\d-]))|\b(usa|united states)\b")
 _ANYWHERE = re.compile(r"\b(anywhere|worldwide|global(ly)?|any country|any location)\b", re.I)
+_EMEA_BUT_UK = set(EMEA) - {"GB"}
 
 
 def areas(codes: Iterable[str], location: str = "", title: str = "") -> list[str]:
     """The list's regions a role is in, from the country codes its posting gives and the places its location and title
-    name: US, UK, EMEA (the UK counts as EMEA too), Other for a place outside all three, Anywhere for a role its
-    location says is open worldwide. Empty when the role names no place at all."""
+    name: US, UK, EMEA (somewhere in Europe, the Middle East or Africa besides the UK, so a London role is UK alone),
+    Other for a place outside all three, Anywhere for a role its location says is open worldwide. Empty when the role
+    names no place at all."""
     found = {c.upper() for c in codes if c} | places(title)
     for part in _PARTS.split(location or ""):
         # "Cambridge, MA" and "Berlin, MD, USA" are American towns, not the British or German ones
         found |= {"US"} if _IN_US.search(part.lower()) else places(part)
-    out = [a for a, hit in (("US", "US" in found), ("UK", "GB" in found), ("EMEA", bool(found & set(EMEA)))) if hit]
+    out = [a for a, hit in (("US", "US" in found), ("UK", "GB" in found), ("EMEA", bool(found & _EMEA_BUT_UK))) if hit]
     if found and not out:
         out.append("Other")
     if _ANYWHERE.search(location or ""):
         out.append("Anywhere")
     return out
+
+
+# ---- where a role is, in a word, for the list's rows ------------------------------------------------------------------
+_STATE_NAMES = dict(zip(
+    (n.replace("_", " ") for n in "alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii idaho illinois "
+     "indiana iowa kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi missouri "
+     "montana nebraska nevada new_hampshire new_jersey new_mexico new_york north_carolina north_dakota ohio oklahoma "
+     "oregon pennsylvania rhode_island south_carolina south_dakota tennessee texas utah vermont virginia washington "
+     "west_virginia wisconsin wyoming".split()),
+    "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA "
+    "RI SC SD TN TX UT VT VA WA WV WI WY".split()))
+_US_CITIES = {"new york": "NY", "nyc": "NY", "san francisco": "CA", "bay area": "CA", "silicon valley": "CA",
+              "los angeles": "CA", "seattle": "WA", "boston": "MA", "chicago": "IL", "austin": "TX", "denver": "CO",
+              "atlanta": "GA", "washington, dc": "DC", "washington dc": "DC"}
+_US_CITY_RE = re.compile(r"(?<!\w)(" + "|".join(map(re.escape, sorted(_US_CITIES, key=len, reverse=True))) + r")(?!\w)")
+_STATE_CODE = re.compile(r"(?:,|\(|^us-)\s*([a-z]{2})(?:\s+\d{5})?\s*(?=$|[,)-])")   # "Austin, TX", "Denver (CO)", "US-CA-Menlo Park"
+_IN_USA = re.compile(r"\b(usa|united states|u\.s\.|us)\b")
+_WORK_MODE = re.compile(r"\b(remote|hybrid|on-?site|in-office)\b", re.I)
+_US_WORDS = {"us", "u.s.", "usa", "united states", "america", "remote-us", "us-remote"}
+_REGION_NAMES = {"eu": "EU", "european union": "EU", "eea": "EEA", "schengen": "Schengen", "europe": "Europe",
+                 "european": "Europe", "emea": "EMEA", "dach": "DACH", "benelux": "Benelux", "baltics": "Baltics",
+                 "nordics": "Nordics", "nordic": "Nordics", "scandinavia": "Scandinavia", "balkans": "Balkans",
+                 "middle east": "Middle East", "mena": "MENA", "gcc": "GCC", "africa": "Africa", "apac": "APAC",
+                 "asia": "Asia", "latam": "LATAM", "latin america": "LATAM", "south america": "South America",
+                 "central america": "Central America", "americas": "Americas", "north america": "North America"}
+_COUNTRY_NAMES = {"US": "US", "GB": "UK", "AE": "UAE", "SA": "Saudi Arabia", "KR": "South Korea",
+                  **{c: w.split("|")[0].title() for c, w in _COUNTRY_WORDS.items() if c not in ("GB", "AE", "SA", "KR")}}
+
+
+def _part_places(part: str) -> list[str]:
+    """One place in a location ("Austin, TX", "Berlin, Germany", "Remote - Europe"): its US states, else the countries
+    it names, else the regions."""
+    low = _WORK_MODE.sub("", part).strip(" ,;:()-–").lower()
+    if not low:
+        return []
+    elems = [e.strip(" ()") for e in low.split(",")]
+    us = bool(_IN_USA.search(low))
+    states = [m.group(1).upper() for m in _STATE_CODE.finditer(low) if m.group(1) in _STATES]
+    # a state by name: "Utah, USA", "New York City, New York, USA" (alone, "Georgia" could be the country)
+    states += [_STATE_NAMES[e] for i, e in enumerate(elems) if e in _STATE_NAMES and (us or i > 0)]
+    if not states:
+        states = [_US_CITIES[m.group(1)] for m in _US_CITY_RE.finditer(low)]
+    if states:
+        return states
+    countries, areas_ = [], []
+    for m in _PLACE_RE.finditer(low):
+        w = m.group(1)
+        if not w:
+            continue
+        if w in _US_WORDS:
+            countries.append("US")
+        elif w in _REGION_NAMES:
+            areas_.append(_REGION_NAMES[w])
+        elif len(_PLACES[w]) == 1:
+            countries.append(_COUNTRY_NAMES.get(next(iter(_PLACES[w])), next(iter(_PLACES[w]))))
+    return countries or areas_
+
+
+def place(codes: Iterable[str], location: str = "", most: int = 2) -> str:
+    """Where a role is, in a few words for the list: the US state ("CA"), else the country ("UK", "Germany") or the
+    region ("EU") its location names, a few at most ("CA, NY +3"); else the country its posting's codes give; else
+    Anywhere for a role open worldwide; else ''."""
+    found: list[str] = []
+    for part in _PARTS.split(location or ""):
+        found += [p for p in dict.fromkeys(_part_places(part)) if p not in found]
+    if any(len(p) == 2 and p in _STATE_NAMES.values() for p in found):
+        found = [p for p in found if p != "US"]          # "United States; New York, NY" says no more than NY
+    if not found:
+        cs = sorted({c.upper() for c in codes if c})
+        found = [_COUNTRY_NAMES.get(c, c) for c in cs] if 0 < len(cs) <= most else []
+    if not found and _ANYWHERE.search(location or ""):
+        return "Anywhere"
+    return ", ".join(found[:most]) + (f" +{len(found) - most}" if len(found) > most else "")
