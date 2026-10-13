@@ -121,6 +121,16 @@ def test_remote_when_the_location_or_a_notion_rows_notes_say_so(env):
     assert not by_id["j8"]["remote"]
 
 
+def test_each_role_says_its_regions(env):
+    env["store"].save_job(make_job("j7", location="London, UK"), "tpm-remote")
+    env["store"].save_job(make_job("j8", location="Remote", country_codes=["DE"]), "tpm-remote")
+    env["store"].save_job(make_job("j9", location="Remote"), "tpm-remote")
+    by_id = {j["id"]: j for j in env["client"].get("/api/jobs", headers=H).json()["jobs"]}
+    assert by_id["j1"]["regions"] == ["US"]                     # "New York, NY"
+    assert by_id["j7"]["regions"] == ["UK", "EMEA"] and by_id["j8"]["regions"] == ["EMEA"] and by_id["j9"]["regions"] == []
+    assert by_id["notion-p9"]["regions"] == []
+
+
 def test_job_board_merges_local_jobs_and_notion(env):
     jobs = env["client"].get("/api/jobs", headers=H).json()["jobs"]
     by_id = {j["id"]: j for j in jobs}

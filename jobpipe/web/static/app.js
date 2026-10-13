@@ -131,7 +131,7 @@ function savePrefs() {
   catch (_) { /* optional */ }
 }
 const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, syncing: false, notionError: "",
-            query: "", tokens: [], stages: new Set(), flags: new Set(), facets: { score: new Set(), company: new Set() }, visible: [],
+            query: "", tokens: [], stages: new Set(), flags: new Set(), facets: { score: new Set(), company: new Set(), region: new Set() }, visible: [],
             sort: ["fit", "newest", "company"].includes(prefs.sort) ? prefs.sort : "fit",
             view: prefs.view === "board" ? "board" : "list", boardAll: new Set(),
             group: prefs.group === "company" ? "company" : "", collapsed: new Set(Array.isArray(prefs.collapsed) ? prefs.collapsed : []),
@@ -415,7 +415,9 @@ function renderSync() {
 // ---- jobs: filters --------------------------------------------------------------------------
 const FLAGS = { starred: (j) => j.starred, referral: (j) => !!j.referral_url, remote: (j) => j.remote, tailored: (j) => j.tailored };
 // Filters with a choice of values, where a role matches any value picked: the score it shows (the full score
-// where there is one, else the signal score), and its kind of company (a startup is one whose round is known).
+// where there is one, else the signal score), its kind of company (a startup is one whose round is known), and
+// where it is (the server reads its country and location; "London or New York" is in the US, the UK and EMEA).
+// A facet with `keys` puts a role under several values; one with `key`, under one.
 const FACETS = {
   score: { label: "Score", key: (j) => (score(j) == null ? "none" : String(Math.round(score(j)))),
            // every score the list holds, best first, then Unscored
@@ -427,12 +429,25 @@ const FACETS = {
              name: (v) => (v === "startup" ? "Startup" : "Corporation"),
              title: (v) => (v === "startup" ? "Roles at a startup whose funding round is known (see the Startups tab)"
                                             : "Roles at companies that aren't startups with a known round") },
+  region: { label: "Region", keys: (j) => (j.regions?.length ? j.regions : ["none"]),
+            values: (keys) => REGION_ORDER.filter((v) => keys.includes(v)),
+            name: (v) => REGION_NAMES[v][0], title: (v) => REGION_NAMES[v][1] },
 };
+const REGION_ORDER = ["US", "UK", "EMEA", "Anywhere", "Other", "none"];
+const REGION_NAMES = {
+  US: ["US", "Roles in the United States"],
+  UK: ["UK", "Roles in the United Kingdom"],
+  EMEA: ["EMEA", "Roles in Europe (the UK too), the Middle East or Africa"],
+  Anywhere: ["Anywhere", "Roles whose location says they're open worldwide"],
+  Other: ["Elsewhere", "Roles only somewhere outside the US and EMEA, such as Canada, India or Latin America"],
+  none: ["Not stated", "Roles that name no place (often just \"Remote\")"],
+};
+const facetKeys = (f, j) => (f.keys ? f.keys(j) : [f.key(j)]);
 function matches(j, { stages = true, flags = true, skip = "" } = {}) {
   if (!SCOPES[S.scope].has(j)) return false;
   for (const t of S.tokens) if (!j._hay.includes(t)) return false;
   if (flags) for (const f of S.flags) if (!FLAGS[f](j)) return false;
-  for (const [k, f] of Object.entries(FACETS)) if (k !== skip && S.facets[k].size && !S.facets[k].has(f.key(j))) return false;
+  for (const [k, f] of Object.entries(FACETS)) if (k !== skip && S.facets[k].size && !facetKeys(f, j).some((v) => S.facets[k].has(v))) return false;
   if (!stages) return true;
   if (S.scope === "find") return FIND_FILTERS.find(([k]) => k === S.findFilter)[2](j);
   return !(S.stages.size && !S.stages.has(stageOf(j)));
@@ -564,9 +579,9 @@ function renderFacets() {
   const inScope = S.jobs.filter((j) => SCOPES[S.scope].has(j));
   for (const [k, f] of Object.entries(FACETS)) {
     const shown = S.jobs.filter((j) => matches(j, { skip: k }));
-    const vals = f.values([...new Set([...inScope.map(f.key), ...S.facets[k]])]);
+    const vals = f.values([...new Set([...inScope.flatMap((j) => facetKeys(f, j)), ...S.facets[k]])]);
     $(`#${k}-chips`).replaceChildren(...(inScope.length ? [h("span", { class: "facet-label" }, f.label)] : []), ...(inScope.length ? vals : []).map((v) => {
-      const n = shown.reduce((c, j) => c + (f.key(j) === v ? 1 : 0), 0);
+      const n = shown.reduce((c, j) => c + (facetKeys(f, j).includes(v) ? 1 : 0), 0);
       return h("button", { class: "chip", "data-facet": k, "data-value": v, "data-fit": k === "score" ? fitClass(v === "none" ? null : +v) || "none" : null,
         "aria-pressed": String(S.facets[k].has(v)), title: f.title(v),
         onclick: () => { S.facets[k].has(v) ? S.facets[k].delete(v) : S.facets[k].add(v); renderJobs(); } },

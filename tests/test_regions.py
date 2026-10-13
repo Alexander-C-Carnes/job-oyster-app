@@ -58,3 +58,23 @@ def test_roles_pinned_elsewhere(text, us, eu):
     assert regions.elsewhere(text, "US") is us
     assert regions.elsewhere(text, ["EU", "Schengen"]) is eu
     assert regions.elsewhere(text, "Any") is False
+
+
+@pytest.mark.parametrize("codes, location, title, want", [
+    ([], "Austin, TX", "", ["US"]),
+    (["US"], "United States, Remote", "", ["US"]),
+    (["GB"], "London", "", ["UK", "EMEA"]),
+    ([], "Remote (EU)", "", ["EMEA"]),
+    ([], "Dubai, UAE", "", ["EMEA"]),
+    ([], "London or New York", "", ["US", "UK", "EMEA"]),
+    ([], "Cambridge, MA, USA", "", ["US"]),                     # the American Cambridge, not the British one
+    ([], "Berlin, MD", "", ["US"]),
+    ([], "Portland, OR", "", ["US"]),                           # OR is the state, not "or"
+    ([], "Toronto, ON, Canada", "", ["Other"]),
+    ([], "Remote, anywhere", "", ["Anywhere"]),
+    ([], "Remote", "Engineering Manager, EMEA", ["UK", "EMEA"]),  # the title can say where
+    ([], "Remote", "Global Head of Platform", []),               # "global" in a title isn't a location
+    ([], "", "", []),
+])
+def test_where_a_role_is_for_the_region_filter(codes, location, title, want):
+    assert regions.areas(codes, location, title) == want

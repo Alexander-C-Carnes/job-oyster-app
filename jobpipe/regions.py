@@ -161,3 +161,25 @@ def elsewhere(text: str, country: Union[str, Iterable[str], None]) -> bool:
         return False
     named = places(text)
     return bool(named) and not named & set(allowed)
+
+
+# ---- where a role is, for the list's Region filter -------------------------------------------------------------------
+_PARTS = re.compile(r";|\s[/|]\s|\sor\s")    # one place from the next ("or" in lower case: "Portland, OR" is a state)
+_IN_US = re.compile(r", (" + "|".join(_STATES) + r")(?=\s*(?:$|[,)(\d-]))|\b(usa|united states)\b")
+_ANYWHERE = re.compile(r"\b(anywhere|worldwide|global(ly)?|any country|any location)\b", re.I)
+
+
+def areas(codes: Iterable[str], location: str = "", title: str = "") -> list[str]:
+    """The list's regions a role is in, from the country codes its posting gives and the places its location and title
+    name: US, UK, EMEA (the UK counts as EMEA too), Other for a place outside all three, Anywhere for a role its
+    location says is open worldwide. Empty when the role names no place at all."""
+    found = {c.upper() for c in codes if c} | places(title)
+    for part in _PARTS.split(location or ""):
+        # "Cambridge, MA" and "Berlin, MD, USA" are American towns, not the British or German ones
+        found |= {"US"} if _IN_US.search(part.lower()) else places(part)
+    out = [a for a, hit in (("US", "US" in found), ("UK", "GB" in found), ("EMEA", bool(found & set(EMEA)))) if hit]
+    if found and not out:
+        out.append("Other")
+    if _ANYWHERE.search(location or ""):
+        out.append("Anywhere")
+    return out
