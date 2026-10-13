@@ -93,7 +93,7 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 
 **Does it work on Windows or Linux?** The download is for macOS. You can [run it from the code](docs/setup-from-code.md) on Linux, but that isn't tested.
 
-**How do I update it?** When there's a new version, the app offers it when you open it. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Your files aren't affected.
+**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Search** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Your files aren't affected.
 
 ## Buy me a coffee
 

@@ -3,7 +3,8 @@
 // The app's files are read-only inside the bundle; everything personal is in the profile folder
 // (~/JobSearch, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
 // and with it any runs going (a search, Make résumé); it asks first when there are some.
-// Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release.
+// Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
+// Check for Updates… in the menu does so any time.
 import AppKit
 import Foundation
 
@@ -200,6 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(appItem)
         let m = NSMenu()
         m.addItem(withTitle: "Open Job Search", action: #selector(openInBrowser(_:)), keyEquivalent: "o")
+        m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        m.addItem(.separator())
         m.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
         m.addItem(withTitle: "Show Log", action: #selector(showLog(_:)), keyEquivalent: "")
         m.addItem(.separator())
@@ -209,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dock = NSMenu()
         dock.addItem(withTitle: "Open Job Search", action: #selector(openInBrowser(_:)), keyEquivalent: "")
         dock.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
+        dock.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         dockMenu = dock
     }
 
@@ -218,18 +222,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: updates
 
     // Compares this version with the newest GitHub release of JSUpdateRepo ("owner/repo") and offers it.
-    // Dev builds (0.0.0-dev, from a branch rather than a release tag) skip it: whoever built one has the source.
-    func checkForUpdate() {
-        guard let repo = info["JSUpdateRepo"] as? String, !repo.isEmpty,
-              let current = info["CFBundleShortVersionString"] as? String, !current.contains("-"),
-              let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return }
-        URLSession.shared.dataTask(with: api) { data, _, _ in
+    // On start it's quiet unless there is one. Check for Updates… (announce) also says when there isn't, when
+    // GitHub can't be reached, and that a dev build (0.0.0-dev, from a branch rather than a release tag) isn't
+    // updated this way: whoever built one has the source.
+    func checkForUpdate(announce: Bool = false) {
+        let version = info["CFBundleShortVersionString"] as? String ?? ""
+        guard let repo = info["JSUpdateRepo"] as? String, !repo.isEmpty else {
+            if announce {
+                tell("This copy can't check for updates", "It was built without a place to check. The newest "
+                     + "version is on the Job Search GitHub page.")
+            }
+            return
+        }
+        guard !version.isEmpty, !version.contains("-"),
+              let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
+            if announce {
+                tell("Job Search \(version) is a development build", "It was built from the code rather than a "
+                     + "release, so it doesn't update from GitHub. Pull the latest code and build it again.")
+            }
+            return
+        }
+        let current = version
+        var req = URLRequest(url: api)
+        req.timeoutInterval = 15
+        URLSession.shared.dataTask(with: req) { data, _, error in
             guard let data = data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tag = obj["tag_name"] as? String,
-                  let page = (obj["html_url"] as? String).flatMap(URL.init(string:)) else { return }
+                  let page = (obj["html_url"] as? String).flatMap(URL.init(string:)) else {
+                guard announce else { return }
+                DispatchQueue.main.async {
+                    let a = NSAlert()
+                    a.messageText = "Couldn't check for updates"
+                    a.informativeText = "Job Search couldn't reach GitHub"
+                        + (error.map { ": \($0.localizedDescription)" } ?? ".")
+                        + " Check your connection and try again, or look at the releases page yourself."
+                    a.addButton(withTitle: "OK")
+                    a.addButton(withTitle: "Releases Page")
+                    if a.runModal() == .alertSecondButtonReturn,
+                       let releases = URL(string: "https://github.com/\(repo)/releases") {
+                        NSWorkspace.shared.open(releases)
+                    }
+                }
+                return
+            }
             let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
-            guard latest.compare(current, options: .numeric) == .orderedDescending else { return }
+            guard latest.compare(current, options: .numeric) == .orderedDescending else {
+                if announce { self.tell("You're on the latest version", "Job Search \(current) is the newest release.") }
+                return
+            }
             DispatchQueue.main.async {
                 let a = NSAlert()
                 a.messageText = "Job Search \(latest) is available"
@@ -240,6 +281,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(page) }
             }
         }.resume()
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) { checkForUpdate(announce: true) }
+
+    func tell(_ message: String, _ detail: String) {
+        DispatchQueue.main.async {
+            let a = NSAlert()
+            a.messageText = message
+            a.informativeText = detail
+            a.addButton(withTitle: "OK")
+            a.runModal()
+        }
     }
 }
 
