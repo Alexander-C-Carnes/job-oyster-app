@@ -173,10 +173,14 @@ def system_blocks(materials: Optional[str], cache: dict) -> list[dict]:
 
 def fallback_bins() -> list[Path]:
     """Where a working Claude Code CLI may be when the `claude` on PATH is missing or broken:
-    the native installer's location, then the CLI bundled with the Claude desktop app (newest first)."""
+    the native installer's location, then the CLI bundled with the Claude desktop app (newest first).
+    The desktop app keeps each CLI it downloads at claude-code/<version>/<build id>/claude.app/Contents/MacOS/claude
+    (earlier builds left out the build id), so a Mac with only the Claude app installed still has one."""
     home = Path.home()
-    bundled = sorted((home / "Library/Application Support/Claude/claude-code").glob("*/claude.app/Contents/MacOS/claude"),
-                     key=lambda p: [int(x) if x.isdigit() else 0 for x in p.parts[-5].split(".")], reverse=True)
+    store = home / "Library/Application Support/Claude/claude-code"
+    cli = "claude.app/Contents/MacOS/claude"
+    version = lambda p: [int(x) if x.isdigit() else 0 for x in p.relative_to(store).parts[0].split(".")]
+    bundled = sorted([*store.glob(f"*/{cli}"), *store.glob(f"*/*/{cli}")], key=version, reverse=True)
     return [home / ".local/bin/claude", home / ".claude/local/claude", *bundled]
 
 

@@ -155,6 +155,24 @@ def test_a_broken_cli_on_path_is_skipped_for_one_that_starts(tmp_path, monkeypat
         ClaudeCodeRunner()
 
 
+def test_the_desktop_apps_bundled_cli_is_found_newest_first(tmp_path, monkeypatch):
+    """A Mac with only the Claude app installed has its CLI at claude-code/<version>/<build id>/claude.app/Contents/
+    MacOS/claude (earlier builds: no build id). It comes after the native installer's places, newest version first,
+    by number (2.1.9 is older than 2.1.293)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    store = tmp_path / "Library/Application Support/Claude/claude-code"
+    for ver, build in [("2.1.293", "8433d0d9cd0d"), ("2.1.9", "0ab1"), ("2.1.295", "9d6405864fdc")]:
+        script(store / ver / build / "claude.app/Contents/MacOS/claude", f'print("{ver} (Claude Code)")\n')
+    script(store / "2.0.1" / "claude.app/Contents/MacOS/claude", 'print("2.0.1 (Claude Code)")\n')
+    bins = llm.fallback_bins()
+    assert bins[:2] == [tmp_path / ".local/bin/claude", tmp_path / ".claude/local/claude"]
+    assert [p.relative_to(store).parts[0] for p in bins[2:]] == ["2.1.295", "2.1.293", "2.1.9", "2.0.1"]
+
+    monkeypatch.delenv("CLAUDE_BIN", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert ClaudeCodeRunner().bin == str(store / "2.1.295/9d6405864fdc/claude.app/Contents/MacOS/claude")
+
+
 def test_crash_and_expired_login_say_what_happened(tmp_path):
     crashed = script(tmp_path / "c" / "claude", CRASH)
     with pytest.raises(AgentError, match=r"exited 1 without a result: TypeError: Cannot read properties"):
