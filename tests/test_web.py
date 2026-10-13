@@ -132,6 +132,18 @@ def test_each_role_says_its_regions(env):
     assert [by_id[k]["place"] for k in ("j1", "j7", "j8", "j9", "notion-p9")] == ["NY", "UK", "Germany", "", ""]
 
 
+def test_each_role_carries_its_pay_as_a_number_to_sort_by(env):
+    env["store"].save_job(make_job("j7", lo=200000, hi=None), "tpm-remote")                                 # one figure
+    env["store"].save_job(make_job("j8", lo=None, hi=None, salary_string="EUR 90k–110k"), "tpm-remote")     # not in USD
+    env["store"].save_job(make_job("j9", lo=None, hi=None), "tpm-remote")                                   # not stated
+    by_id = {j["id"]: j for j in env["client"].get("/api/jobs", headers=H).json()["jobs"]}
+    assert (by_id["j1"]["pay"], by_id["j1"]["pay_usd"]) == ("$280k–$360k", 360000)      # the top of the range
+    assert (by_id["j7"]["pay"], by_id["j7"]["pay_usd"]) == ("$200k", 200000)
+    assert (by_id["j8"]["pay"], by_id["j8"]["pay_usd"]) == ("EUR 90k–110k", None)
+    assert (by_id["j9"]["pay"], by_id["j9"]["pay_usd"]) == ("not stated", None)
+    assert by_id["notion-p9"]["pay_usd"] is None
+
+
 def test_job_board_merges_local_jobs_and_notion(env):
     jobs = env["client"].get("/api/jobs", headers=H).json()["jobs"]
     by_id = {j["id"]: j for j in jobs}

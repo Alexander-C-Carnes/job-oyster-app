@@ -132,7 +132,7 @@ function savePrefs() {
 }
 const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, syncing: false, notionError: "",
             query: "", tokens: [], stages: new Set(), flags: new Set(), facets: { score: new Set(), company: new Set(), region: new Set() }, visible: [],
-            sort: ["fit", "newest", "company"].includes(prefs.sort) ? prefs.sort : "fit",
+            sort: ["fit", "newest", "company", "pay"].includes(prefs.sort) ? prefs.sort : "fit",
             view: prefs.view === "board" ? "board" : "list", boardAll: new Set(),
             group: prefs.group === "company" ? "company" : "", collapsed: new Set(Array.isArray(prefs.collapsed) ? prefs.collapsed : []),
             scope: "tracker", sel: { tracker: null, find: null }, findFilter: "new",
@@ -455,6 +455,8 @@ function matches(j, { stages = true, flags = true, skip = "" } = {}) {
 const SORTS = {
   newest: (a, b) => (b.posted || b.first_seen).localeCompare(a.posted || a.first_seen),
   company: (a, b) => a.company.localeCompare(b.company) || a.title.localeCompare(b.title),
+  // The top of the stated range in USD, highest first; pay not stated or in another currency comes last. Ties keep the fit order.
+  pay: (a, b) => (b.pay_usd || 0) - (a.pay_usd || 0),
 };
 function visibleJobs() {
   const list = S.jobs.filter((j) => matches(j));   // the server already sorts by fit
@@ -466,7 +468,7 @@ function visibleJobs() {
 // "Acme.com" and "acme.com, Inc." are one company; a job with no company is grouped as such.
 const companyKey = (j) => (j.company || "").toLowerCase().replace(/[,.]?\s+(inc|llc|ltd|corp|corporation|co)\.?$/, "").trim() || "~";
 // Each company's jobs together, in the chosen sort; companies in the order of their first job
-// (so by best fit, or newest, first), or A–Z when sorting by company.
+// (so by best fit, newest, or best paid, first), or A–Z when sorting by company.
 function grouped(list) {
   const groups = new Map();
   for (const j of list) {

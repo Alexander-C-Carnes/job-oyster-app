@@ -238,6 +238,7 @@ class JobBoard:
         slim = {"title": job.get("job_title") or "", "company": job.get("company") or "",
                 "location": job.get("location") or "", "mode": "Remote" if remote else "Hybrid" if mode == "Remote" else mode,
                 "remote": remote, "pay": salary_text(job),
+                "pay_usd": job.get("max_annual_salary_usd") or job.get("min_annual_salary_usd") or None,   # to sort by
                 "url": posting_url(job), "posted": job.get("date_posted") or "",
                 "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
                 "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else ""),
@@ -266,7 +267,7 @@ class JobBoard:
                 seen.add(n["page_id"])
             out.append({
                 "id": jid, "title": job["title"] or st.get("exact_title") or "", "company": job["company"],
-                "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"],
+                "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"], "pay_usd": job["pay_usd"],
                 "url": job["url"], "source": job.get("source", ""), "funding": self._funding(job),
                 "regions": job["regions"], "place": job.get("place", ""),
                 "fit": tri.get("fit_score") if tri else None, "one_line": tri.get("one_line", ""),
@@ -288,7 +289,7 @@ class JobBoard:
             jid = "notion-" + r["page_id"]
             remote = says_remote(r["notes"] or "")   # a row made in Notion has no location; its notes often say
             out.append({"id": jid, "title": title, "company": r["company"], "location": "", "mode": "Remote" if remote else "",
-                        "remote": remote, "pay": "", "funding": self._funding({"company": r["company"]}), "regions": regions.areas([], "", title), "place": "",
+                        "remote": remote, "pay": "", "pay_usd": None, "funding": self._funding({"company": r["company"]}), "regions": regions.areas([], "", title), "place": "",
                         "url": r["job_url"], "fit": r["fit"], "one_line": r["notes"], "searches": [],
                         "tailored": False, "impact_score": None, "resume_score": None, "ats_total": None,
                         "posted": "", "first_seen": "", **_tracker_fields(r),
