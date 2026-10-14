@@ -10,7 +10,13 @@
 # The signed DMGs are kept in build/signed/. --no-upload stops there and leaves the release as it is.
 # Once they're up, the release notes lose their Open Anyway step.
 # Needs gh signed in with write access to that repo, a "Developer ID Application" identity in the keychain
-# (or $SIGN_IDENTITY), and notary auth as mac/package.sh describes (the jobsearch-notary keychain profile).
+# (or $SIGN_IDENTITY), and notary auth: an App Store Connect API key named in ~/JobSearch/.notary.env (your profile
+# folder, or $JOBPIPE_HOME), three lines:
+#   NOTARY_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
+#   NOTARY_KEY_ID=XXXXXXXXXX
+#   NOTARY_ISSUER=<issuer UUID>
+# or the same three in the environment, or else the jobsearch-notary keychain profile mac/package.sh describes. The
+# file comes first because a keychain profile can vanish between releases (keychain sync purges them); a file can't.
 # A release whose DMGs are already notarized is left as it is, so running it twice is harmless.
 set -euo pipefail
 
@@ -30,10 +36,18 @@ say() { printf '\n==> %s\n' "$*"; }
 VERSION=${TAG#v}
 security find-identity -v -p codesigning | grep -q "Developer ID Application" || [ -n "${SIGN_IDENTITY:-}" ] ||
   { echo "No Developer ID Application certificate in the keychain."; exit 1; }
-if [ -z "${NOTARY_KEY:-}" ]; then
+NOTARY_ENV="${JOBPIPE_HOME:-$HOME/JobSearch}/.notary.env"
+if [ -z "${NOTARY_KEY:-}" ] && [ -f "$NOTARY_ENV" ]; then set -a; . "$NOTARY_ENV"; set +a; fi
+if [ -n "${NOTARY_KEY:-}" ]; then
+  [ -f "$NOTARY_KEY" ] || { echo "NOTARY_KEY file not found: $NOTARY_KEY"; exit 1; }
+  [ -n "${NOTARY_KEY_ID:-}" ] && [ -n "${NOTARY_ISSUER:-}" ] ||
+    { echo "NOTARY_KEY_ID and NOTARY_ISSUER are needed with NOTARY_KEY (in $NOTARY_ENV or the environment)."; exit 1; }
+  say "Notary auth: API key $NOTARY_KEY_ID"
+else
   xcrun notarytool history --keychain-profile "${NOTARY_PROFILE:-jobsearch-notary}" >/dev/null 2>&1 ||
-    { echo "Notary profile ${NOTARY_PROFILE:-jobsearch-notary} doesn't work. Make it with:"
-      echo "  xcrun notarytool store-credentials jobsearch-notary --key <AuthKey.p8> --key-id <ID> --issuer <ISSUER>"; exit 1; }
+    { echo "No notary auth: $NOTARY_ENV is missing and the ${NOTARY_PROFILE:-jobsearch-notary} keychain profile doesn't work."
+      echo "Put the App Store Connect API key in $NOTARY_ENV (three lines; see the top of this script)."; exit 1; }
+  say "Notary auth: keychain profile ${NOTARY_PROFILE:-jobsearch-notary}"
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/job-search-sign.XXXXXX")
