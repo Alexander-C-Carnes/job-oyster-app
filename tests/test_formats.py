@@ -142,3 +142,57 @@ def test_a_pdf_is_titled_after_the_role(tmp_path):
     assert PdfReader(tmp_path / "x.pdf").metadata.title == "X - Role Resume"
     assert PdfReader(io.BytesIO(render.retitled(tmp_path / "x.pdf", "Y"))).metadata.title == "Y"
     assert render.retitled(tmp_path / "missing.pdf", "Y") is None
+
+
+# ---- when the browser can't start ----------------------------------------------------------------------
+def test_a_browser_that_wont_start_is_held_a_minute_then_tried_again(monkeypatch):
+    """The Profile asks for five thumbnails at once: after the first ask finds the browser won't start, the
+    others fail at once instead of each waiting on it, and a minute later it's tried again."""
+    launches = []
+
+    class Chromium:
+        def launch(self, **kw):
+            launches.append(kw)
+            raise RuntimeError("BrowserType.launch: Timeout 120000ms exceeded.\nCall log:\n  - <launching>")
+
+    class Driver:
+        chromium = Chromium()
+        stopped = 0
+
+        def stop(self):
+            Driver.stopped += 1
+
+    class PW:
+        def start(self):
+            return Driver()
+
+    monkeypatch.setattr(render, "sync_playwright", lambda: PW())
+    monkeypatch.setattr(render, "_no_browser", {"at": 0.0, "why": ""})
+    now = [1000.0]
+    monkeypatch.setattr(render.time, "time", lambda: now[0])
+
+    with pytest.raises(render.BrowserUnavailable) as first:
+        with render.Printer():
+            pass
+    assert first.value.tried and "Timeout 120000ms exceeded" in str(first.value) and "Call log" not in str(first.value)
+    assert isinstance(first.value.__cause__, RuntimeError) and Driver.stopped == 1   # the driver isn't left running
+    assert launches[0]["timeout"] == render.LAUNCH_TIMEOUT_MS
+
+    now[0] += 30
+    with pytest.raises(render.BrowserUnavailable) as again:
+        with render.Printer():
+            pass
+    assert not again.value.tried and len(launches) == 1 and again.value.why == first.value.why
+
+    now[0] += 31
+    with pytest.raises(render.BrowserUnavailable) as later:
+        with render.Printer():
+            pass
+    assert later.value.tried and len(launches) == 2
+
+
+def test_the_couldnt_draw_picture_is_a_letter_page_with_the_reason():
+    svg = render.unavailable_svg("The PDF renderer (headless Chromium) couldn't start: spawn <chrome> & co EACCES").decode()
+    assert svg.startswith("<svg") and 'viewBox="0 0 816 1056"' in svg
+    assert "This preview couldn't be drawn." in svg and "The app's log says more." in svg
+    assert "&lt;chrome&gt; &amp; co EACCES" in svg and "<chrome>" not in svg

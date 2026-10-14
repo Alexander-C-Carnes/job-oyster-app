@@ -19,6 +19,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -321,6 +322,19 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 if data is not None:
                     return Response(data, media_type=media_type, headers=headers)
         return FileResponse(path, media_type=media_type, headers=headers)
+
+    def drawn_or_placeholder(what: str, draw) -> Response:
+        """`draw()`'s picture, or one that says it couldn't be drawn (and why, in a line) where the browser would
+        show a broken-image mark, with the traceback in the app's log."""
+        try:
+            return draw()
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001 - whatever stopped the renderer: say so where the picture would be
+            if not (isinstance(e, render.BrowserUnavailable) and not e.tried):
+                print(f"\n  Couldn't draw {what}:\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+            why = e.args[0] if isinstance(e, render.BrowserUnavailable) else render._first_line(e)
+            return Response(render.unavailable_svg(why), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
     def resume_filename(row: Optional[dict]) -> str:
         """The résumé's download name: "<Role Title> - <Company>.pdf"."""
@@ -1848,8 +1862,9 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def import_look_png(iid: str):
         d = import_dir(iid)
         md = (d / "sorted.md").read_text()
-        return Response(own_preview_png(md, look_of(d)["tokens"]), media_type="image/png",
-                        headers={"Cache-Control": "private, max-age=600"})
+        tokens = look_of(d)["tokens"]
+        return drawn_or_placeholder("your résumé in the uploaded one's look", lambda: Response(
+            own_preview_png(md, tokens), media_type="image/png", headers={"Cache-Control": "private, max-age=600"}))
 
     def own_preview_png(md: str, tokens: dict) -> bytes:
         tmp = store.root / "format-previews" / f"own-{secrets.token_hex(4)}.png"
@@ -1909,7 +1924,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.post("/api/formats/own/preview")
     def preview_own_format(body: dict):
         """The fallback résumé's first page drawn with these settings, for the settings form as you change it."""
-        return Response(own_preview_png(preview_md(), body.get("tokens") or {}), media_type="image/png")
+        return drawn_or_placeholder("the format's preview", lambda: Response(
+            own_preview_png(preview_md(), body.get("tokens") or {}), media_type="image/png"))
 
     @app.get("/api/formats/{fid}/preview.pdf")
     def format_preview(fid: str, request: Request):
@@ -1917,7 +1933,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/formats/{fid}/thumb.png")
     def format_thumb(fid: str, request: Request):
-        return cached_file(request, preview_file(fid, "png"), "image/png")
+        return drawn_or_placeholder(f"the {fid} format's thumbnail",
+                                    lambda: cached_file(request, preview_file(fid, "png"), "image/png"))
 
     @app.put("/api/profile/format")
     async def put_format(body: dict):

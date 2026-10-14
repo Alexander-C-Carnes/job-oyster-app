@@ -9,6 +9,8 @@ import argparse
 import html
 import os
 import re
+import textwrap
+import time
 from io import BytesIO
 from pathlib import Path
 
@@ -20,6 +22,40 @@ from . import formats
 # Playwright's own Chromium by default (`playwright install chromium`); set
 # PLAYWRIGHT_CHROMIUM_EXECUTABLE to use another build (e.g. /opt/pw-browsers/chromium).
 CHROMIUM = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE") or None
+# A Mac checks a browser it hasn't run before (the app's is 150 MB, downloaded with it) the first time, which
+# can take longer than Playwright's 30-second default.
+LAUNCH_TIMEOUT_MS = 120_000
+# After the browser fails to start, asks in the next minute fail at once rather than each waiting on it.
+RETRY_AFTER = 60
+_no_browser = {"at": 0.0, "why": ""}
+
+
+class BrowserUnavailable(RuntimeError):
+    """The PDF renderer (headless Chromium) couldn't start. `tried` is False when this ask didn't try again
+    because one failed in the last minute (that failure is already in the log)."""
+
+    def __init__(self, why: str, tried: bool):
+        super().__init__(f"The PDF renderer (headless Chromium) couldn't start: {why}")
+        self.why, self.tried = why, tried
+
+
+def _first_line(e: BaseException) -> str:
+    return (str(e).strip().splitlines() or [type(e).__name__])[0]
+
+
+def unavailable_svg(why: str) -> bytes:
+    """A page-shaped picture that says the preview couldn't be drawn, shown where it would go (the Profile's
+    format thumbnails, a format's live preview) instead of a browser's broken-image mark. US Letter proportions."""
+    esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")  # noqa: E731
+    lines = textwrap.wrap(" ".join(why.split()), 42)[:5]
+    text = "".join(f'<text x="80" y="{470 + i * 44}" font-size="30" fill="#434343">{esc(l)}</text>' for i, l in enumerate(lines))
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 816 1056" width="816" height="1056" '
+            f'font-family="Helvetica Neue, Helvetica, Arial, sans-serif">'
+            f'<rect width="816" height="1056" fill="#fff"/>'
+            f'<text x="80" y="400" font-size="40" font-weight="700" fill="#171717">This preview couldn\'t be drawn.</text>'
+            f"{text}"
+            f'<text x="80" y="{470 + len(lines) * 44 + 20}" font-size="30" fill="#666">The app\'s log says more.</text>'
+            f"</svg>").encode()
 
 CSS = """
 @page { size: 8.5in 11in; margin: 0.625in; }
@@ -297,8 +333,15 @@ class Printer:
     """One Chromium for many PDFs (redrawing every résumé in a new format); `with Printer() as pr: pr.pdf(...)`."""
 
     def __enter__(self):
+        if time.time() - _no_browser["at"] < RETRY_AFTER:
+            raise BrowserUnavailable(_no_browser["why"], tried=False)
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(executable_path=CHROMIUM)
+        try:
+            self._browser = self._pw.chromium.launch(executable_path=CHROMIUM, timeout=LAUNCH_TIMEOUT_MS)
+        except Exception as e:  # noqa: BLE001 - whatever kept it from starting: hold a minute, say so, keep the cause
+            self._pw.stop()
+            _no_browser.update(at=time.time(), why=_first_line(e))
+            raise BrowserUnavailable(_no_browser["why"], tried=True) from e
         return self
 
     def __exit__(self, *exc):

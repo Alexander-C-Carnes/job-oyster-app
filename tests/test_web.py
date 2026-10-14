@@ -1877,6 +1877,30 @@ def test_formats_are_listed_with_previews(env):
     assert c.get("/api/formats/nope/thumb.png", headers=H).status_code == 404
 
 
+def test_a_preview_that_cant_be_drawn_says_so_where_it_would_be(env, monkeypatch, capsys):
+    """When the renderer can't start (a fresh Mac that won't run the bundled browser, say), the Profile shows a
+    page that says so and why instead of the browser's broken-image mark, and the log has the traceback."""
+    c = env["client"]
+    start = render.Printer.__enter__
+
+    def no_browser(self):
+        raise RuntimeError("BrowserType.launch: spawn ENOENT\nCall log:\n  - <launching>")
+    monkeypatch.setattr(render.Printer, "__enter__", no_browser)
+    r = c.get("/api/formats/signature/thumb.png", headers=H)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert r.headers["cache-control"] == "no-store"
+    assert "This preview couldn't be drawn." in r.text and "spawn ENOENT" in r.text and "Call log" not in r.text
+    err = capsys.readouterr().err
+    assert "Couldn't draw the signature format's thumbnail" in err and "RuntimeError: BrowserType.launch: spawn ENOENT" in err
+    # a format's live preview (the editor) and an unknown format
+    r = c.post("/api/formats/own/preview", headers=H, json={"tokens": {}})
+    assert r.status_code == 200 and "spawn ENOENT" in r.text
+    assert c.get("/api/formats/nope/thumb.png", headers=H).status_code == 404
+    # once the browser can start again, thumbnails are drawn as before
+    monkeypatch.setattr(render.Printer, "__enter__", start)
+    assert c.get("/api/formats/signature/thumb.png", headers=H).content[:4] == b"\x89PNG"
+
+
 def test_a_new_default_format_redraws_the_resumes_already_made(env):
     c = env["client"]
     before = env["pdf"].read_bytes()
