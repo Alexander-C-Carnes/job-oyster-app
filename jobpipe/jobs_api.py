@@ -8,6 +8,7 @@ never retried.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlsplit
@@ -143,9 +144,38 @@ def post_filter(job: dict, search: Search, enforce_min_salary: bool) -> tuple[bo
     return True, flags
 
 
-def salary_text(job: dict) -> str:
+# Pay a posting states in US dollars, in its own words: "$120K – $315K • Offers Equity", "$94,000 - $225,000", "US$180k".
+# Another currency ("GBP 95k–120k", "€80k", "C$150k") or a rate per hour, day, week or month gives no figures.
+_USD_AMOUNT = re.compile(r"(?<![A-Za-z])(?:US)?\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kK])?(?![\d,])")
+_OTHER_CURRENCY = re.compile(r"[€£¥₹]|\b(?:EUR|GBP|CAD|AUD|NZD|CHF|SEK|NOK|DKK|PLN|INR|JPY|SGD|HKD|MXN|BRL|ZAR)\b|(?<![A-Za-z])(?:C|CA|A|AU|NZ|S|HK|MX|R)\$", re.I)
+_NOT_YEARLY = re.compile(r"\b(?:hour|hourly|hr|day|daily|week|weekly|month|monthly)\b|/\s*(?:hr|hour|day|wk|week|mo|month)\b", re.I)
+
+
+def usd_range(text: str) -> tuple[Optional[float], Optional[float]]:
+    """(low, high) of the yearly pay in US dollars a pay string states, or (None, None). An amount under $10k or
+    over $5M (a bonus, a rate, a typo) is left out."""
+    if not text or _OTHER_CURRENCY.search(text) or _NOT_YEARLY.search(text):
+        return None, None
+    amounts = []
+    for num, k in _USD_AMOUNT.findall(text):
+        try:
+            v = float(num.replace(",", "")) * (1000 if k else 1)
+        except ValueError:
+            continue
+        if 10_000 <= v <= 5_000_000:
+            amounts.append(v)
+    return (min(amounts), max(amounts)) if amounts else (None, None)
+
+
+def usd_pay(job: dict) -> tuple[Optional[float], Optional[float]]:
+    """The job's yearly pay in US dollars, (low, high): the figures its source gave, else what its pay text states."""
     lo, hi = job.get("min_annual_salary_usd"), job.get("max_annual_salary_usd")
-    if lo and hi:
+    return (lo, hi) if lo or hi else usd_range(job.get("salary_string") or "")
+
+
+def salary_text(job: dict) -> str:
+    lo, hi = usd_pay(job)
+    if lo and hi and lo != hi:
         return f"${lo/1000:,.0f}k–${hi/1000:,.0f}k"
     if hi or lo:
         return f"${(hi or lo)/1000:,.0f}k"

@@ -814,15 +814,35 @@ def board_jobs(b: Board, client: httpx.Client) -> Optional[list[dict]]:
             out = []
             for j in r.json().get("jobs") or []:
                 locs = [j.get("location") or ""] + [x.get("location") or "" for x in j.get("secondaryLocations") or []]
-                comp = (j.get("compensation") or {}).get("compensationTierSummary") or ""
-                out.append({"title": j.get("title") or "", "url": j.get("jobUrl") or j.get("applyUrl") or "",
-                            "location": "; ".join(x for x in locs if x), "remote": bool(j.get("isRemote")),
-                            "description": j.get("descriptionPlain") or html_to_text(j.get("descriptionHtml") or ""),
-                            "posted": (j.get("publishedAt") or "")[:10], "id": str(j.get("id") or ""), "pay": comp})
+                comp = j.get("compensation") or {}
+                role = {"title": j.get("title") or "", "url": j.get("jobUrl") or j.get("applyUrl") or "",
+                        "location": "; ".join(x for x in locs if x), "remote": bool(j.get("isRemote")),
+                        "description": j.get("descriptionPlain") or html_to_text(j.get("descriptionHtml") or ""),
+                        "posted": (j.get("publishedAt") or "")[:10], "id": str(j.get("id") or ""),
+                        "pay": comp.get("compensationTierSummary") or ""}
+                lo, hi = ashby_usd(comp)
+                if lo or hi:
+                    role["pay_usd"] = [lo, hi]
+                out.append(role)
             return out
     except (httpx.HTTPError, ValueError):
         return None
     return None
+
+
+def ashby_usd(comp: dict) -> tuple[Optional[float], Optional[float]]:
+    """(low, high) across the yearly salary components in USD of an Ashby posting's compensation tiers (one tier
+    per place, each with its salary, equity and bonus components), or (None, None) when no tier states one."""
+    los, his = [], []
+    for tier in comp.get("compensationTiers") or []:
+        for c in tier.get("components") or []:
+            if (c.get("compensationType") == "Salary" and str(c.get("currencyCode") or "").upper() == "USD"
+                    and "YEAR" in str(c.get("interval") or "").upper()):
+                if c.get("minValue") is not None:
+                    los.append(c["minValue"])
+                if c.get("maxValue") is not None:
+                    his.append(c["maxValue"])
+    return (min(los) if los else None, max(his) if his else None)
 
 
 def boards_in(text: str) -> list[Board]:
@@ -1150,6 +1170,11 @@ def role_as_job(s: dict, role: dict) -> dict:
         job["remote"] = True
     if role.get("pay"):
         job["salary_string"] = role["pay"]
+    lo, hi = role.get("pay_usd") or (None, None)     # Ashby's figures; a dollar range in the text is read when shown
+    if lo:
+        job["min_annual_salary_usd"] = lo
+    if hi:
+        job["max_annual_salary_usd"] = hi
     return job
 
 

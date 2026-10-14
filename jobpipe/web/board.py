@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from .. import regions
 from ..jd import posting_key, posting_url
-from ..jobs_api import salary_text, work_mode
+from ..jobs_api import salary_text, usd_pay, work_mode
 from ..startups import StartupStore, funding_block, funding_line
 from ..store import Store, _write, canonical_url, month_key, now_iso
 from ..tracker import LocalTracker
@@ -235,10 +235,10 @@ class JobBoard:
         remote = (bool(job.get("remote")) and not job.get("hybrid")
                   and (job.get("work_arrangement") or "remote").lower() == "remote") or says_remote(job.get("location") or "")
         mode = work_mode(job)
+        lo, hi = usd_pay(job)                   # the source's figures, or a dollar range in its pay text
         slim = {"title": job.get("job_title") or "", "company": job.get("company") or "",
                 "location": job.get("location") or "", "mode": "Remote" if remote else "Hybrid" if mode == "Remote" else mode,
-                "remote": remote, "pay": salary_text(job),
-                "pay_usd": job.get("max_annual_salary_usd") or job.get("min_annual_salary_usd") or None,   # to sort by
+                "remote": remote, "pay": salary_text(job), "pay_usd": hi or lo or None,   # the number the list sorts by
                 "url": posting_url(job), "posted": job.get("date_posted") or "",
                 "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
                 "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else ""),

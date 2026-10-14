@@ -136,11 +136,15 @@ def test_each_role_carries_its_pay_as_a_number_to_sort_by(env):
     env["store"].save_job(make_job("j7", lo=200000, hi=None), "tpm-remote")                                 # one figure
     env["store"].save_job(make_job("j8", lo=None, hi=None, salary_string="EUR 90k–110k"), "tpm-remote")     # not in USD
     env["store"].save_job(make_job("j9", lo=None, hi=None), "tpm-remote")                                   # not stated
+    env["store"].save_job(make_job("j10", lo=None, hi=None, salary_string="$120K – $315K • Offers Equity • Multiple Ranges"), "tpm-remote")  # an Ashby role stored before figures were read
+    env["store"].save_job(make_job("j11", lo=None, hi=None, salary_string="$45 – $60 / hour"), "tpm-remote")   # a rate, not yearly pay
     by_id = {j["id"]: j for j in env["client"].get("/api/jobs", headers=H).json()["jobs"]}
     assert (by_id["j1"]["pay"], by_id["j1"]["pay_usd"]) == ("$280k–$360k", 360000)      # the top of the range
     assert (by_id["j7"]["pay"], by_id["j7"]["pay_usd"]) == ("$200k", 200000)
     assert (by_id["j8"]["pay"], by_id["j8"]["pay_usd"]) == ("EUR 90k–110k", None)
     assert (by_id["j9"]["pay"], by_id["j9"]["pay_usd"]) == ("not stated", None)
+    assert (by_id["j10"]["pay"], by_id["j10"]["pay_usd"]) == ("$120k–$315k", 315000)
+    assert (by_id["j11"]["pay"], by_id["j11"]["pay_usd"]) == ("$45 – $60 / hour", None)
     assert by_id["notion-p9"]["pay_usd"] is None
 
 

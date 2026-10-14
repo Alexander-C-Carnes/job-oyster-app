@@ -2,7 +2,7 @@ import jobspipe
 import pytest
 
 from jobpipe import config
-from jobpipe.jobs_api import JobsClient, post_filter
+from jobpipe.jobs_api import JobsClient, post_filter, salary_text, usd_range
 from jobpipe.store import Store, canonical_url, safe_id
 from conftest import FakeJobsAPI, jobspipe_client, make_job
 
@@ -137,3 +137,17 @@ def test_dns_over_https_lookup_reads_the_first_resolver_that_answers():
     assert doh.lookup("api.jobspipe.dev", httpx.Client(transport=httpx.MockTransport(handler))) == ("203.0.113.10", 60)
     down = httpx.Client(transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("down"))))
     assert doh.lookup("api.jobspipe.dev", down) == ("", 0)
+
+
+def test_pay_stated_in_dollars_is_read_as_a_yearly_range():
+    assert usd_range("$120K – $315K • Offers Equity • Multiple Ranges") == (120000, 315000)
+    assert usd_range("$94,000 - $225,000") == (94000, 225000)
+    assert usd_range("US$180k") == (180000, 180000)
+    assert usd_range("$150K base + $5K signing bonus") == (150000, 150000)       # the bonus isn't pay
+    for text in ("GBP 95k–120k", "€80K – €100K", "C$150k", "$45 – $60 / hour", "$8,000 a month", "Competitive", ""):
+        assert usd_range(text) == (None, None), text
+    assert salary_text({"salary_string": "$120K – $315K • Offers Equity"}) == "$120k–$315k"
+    assert salary_text({"salary_string": "US$180k"}) == "$180k"
+    assert salary_text({"salary_string": "GBP 95k–120k"}) == "GBP 95k–120k"
+    assert salary_text({"min_annual_salary_usd": 200000, "max_annual_salary_usd": 200000}) == "$200k"
+    assert salary_text({"min_annual_salary_usd": 280000, "max_annual_salary_usd": 360000, "salary_string": "$1 – $2"}) == "$280k–$360k"

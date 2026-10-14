@@ -83,6 +83,25 @@ GH_JOBS = {"jobs": [{"id": 11, "title": "Engineering Manager, Data", "absolute_u
                      "location": {"name": "Austin"}, "content": "Sell.", "updated_at": "2026-09-30T00:00:00Z"}]}
 
 
+ASHBY_JOBS = {"jobs": [
+    {"id": "a1", "title": "Engineering Manager", "jobUrl": "https://jobs.ashbyhq.com/aleph/a1", "location": "Remote", "isRemote": True,
+     "descriptionPlain": "Lead.", "publishedAt": "2026-10-01T00:00:00Z",
+     "compensation": {"compensationTierSummary": "$120K – $315K • Offers Equity • Multiple Ranges", "scrapeableCompensationSalarySummary": "$120,000 - $315,000",
+                      "compensationTiers": [
+                          {"title": "US", "components": [
+                              {"compensationType": "Salary", "interval": "1 YEAR", "currencyCode": "USD", "minValue": 180000, "maxValue": 315000},
+                              {"compensationType": "EquityPercentage", "interval": "NONE", "currencyCode": None, "minValue": None, "maxValue": None}]},
+                          {"title": "LATAM", "components": [
+                              {"compensationType": "Salary", "interval": "1 YEAR", "currencyCode": "USD", "minValue": 120000, "maxValue": 200000}]}]}},
+    {"id": "a2", "title": "Engineering Manager, EU", "jobUrl": "https://jobs.ashbyhq.com/aleph/a2", "location": "Berlin", "isRemote": False,
+     "descriptionPlain": "Lead.", "publishedAt": "2026-10-01T00:00:00Z",
+     "compensation": {"compensationTierSummary": "€80K – €100K", "compensationTiers": [{"title": "DE", "components": [
+         {"compensationType": "Salary", "interval": "1 YEAR", "currencyCode": "EUR", "minValue": 80000, "maxValue": 100000}]}]}},
+    {"id": "a3", "title": "Support Engineer", "jobUrl": "https://jobs.ashbyhq.com/aleph/a3", "location": "Remote", "isRemote": True,
+     "descriptionPlain": "Help.", "publishedAt": "2026-10-01T00:00:00Z", "compensation": {"compensationTierSummary": "$40 – $55 / hour", "compensationTiers": [
+         {"title": "US", "components": [{"compensationType": "Salary", "interval": "1 HOUR", "currencyCode": "USD", "minValue": 40, "maxValue": 55}]}]}}]}
+
+
 class FakeWeb:
     """httpx transport for every outside site the startup search reads."""
     def __init__(self):
@@ -119,6 +138,8 @@ class FakeWeb:
             return httpx.Response(200, json=[{"id": "e1", "text": "Engineering Manager, Platform", "hostedUrl": "https://jobs.eu.lever.co/nordwind/e1",
                                               "categories": {"location": "Berlin, Germany"}, "workplaceType": "remote",
                                               "descriptionPlain": "x", "createdAt": 1791700000000}])
+        if host == "api.ashbyhq.com" and "/job-board/aleph" in url:
+            return httpx.Response(200, json=ASHBY_JOBS)
         if host in ("api.lever.co", "api.eu.lever.co", "api.ashbyhq.com"):
             return httpx.Response(404)
         if host == "www.tryfundable.ai":
@@ -210,6 +231,17 @@ def test_open_roles_from_the_companys_board(tmp_path, client, monkeypatch):
                                                                                  "posted": "", "id": "3", "match": True, "description": "", "board": "GC"}]}])
     roles = su.open_roles(store.get("zeta"), ["TPM"], client=client)
     assert roles["board"] is None and roles["from_vc_board"] and roles["jobs"][0]["title"] == "TPM"
+
+
+def test_an_ashby_boards_pay_comes_with_its_dollar_figures(client):
+    us, eu, hourly = su.board_jobs(su.Board("ashby", "aleph"), client)
+    assert us["pay"] == "$120K – $315K • Offers Equity • Multiple Ranges" and us["pay_usd"] == [120000, 315000]   # across its tiers
+    assert eu["pay"] == "€80K – €100K" and "pay_usd" not in eu
+    assert hourly["pay"] == "$40 – $55 / hour" and "pay_usd" not in hourly
+    s = {"name": "Aleph", "website": "https://aleph.example", "stage": "Seed"}
+    job = su.role_as_job(s, us)
+    assert job["salary_string"] == us["pay"] and (job["min_annual_salary_usd"], job["max_annual_salary_usd"]) == (120000, 315000)
+    assert su.role_as_job(s, eu)["salary_string"] == "€80K – €100K" and "max_annual_salary_usd" not in su.role_as_job(s, eu)
 
 
 def test_round_lookups(tmp_path, client):
