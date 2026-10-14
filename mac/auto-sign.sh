@@ -4,13 +4,14 @@
 # still tells people to click Open Anyway it runs mac/sign-release.sh on it.
 #
 #   mac/auto-sign.sh              sign the latest release if it isn't yet (what the agent runs)
-#   mac/auto-sign.sh --install    run it every hour, and at login, from this checkout
+#   mac/auto-sign.sh --install    run it every hour, and at login (again after the signing scripts change)
 #   mac/auto-sign.sh --uninstall  stop that
 #   mac/auto-sign.sh --status     whether it's installed, and the end of its log
 #
-# Install it from the main checkout, not a worktree, since worktrees get deleted. It skips a run while the Mac
-# is on an iPhone hotspot (slow and metered) or another copy of the signing is going, and gives a tag three
-# tries before leaving it to you. Each failure shows a notification; the log is
+# macOS doesn't let a background job read ~/Documents, so --install copies mac/ to SIGNING_DIR below and the
+# agent runs that copy, which also outlives a worktree; the signed DMGs land in its build/signed/. It skips a
+# run while the Mac is on an iPhone hotspot (slow and metered) or another copy of the signing is going, and
+# gives a tag three tries before leaving it to you. Each failure shows a notification; the log is
 # ~/Library/Logs/Job Search/auto-sign.log. Notary auth is whatever mac/sign-release.sh finds: put the API key
 # in ~/JobSearch/.notary.env so it can't vanish with the keychain profile.
 set -uo pipefail
@@ -21,19 +22,20 @@ LABEL=io.github.job-search.auto-sign
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/Job Search"; LOG="$LOG_DIR/auto-sign.log"
 STATE="$HOME/Library/Caches/Job Search/auto-sign"; MAX_TRIES=3
+SIGNING_DIR="$HOME/Library/Application Support/Job Search/signing"
 mkdir -p "$LOG_DIR" "$STATE"
 
 case "${1:-}" in
   --install)
-    if [ "$(git -C "$REPO_DIR" rev-parse --git-dir)" != "$(git -C "$REPO_DIR" rev-parse --git-common-dir)" ]; then
-      echo "$REPO_DIR is a worktree; install from the main checkout so the agent outlives it."; exit 1
+    if [ "$REPO_DIR" != "$SIGNING_DIR" ]; then
+      rm -rf "$SIGNING_DIR/mac"; mkdir -p "$SIGNING_DIR"; cp -R "$REPO_DIR/mac" "$SIGNING_DIR/"
     fi
     cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$LABEL</string>
-  <key>ProgramArguments</key><array><string>$REPO_DIR/mac/auto-sign.sh</string></array>
+  <key>ProgramArguments</key><array><string>$SIGNING_DIR/mac/auto-sign.sh</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
@@ -45,10 +47,10 @@ case "${1:-}" in
 </dict></plist>
 EOF
     launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null
-    launchctl bootstrap "gui/$(id -u)" "$PLIST" && echo "Installed: $REPO_DIR/mac/auto-sign.sh runs every hour (log: $LOG)"
+    launchctl bootstrap "gui/$(id -u)" "$PLIST" && echo "Installed: $SIGNING_DIR/mac/auto-sign.sh runs every hour (log: $LOG)"
     exit ;;
   --uninstall)
-    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null; rm -f "$PLIST"; echo "Uninstalled."; exit ;;
+    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null; rm -f "$PLIST"; rm -rf "$SIGNING_DIR/mac"; echo "Uninstalled."; exit ;;
   --status)
     if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then echo "Installed ($PLIST)"; else echo "Not installed."; fi
     [ -f "$LOG" ] && { echo; tail -n 20 "$LOG"; }
@@ -69,7 +71,10 @@ if ! info=$(gh release view -R "$REPO" --json tagName,body -q '.tagName + " " + 
   log "Couldn't read the latest release: $info"; exit 0         # offline, most likely; next hour
 fi
 TAG=${info%% *}
-[ "${info##* }" = true ] || exit 0                              # signed already: nothing to say every hour
+if [ "${info##* }" != true ]; then                             # signed already: said once per tag, not hourly
+  [ -f "$STATE/$TAG.ok" ] || { log "$TAG is signed"; touch "$STATE/$TAG.ok"; }
+  exit 0
+fi
 
 tries_file="$STATE/$TAG.tries"; tries=$(cat "$tries_file" 2>/dev/null || echo 0)
 if [ "$tries" -ge "$MAX_TRIES" ]; then log "$TAG failed $tries times: leaving it for mac/sign-release.sh $TAG by hand"; exit 0; fi
