@@ -2,7 +2,8 @@
 #
 # Releases go out on their own once a day at 07:00 UTC, when main changed since the last release: the
 # next patch version (v0.1.0 -> v0.1.1) is tagged once both builds pass, so a failed build releases nothing.
-# Installed apps offer the new version the next time they open. Other ways to run it:
+# The notes list what's new: the CHANGELOG.md headlines added since the last release (tools/release_notes.py).
+# Installed apps offer the new version, with that list, the next time they open. Other ways to run it:
 #   git tag v0.2.0 && git push origin v0.2.0      a release now, with a version you choose
 #   Actions > Mac app > Run workflow                a test build; tick "release" to publish it as the next version
 #
@@ -53,10 +54,10 @@ jobs:
         env:
           WANT_RELEASE: ${{ inputs.release }}
         run: |
-          last=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1)
+          last=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -vx "${GITHUB_REF_NAME}" | head -1)
           if [ "$GITHUB_EVENT_NAME" = push ]; then           # a tag someone pushed
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"; echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "release=1" >> "$GITHUB_OUTPUT"; echo "build=1" >> "$GITHUB_OUTPUT"; exit 0
+            echo "release=1" >> "$GITHUB_OUTPUT"; echo "since=$last" >> "$GITHUB_OUTPUT"; echo "build=1" >> "$GITHUB_OUTPUT"; exit 0
           fi
           IFS=. read -r major minor patch <<< "${last:-v0.0.0}"; major=${major#v}
           next="v$major.$minor.$((patch + 1))"
@@ -135,6 +136,9 @@ jobs:
     if: needs.version.outputs.release
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           path: dmgs
@@ -149,6 +153,8 @@ jobs:
             {
               echo "The latest Job Oyster${SINCE:+, with everything changed since $SINCE}."
               echo
+              news=""; [ -z "$SINCE" ] || news=$(python3 tools/release_notes.py "$SINCE")
+              if [ -n "$news" ]; then echo "## What's new"; echo; echo "$news"; echo; fi
               echo "**Download:** \`Job-Oyster-${TAG#v}-arm64.dmg\` for Apple silicon (M1 and later), \`Job-Oyster-${TAG#v}-x86_64.dmg\` for Intel."
               echo
               echo "**Coming from Job Search?** It's the same app with a new name. Open Job Oyster and it offers to move the old app to the Trash; your profile folder moves from ~/JobSearch to ~/JobOyster by itself."

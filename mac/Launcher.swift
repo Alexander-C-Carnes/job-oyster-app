@@ -301,11 +301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if announce { self.tell("You're on the latest version", "Job Oyster \(current) is the newest release.") }
                 return
             }
+            let news = self.whatsNew(obj["body"] as? String ?? "")
             DispatchQueue.main.async {
                 let a = NSAlert()
                 a.messageText = "Job Oyster \(latest) is available"
-                a.informativeText = "You have \(current). Download the new version, quit this one, and drag the new one "
-                    + "into Applications. Your profile folder and everything in it stay as they are."
+                a.informativeText = news + "You have \(current). Download the new version, quit this one, and drag the "
+                    + "new one into Applications. Your profile folder and everything in it stay as they are."
                 a.addButton(withTitle: "Download")
                 a.addButton(withTitle: "Later")
                 if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(page) }
@@ -314,6 +315,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func checkForUpdates(_ sender: Any?) { checkForUpdate(announce: true) }
+
+    // The headlines under "## What's new" in a release's notes (the Mac app workflow lists them from
+    // CHANGELOG.md), as a few lines for the update alert; "" for a release without them.
+    func whatsNew(_ notes: String) -> String {
+        var items: [String] = [], inside = false
+        for line in notes.components(separatedBy: .newlines) {
+            if line.hasPrefix("## ") { inside = line.hasPrefix("## What's new"); continue }
+            if inside, line.hasPrefix("- ") { items.append(String(line.dropFirst(2))) }
+        }
+        guard !items.isEmpty else { return "" }
+        let shown = 8
+        var text = "What's new:\n" + items.prefix(shown).map { "• \($0)" }.joined(separator: "\n")
+        if items.count > shown { text += "\n…and \(items.count - shown) more on the release page." }
+        return text + "\n\n"
+    }
 
     func tell(_ message: String, _ detail: String) {
         DispatchQueue.main.async {
