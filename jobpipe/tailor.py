@@ -383,7 +383,9 @@ class Tailor:
                                            config.DATA / "evidence")
         except Exception as e:  # noqa: BLE001 - Unavailable, or a load that failed: the run goes on without them
             self._no_models = str(e)
-            self.log(f"  evidence models not used ({e}); checking figures only")
+            self.log(f"  Evidence models not used: {e}.\n"
+                     "    Every figure is still checked against your evidence; the line-by-line check of what each "
+                     "bullet claims is skipped.")
             return None
 
     def _model_names(self, *names: str) -> str:
@@ -673,7 +675,7 @@ class Tailor:
 
         # Stage 5 ------------------------------------------------------------
         self.log("  Stage 5: PDF")
-        pdf_name = f"{config.candidate().pdf_prefix}-{_file_part(meta.company)}-{_file_part(title)}.pdf"
+        pdf_name = config.candidate().resume_title(title, meta.company) + ".pdf"   # always the latest, so no {v}
         pdf = self.out_dir / pdf_name
         pdf_text, pages = "", 0
         try:

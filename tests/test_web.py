@@ -22,7 +22,7 @@ from jobpipe.tracker import LocalTracker
 from jobpipe.web.board import Marks
 from jobpipe.web.runs import Busy, Run, RunManager
 from jobpipe.web.server import create_app
-from conftest import BASE, TITLE, FakeNotion, FakeRunner, _resume, make_job, notion_row
+from conftest import BASE, CANDIDATE, TITLE, FakeNotion, FakeRunner, _resume, make_job, notion_row
 
 TOKEN = "test-token"
 H = {"X-Jobpipe-Token": TOKEN}
@@ -65,7 +65,7 @@ def env(tmp_dirs, tmp_path):
     (run_dir / "keywords.json").write_text(json.dumps({"TPM": "technical program manag", "reliability": "reliab"}))
     report = out / "report-Acme.md"
     report.write_text("# Report\n\n<script>alert(1)</script>\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
-    pdf = out / f"Jordan-Rivera-Resume-Acme-{TITLE.replace(' ', '-')}.pdf"
+    pdf = out / f"{TITLE} - Acme.pdf"
     render.render_pdf(md, pdf)
     store.update("j1", run_dir=str(run_dir), pdf=str(pdf), report=str(report), tailored_at="2026-10-01",
                  impact_score=8.0, resume_score=8.0, ats_total=83.0, exact_title=TITLE,
@@ -519,6 +519,18 @@ def test_static_and_pdf_caching(env):
     named = c.get(f"/api/jobs/j1/resume/1/{quote(name)}", headers=H)
     assert named.content == r.content and named.headers["content-disposition"] == r.headers["content-disposition"]
     assert c.get("/api/summary", headers=H).headers["cache-control"] == "no-store"
+
+
+def test_resume_pdfs_follow_the_pdf_file_name_pattern(env, monkeypatch):
+    c = env["client"]
+    monkeypatch.setattr(CANDIDATE, "pdf_name", "{name} resume {YYYY}-{MM} {company} - {title} {vv}")
+    job = c.get("/api/jobs/j1", headers=H).json()
+    stem = f"Jordan Rivera resume {date.today():%Y-%m} {job['company']} - {job['title']}"
+    assert job["resume"]["pdf_name"] == stem + ".pdf"                         # v1: {vv} is nothing
+    assert job["resume"]["pdf_names"] == {"1": stem + ".pdf", "proposal": stem + " v2.pdf"}
+    r = c.get(f"/api/jobs/j1/resume/1/{quote(stem)}.pdf", headers=H)
+    assert quote(stem + ".pdf") in r.headers["content-disposition"]
+    assert PdfReader(io.BytesIO(r.content)).metadata.title == stem             # the viewer saves under this
 
 
 def test_detail_report_and_files(env):
@@ -1255,8 +1267,8 @@ def test_sent_resume_recorded_when_applied_and_kept_in_notion(env):
     assert shown.metadata.title == "Sent-Zeta" and len(shown.pages) == len(PdfReader(env["pdf"]).pages)
     assert c.put("/api/jobs/notion-p9/sent", headers={**H, "X-Filename": "x.pdf"}, content=b"not a pdf").status_code == 400
     s = c.put("/api/jobs/notion-p9/sent", headers={**H, "X-Filename": "My%20Resume.pdf"}, content=pdf).json()
-    assert s["sent"]["source"] == "upload" and s["sent"]["name"] == "My-Resume.pdf" and s["in_notion"]
-    assert jobs("?wait=1")["notion-p9"]["sent_resume"] == "My-Resume.pdf"
+    assert s["sent"]["source"] == "upload" and s["sent"]["name"] == "My Resume.pdf" and s["in_notion"]
+    assert jobs("?wait=1")["notion-p9"]["sent_resume"] == "My Resume.pdf"
     assert notion.rows["p9"]["properties"]["Resume Used"]["files"][0]["name"] == "Sent-Zeta.pdf"
 
     # Forgetting the copy here falls back to Notion's file.
@@ -1556,6 +1568,12 @@ def test_profile_edit(env):
     assert r.status_code == 400 and "LinkedIn" in r.json()["detail"]
     r = c.put("/api/profile", headers=H, json={**body, "resumes": [{"name": "X", "file": "../impact-record.md"}]})
     assert r.status_code == 400
+    r = c.put("/api/profile", headers=H, json={**body, "pdf_name": "{name} {date} {title}",
+                                               "resumes": [{"name": "Platform resume", "file": "resume-platform.md"}]})
+    assert r.status_code == 400 and "{date} isn't a variable" in r.json()["detail"]
+    r = c.put("/api/profile", headers=H, json={**body, "pdf_name": "{name} resume {YYYY}",
+                                               "resumes": [{"name": "Platform resume", "file": "resume-platform.md"}]})
+    assert r.status_code == 400 and "every résumé gets the same name" in r.json()["detail"]
 
     env["runs"].active = lambda: object()                          # a run is going
     r = c.put("/api/profile", headers=H, json={**body, "resumes": [{"name": "Platform resume", "file": "resume-platform.md"}]})
@@ -1570,6 +1588,13 @@ def test_profile_edit(env):
     cand = config.parse_candidate(config.yaml.safe_load(text)["candidate"])
     assert (cand.name, cand.pronouns, cand.linkedin) == ("Sam Lee", "she/her", "linkedin.com/in/sam-lee")
     assert cand.pdf_prefix == "Sam-Lee-Resume" and cand.resumes == {"Platform resume": "resume-platform.md"}
+    assert cand.pdf_name == config.DEFAULT_PDF_NAME
+    r = c.put("/api/profile", headers=H, json={**body, "pdf_name": "{name} resume {YYYY}-{MM} {company} - {title} {vv}",
+                                               "resumes": [{"name": "Platform resume", "file": "resume-platform.md"}]})
+    assert r.status_code == 200, r.text
+    assert c.get("/api/profile", headers=H).json()["candidate"]["pdf_name"] == "{name} resume {YYYY}-{MM} {company} - {title} {vv}"
+    assert config.parse_candidate(config.yaml.safe_load(searches.read_text())["candidate"]).resume_title(
+        "Staff TPM", "Acme", 1, date(2026, 10, 15)) == "Sam Lee resume 2026-10 Acme - Staff TPM"
     assert cand.evidence == config.Candidate(name="x").evidence      # blank: the generic default
     assert config.load(searches).search("tpm-remote")                # the searches are untouched
 

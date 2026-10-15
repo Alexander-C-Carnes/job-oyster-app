@@ -373,6 +373,10 @@ html[data-theme="sorbet"] .runs .st.running { color: var(--link); }
 html[data-theme="sorbet"] .doc-head { background: var(--paper); }
 html[data-theme="sorbet"] .doc-conflict { background: #FBE4EA; color: #8A2340; }
 html[data-theme="sorbet"] .pcard h2 { font-size: 17px; }
+/* PDF file names: the variables are candy sprinkles; a click springs one into the name */
+html[data-theme="sorbet"] .var-chip { border: 0; background: var(--sel); color: var(--link); font: 700 12.5px var(--display); padding: 4px 11px; }
+html[data-theme="sorbet"] .var-chip:hover { border: 0; box-shadow: inset 0 0 0 2px var(--link); }
+html[data-theme="sorbet"] .line-preview > div { border: 2px dashed var(--edge); border-radius: 12px; }
 html[data-theme="sorbet"] .look-option[aria-checked="true"] { border: 2px solid var(--accent); box-shadow: none; }
 html[data-theme="sorbet"] .look-name { font-family: var(--display); font-weight: 600; font-size: 15px; }
 /* Résumé format: each page thumbnail is a sheet that lifts on the --open spring; the picked one gets a pink

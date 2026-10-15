@@ -42,7 +42,7 @@ const post = send("POST"), put = send("PUT"), patch = send("PATCH");
 const fileUrl = (path) => `${path}${path.includes("?") ? "&" : "?"}t=${encodeURIComponent(TOKEN)}`;
 // A résumé version's PDF, by a link that ends in its download name ("<Role Title> - <Company>.pdf"), so the
 // browser saves it under that whichever name it goes by.
-const resumeUrl = (id, which, r) => fileUrl(`/api/jobs/${id}/resume/${which}/${encodeURIComponent(r.pdf_name || "resume.pdf")}`);
+const resumeUrl = (id, which, r) => fileUrl(`/api/jobs/${id}/resume/${which}/${encodeURIComponent(r.pdf_names?.[which] || r.pdf_name || "resume.pdf")}`);
 
 // ---- tiny DOM helpers ------------------------------------------------------------------
 const $ = (s, root = document) => root.querySelector(s);
@@ -3389,8 +3389,21 @@ suForm.addEventListener("submit", async (e) => {
 // searches.yaml's candidate section: who the résumés are for, and which résumés to score against.
 const P = { data: null, rows: [], fallback: null, base: "" };
 const pForm = $("#profile-form"), pField = (n) => pForm.elements.namedItem(n);
-const PROFILE_TEXT = ["name", "pronouns", "city", "phone", "email", "linkedin", "pdf_prefix", "evidence"];
-const prefixFor = (name) => (name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "Your-Name") + "-Resume";
+const PROFILE_TEXT = ["name", "pronouns", "city", "phone", "email", "linkedin", "pdf_name", "evidence"];
+const PDF_NAME_DEFAULT = "{title} - {company}";
+// The Profile's PDF file name pattern filled in, as config.fill_pdf_name does it on the server.
+function fillPdfName(pattern, { name = "", title = "", company = "", version = 0, day = new Date() } = {}) {
+  const unsafe = /[\\/:*?"<>|\x00-\x1f]+/g, two = (n) => String(n).padStart(2, "0");
+  const clean = (x, n = 80) => (x || "").replace(unsafe, " ").trim().slice(0, n).trim();
+  const vals = { "{name}": clean(name), "{first}": clean(name.split(/\s+/)[0]), "{company}": clean(company, 40),
+    "{title}": clean(title), "{YYYY}": String(day.getFullYear()), "{YY}": two(day.getFullYear() % 100),
+    "{MM}": two(day.getMonth() + 1), "{DD}": two(day.getDate()), "{v}": version ? `v${version}` : "",
+    "{vv}": version > 1 ? `v${version}` : "" };
+  let out = (pattern || PDF_NAME_DEFAULT).replace(/\{[^{}]*\}/g, (m) => (m in vals ? vals[m] : m));
+  out = out.replace(unsafe, " ").replace(/\s+/g, " ").replace(/_{2,}/g, "_").replace(/-{2,}/g, "-")
+    .replace(/(\s+[-_–—]+)+\s*$/, "");
+  return out.replace(/^[\s\-_.,]+|[\s\-_.,]+$/g, "") || "Resume";
+}
 const fileLabel = (f) => f.replace(/^resume-|\.md$/g, "").split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") + " resume";
 
 function profileState() {
@@ -3453,15 +3466,30 @@ function renderResumeRows() {
 }
 function profileChanged() {
   const name = pField("name").value.trim();
-  pField("pdf_prefix").placeholder = prefixFor(name);
   $("#contact-preview").textContent = ["city", "phone", "email", "linkedin"].map((k) => pField(k).value.trim()).filter(Boolean).join(" | ") || "—";
-  $("#pdf-preview").textContent = `${pField("pdf_prefix").value.trim() || prefixFor(name)}-Acme-Staff-Technical-Program-Manager.pdf`;
+  const pattern = pField("pdf_name").value.trim(), job = { name: name || "Your Name", title: "Staff Technical Program Manager", company: "Acme" };
+  const versioned = /\{vv?\}/.test(pattern);
+  $("#pdf-preview").replaceChildren(...(versioned ? [1, 2] : [0]).map((v) =>
+    h("div", {}, `${fillPdfName(pattern, { ...job, version: v })}.pdf`)));
   const dirty = profileDirty();
   $("#profile-save").disabled = !dirty;
   $("#profile-discard").disabled = !dirty;
   $("#profile-state").textContent = dirty ? "Unsaved changes" : P.data?.saved ? "Saved in searches.yaml" : "";
 }
 pForm.addEventListener("input", (e) => { if (!e.target.closest(".rfile")) profileChanged(); });
+pField("pdf_name").placeholder = PDF_NAME_DEFAULT;
+$$("#pdf-vars .var-chip").forEach((b) => b.addEventListener("click", () => {
+  const f = pField("pdf_name"), v = b.dataset.var;
+  if (!f.value.trim()) { f.value = PDF_NAME_DEFAULT; delete f.dataset.caret; }   // add to the default, not to nothing
+  const at = f.dataset.caret != null ? Math.min(+f.dataset.caret, f.value.length) : f.value.length;   // where the cursor was
+  const before = f.value.slice(0, at), after = f.value.slice(at);
+  const pad = (before && !/\s$/.test(before) ? " " : "");
+  f.value = before + pad + v + (after && !/^\s/.test(after) ? " " : "") + after;
+  const caret = (before + pad + v).length;
+  f.focus(); f.setSelectionRange(caret, caret); f.dataset.caret = caret;
+  profileChanged();
+}));
+pField("pdf_name").addEventListener("blur", (e) => { e.target.dataset.caret = e.target.selectionStart; });
 $("#profile-discard").addEventListener("click", () => applyProfile(P.data));
 pForm.addEventListener("submit", (e) => { e.preventDefault(); saveProfile(); });
 async function saveProfile() {

@@ -348,10 +348,18 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             why = e.args[0] if isinstance(e, render.BrowserUnavailable) else render._first_line(e)
             return Response(render.unavailable_svg(why), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
-    def resume_filename(row: Optional[dict]) -> str:
-        """The résumé's download name: "<Role Title> - <Company>.pdf"."""
+    def resume_filename(row: Optional[dict], version: Optional[int] = None) -> str:
+        """The résumé's download name: the Profile's PDF file name pattern, filled in for this job and version."""
         row = row or {}
-        return config.candidate().resume_title(row.get("title") or "", row.get("company") or "") + ".pdf"
+        return config.candidate().resume_title(row.get("title") or "", row.get("company") or "", version) + ".pdf"
+
+    def resume_filenames(ws: ResumeWorkspace, row: Optional[dict]) -> dict:
+        """Each version's download name, and the proposal's (the version it would become)."""
+        h = ws.history()
+        nums = [int(v["n"]) for v in h["versions"]]
+        out = {str(n): resume_filename(row, n) for n in nums}
+        out["proposal"] = resume_filename(row, max(nums, default=0) + 1)
+        return out
 
     def workspace(jid: str) -> ResumeWorkspace:
         st = board.state().get(jid) or {}
@@ -398,7 +406,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         h = ws.history()
         fmt, default = ws.format, default_format()
         return {"current": h["current"], "versions": h["versions"], "proposal": bool(h.get("proposal")),
-                "title": ws.title(), "pdf_name": resume_filename(board.row(jid)), "editable": ws.editable(), "chat": chat_payload(ws), "chat_busy": chat_busy(jid),
+                "title": ws.title(), "pdf_name": resume_filename(board.row(jid), h["current"]),
+                "pdf_names": resume_filenames(ws, board.row(jid)), "editable": ws.editable(), "chat": chat_payload(ws), "chat_busy": chat_busy(jid),
                 "format": {"id": fmt.id, "name": fmt.name, "max_pages": fmt.max_pages},
                 "default_format": {"id": default.id, "name": default.name, "max_pages": default.max_pages,
                                    "pages_word": default.pages_word}}
@@ -863,11 +872,9 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         ws = workspace(row["id"])
         h = ws.history()
         pdf = ws.pdf_path(str(h["current"]))
-        name = (ws.exported_pdf.name if ws.exported_pdf else
-                f"{config.candidate().pdf_prefix}-{slug(row['company'] or 'Company', max_len=30)}-"
-                f"{slug(row['title'] or 'Role', max_len=60)}.pdf")
-        data = render.retitled(pdf, resume_filename(row).removesuffix(".pdf")) or pdf.read_bytes()   # drawn before titles were per role
-        rec = sent.record(row["tracker_id"], name, data, "app", f"v{h['current']}")
+        name = resume_filename(row, h["current"])
+        data = render.retitled(pdf, name.removesuffix(".pdf")) or pdf.read_bytes()   # drawn before titles were per role
+        rec = sent.record(row["tracker_id"], name, data, "app", f"v{h['current']}", title=name)
         local.queue_resume(row["tracker_id"], rec["path"])
         sync.kick()
         return rec
@@ -902,8 +909,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return cached_file(request, info["path"], "application/pdf", sent_download_name(row, info), retitle=True)
 
     def sent_download_name(row: dict, info: dict) -> str:
-        """What the sent copy saves as: the app's own as "<Role Title> - <Company>.pdf", a file you added by its name."""
-        return resume_filename(row) if info["source"] == "app" else info["name"]
+        """What the sent copy saves as: the app's own by the name it was recorded under, a file you added by its name."""
+        return info.get("title") or (resume_filename(row) if info["source"] == "app" else info["name"])
 
     @app.put("/api/jobs/{jid}/sent")
     async def upload_sent(jid: str, request: Request):
@@ -940,8 +947,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if which != "proposal" and not which.isdigit():
             raise HTTPException(400, "Bad version")
         try:
-            return cached_file(request, workspace(jid).pdf_path(which), "application/pdf",
-                               resume_filename(board.row(jid)), retitle=True)
+            ws = workspace(jid)
+            n = int(which) if which.isdigit() else max((int(v["n"]) for v in ws.history()["versions"]), default=0) + 1
+            return cached_file(request, ws.pdf_path(which), "application/pdf", resume_filename(board.row(jid), n),
+                               retitle=True)
         except EditError as e:
             raise HTTPException(404, str(e)) from None
 
@@ -1489,7 +1498,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if raw is None:                       # no section yet: an empty form
             a = config.PLACEHOLDER
             raw = {**{k: getattr(a, k) for k in (*searches_file.CANDIDATE_TEXT, "evidence")}, "name": "",
-                   "pdf_prefix": "", "resumes": []}
+                   "pdf_name": "", "resumes": []}
         files = sorted(f.name for f in references().glob("resume-*.md") if searches_file.is_resume_file(f.name))
         return {"saved": searches_file.load_candidate(searches_path) is not None, "candidate": raw,
                 "example": searches_file.is_example(searches_path), "folder": str(config.PROFILE),

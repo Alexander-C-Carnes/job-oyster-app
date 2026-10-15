@@ -27,6 +27,7 @@ load() raises Unavailable and only the figure check runs.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -200,6 +201,15 @@ class LocalModels:
         return out
 
 
+def not_installed() -> str:
+    """Why the models are missing, and what adds them. The Mac app leaves them out on purpose (mac/build.sh)."""
+    if "OYSTER_APP_VERSION" in os.environ:
+        return ("the Mac app doesn't include them, since they need PyTorch (a few GB); running the app from its "
+                "code adds them (docs/setup-from-code.md)")
+    return ("sentence-transformers isn't installed; `pip install -r requirements.txt` in the app's folder adds it "
+            "(with PyTorch, a few GB)")
+
+
 _lock = threading.Lock()
 _loaded: dict[tuple, Models] = {}
 
@@ -215,7 +225,7 @@ def load(cfg: EvidenceCfg) -> Models:
             try:
                 _loaded[key] = LocalModels(cfg)
             except ImportError:
-                raise Unavailable("sentence-transformers isn't installed (pip install -r requirements.txt)") from None
+                raise Unavailable(not_installed()) from None
             except Exception as e:  # noqa: BLE001 - a failed download or load must not stop the run
                 raise Unavailable(f"couldn't load the evidence models: {e}") from e
         return _loaded[key]

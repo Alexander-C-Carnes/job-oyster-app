@@ -43,7 +43,7 @@ Adapted from Jobscan's guides on resume headlines and on how to write a resume (
 - No tables, columns, text boxes, graphics, or headers/footers holding key content.
 - Plain fonts (Arial, Calibri, Verdana, Georgia) and margins of at least 0.7 inches.
 - Subtle or no color.
-- File name `{pdf_prefix}-[Company]-[Role].pdf` (the resume-format convention), or `.docx` if the portal prefers it.
+- File name `{pdf_name}.pdf` (the resume-format convention), or `.docx` if the portal prefers it.
 
 **Length:** one to two pages. Jobscan suggests keeping it lean (they cite about 600 words as a guide); for a 10-plus-year career, two pages is fine if every line earns its place for the posting. Cut unrelated roles and generic soft-skill claims first.
 

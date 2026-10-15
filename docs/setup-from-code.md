@@ -39,7 +39,7 @@ candidate:
   phone: +1 555-555-5555
   email: you@example.com
   linkedin: linkedin.com/in/you
-  pdf_prefix: Your-Name-Resume     # PDFs are <prefix>-<Company>-<Title>.pdf (this is the default)
+  pdf_name: "{name} resume {YYYY}-{MM} {company} - {title} {vv}"   # what PDFs are named (default: {title} - {company})
   resumes:                         # your files from step 3: a name (a heat-map column) -> file
     Platform resume: resume-platform.md
     Leadership resume: resume-leadership.md
@@ -47,7 +47,7 @@ candidate:
   withdrawn: ["41.2%"]             # figures your impact record withdrew; a résumé showing one fails the check
 ```
 
-Every prompt, the PDF file names and the contact-line check read it: the method's briefs and rules in `skill/` say `{name}`, `{first}`, `{contact}` and `{city}`, and call the candidate he/him, and those are filled in with your details and pronouns as they're loaded. `evidence` is how the quick triage prompt describes your materials, so name a section there if your impact record has one worth pointing at.
+Every prompt, the PDF file names and the contact-line check read it: the method's briefs and rules in `skill/` say `{name}`, `{first}`, `{contact}` and `{city}`, and call the candidate he/him, and those are filled in with your details and pronouns as they're loaded. `pdf_name` names every résumé PDF: the one a run saves, the one you download, and the copy kept as sent. It can say `{name}`, `{first}`, `{company}` and `{title}`, the date as `{YYYY}`, `{YY}`, `{MM}` and `{DD}` (the day it's saved), and the version as `{v}` (v1, v2…) or `{vv}` (nothing for v1, then v2, v3…). A run's own PDF always holds the latest version, so it leaves the version out. An older profile's `pdf_prefix` still works: a prefix you changed names files `<prefix>-{company}-{title}` until you set `pdf_name`. `evidence` is how the quick triage prompt describes your materials, so name a section there if your impact record has one worth pointing at.
 
 `jobpipe/render.py` (`CSS`) sets the PDF's look: red accent (`#E50815`), font, spacing. Changing it is optional.
 

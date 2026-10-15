@@ -740,6 +740,9 @@ details.pcard[open] summary { margin-bottom: 10px; }
 #ai-key-hint.warn { color: var(--warn); }
 .ai-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 4px 0 10px; }
 @media (max-width: 640px) { .ai-stages { grid-template-columns: 1fr; } }
+.var-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
+.var-chip { font: 12px var(--mono); padding: 3px 9px; cursor: pointer; }
+#pdf-preview > div + div { margin-top: 3px; }
 .line-preview > div { margin-top: 3px; padding: 6px 8px; border-radius: 7px; background: var(--panel-2); border: 1px dashed var(--line); font: 12px var(--mono); overflow-wrap: anywhere; }
 .rfiles { list-style: none; margin: 0 0 8px; padding: 0; }
 .rfile { display: grid; grid-template-columns: auto minmax(160px, 240px) 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }

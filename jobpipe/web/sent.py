@@ -1,7 +1,8 @@
 """The résumé sent with each application, kept as the exact PDF that went out.
 
 One per tracked job (keyed by its tracker id), in data/sent/<id>/ with an index in
-data/sent/index.json: {id: {name, source, recorded}}. `source` says where it came from:
+data/sent/index.json: {id: {name, source, recorded, title?}}; `title` is the name it downloads under
+when that isn't its file's (the app's own, named by the Profile's PDF file name pattern). `source` says where it came from:
 "upload" (added in the app), "app" (the app's résumé for the job, frozen when it was recorded),
 or "notion" (a copy of the file in the Notion row's Resume Used). Later edits to the job's
 résumé never change it.
@@ -21,7 +22,8 @@ MAX_BYTES = 15 * 1024 * 1024
 
 
 def safe_name(name: str) -> str:
-    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(name or "").stem).strip("-.") or "resume"
+    stem = re.sub(r"[^A-Za-z0-9._ -]+", "-", Path(name or "").stem)
+    stem = re.sub(r"\s+", " ", stem).strip(" -.") or "resume"
     return stem[:120] + ".pdf"
 
 
@@ -44,7 +46,7 @@ class SentResumes:
         path = self._dir(row_id) / meta["name"]
         return {**meta, "path": path} if path.exists() else None
 
-    def record(self, row_id: str, name: str, data: bytes, source: str, note: str = "") -> dict:
+    def record(self, row_id: str, name: str, data: bytes, source: str, note: str = "", title: str = "") -> dict:
         if not data.startswith(b"%PDF-"):
             raise ValueError("That isn't a PDF.")
         if len(data) > MAX_BYTES:
@@ -57,7 +59,8 @@ class SentResumes:
             d.mkdir(parents=True)
             (d / name).write_bytes(data)
             index = dict(self.index.read())
-            index[row_id] = {"name": name, "source": source, "note": note, "recorded": now_iso()}
+            index[row_id] = {"name": name, "source": source, "note": note, "recorded": now_iso(),
+                             **({"title": title} if title else {})}
             _write(self.index.path, index)
         return self.get(row_id)
 

@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -99,7 +100,7 @@ class Candidate:
     """Who the résumés are for: searches.yaml's `candidate:` section.
 
     The skill's briefs and rules, and the app's own prompts, say {name}, {first}, {contact},
-    {city}, {linkedin} and {pdf_prefix} and call the candidate he/him; personalize() fills those in
+    {city}, {linkedin} and {pdf_name} and call the candidate he/him; personalize() fills those in
     and swaps the pronouns as they are loaded as prompts."""
     name: str
     pronouns: str = "they/them"          # he/him, she/her or they/them
@@ -107,7 +108,8 @@ class Candidate:
     phone: str = ""
     email: str = ""
     linkedin: str = ""                   # linkedin.com/in/... (the check requires a visible URL)
-    pdf_prefix: str = ""                 # résumé PDFs are <prefix>-<Company>-<Title>.pdf
+    pdf_name: str = ""                   # what résumé PDFs are named: a pattern of PDF_NAME_VARS (Profile › PDF file names)
+    pdf_prefix: str = ""                 # before pdf_name: PDFs were <prefix>-<Company>-<Title>.pdf
     resume_format: str = "signature"     # how résumé PDFs look: an id in jobpipe/formats.py (Profile › Résumé format)
     # Resume variants the matcher and triage score, as "source name" -> file in the profile's references/.
     # The names become the columns of ratings.json and the heat map.
@@ -118,16 +120,25 @@ class Candidate:
     withdrawn: list[str] = field(default_factory=list)
 
     def __post_init__(self):
-        self.pdf_prefix = self.pdf_prefix or re.sub(r"[^A-Za-z0-9]+", "-", self.name).strip("-") + "-Resume"
+        default_prefix = re.sub(r"[^A-Za-z0-9]+", "-", self.name).strip("-") + "-Resume"
+        # A prefix you chose names files as it always did; the one made from your name gives way to the default.
+        if not self.pdf_name and self.pdf_prefix and self.pdf_prefix != default_prefix:
+            self.pdf_name = self.pdf_prefix + "-{company}-{title}"
+        self.pdf_name = self.pdf_name or DEFAULT_PDF_NAME
+        self.pdf_prefix = self.pdf_prefix or default_prefix
 
     @property
     def first_name(self) -> str:
         return (self.name.split() or [""])[0]
 
-    def resume_title(self, role: str = "", company: str = "") -> str:
-        """A résumé PDF's title, which browsers save it under: "<Role Title> - <Company>"."""
-        role, company = (re.sub(r'[\\/:*?"<>|\s]+', " ", x or "").strip(" .") for x in (role, company))
-        return " - ".join(x for x in (role, company) if x) or f"{self.name} Resume"
+    def resume_title(self, role: str = "", company: str = "", version: Optional[int] = None,
+                     day: Optional[date] = None) -> str:
+        """A résumé PDF's name without ".pdf", which is also its title (browsers save it under that): pdf_name
+        filled in. Without a version, {v} and {vv} are left empty; the date is today's unless given."""
+        if not (role or company):
+            return f"{self.name} Resume"
+        return fill_pdf_name(self.pdf_name, name=self.name, title=role, company=company, version=version,
+                             day=day or date.today())
 
     @property
     def contact(self) -> str:
@@ -136,9 +147,42 @@ class Candidate:
     def personalize(self, text: str) -> str:
         """A prompt with {name}, {first}, {contact} and the like, filled in for this candidate."""
         for key, value in (("{contact}", self.contact), ("{linkedin}", self.linkedin), ("{city}", self.city),
+                           ("{pdf_name}", self.resume_title("[Role]", "[Company]")),
                            ("{pdf_prefix}", self.pdf_prefix), ("{name}", self.name), ("{first}", self.first_name)):
             text = text.replace(key, value)
         return swap_pronouns(text, self.pronouns)
+
+
+DEFAULT_PDF_NAME = "{title} - {company}"
+# What a PDF file name pattern can say, and what each becomes (shown on the Profile tab).
+PDF_NAME_VARS = {"{name}": "your name", "{first}": "your first name", "{company}": "the company",
+                 "{title}": "the role's title", "{YYYY}": "the year", "{YY}": "the year's last two digits",
+                 "{MM}": "the month", "{DD}": "the day", "{v}": "the version: v1, v2…",
+                 "{vv}": "the version from v2 on (nothing for v1)"}
+_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')     # characters a file name can't hold on a Mac or Windows
+
+
+def pdf_name_unknown(pattern: str) -> list[str]:
+    """The {…} in a file name pattern that aren't variables."""
+    return [v for v in re.findall(r"\{[^{}]*\}", pattern) if v not in PDF_NAME_VARS]
+
+
+def fill_pdf_name(pattern: str, *, name: str = "", title: str = "", company: str = "",
+                  version: Optional[int] = None, day: Optional[date] = None) -> str:
+    """A file name (without ".pdf") from a pattern like "{name} resume {YYYY}-{MM} {company} - {title}".
+    Characters a file can't be named with become spaces, and separators left at either end by an empty
+    variable (a v1's {vv}) go."""
+    day = day or date.today()
+    clean = lambda x, n=80: _UNSAFE.sub(" ", x or "").strip()[:n].strip()
+    values = {"{name}": clean(name), "{first}": clean((name.split() or [""])[0]), "{company}": clean(company, 40),
+              "{title}": clean(title), "{YYYY}": f"{day:%Y}", "{YY}": f"{day:%y}", "{MM}": f"{day:%m}",
+              "{DD}": f"{day:%d}", "{v}": f"v{version}" if version else "",
+              "{vv}": f"v{version}" if version and version > 1 else ""}
+    out = re.sub(r"\{[^{}]*\}", lambda m: values.get(m.group(0), m.group(0)), pattern or DEFAULT_PDF_NAME)
+    out = re.sub(r"\s+", " ", _UNSAFE.sub(" ", out))
+    out = re.sub(r"-{2,}", "-", re.sub(r"_{2,}", "_", out))
+    out = re.sub(r"(\s+[-_–—]+)+\s*$", "", out)      # "Role - " when the variable after the dash was empty
+    return out.strip(" -_.,") or "Resume"
 
 
 # The candidate before a profile names one: the Profile tab asks for the details.

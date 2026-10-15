@@ -35,8 +35,10 @@ candidate:
   phone: +1 555-010-0199
   email: jordan.rivera@example.com
   linkedin: linkedin.com/in/jordan-rivera-example
-  # PDFs are named <pdf_prefix>-<Company>-<Title>.pdf (default: the name with dashes, then -Resume).
-  pdf_prefix: Jordan-Rivera-Resume
+  # What résumé PDFs are named. Variables: {name} {first} {company} {title}, the date as {YYYY} {YY}
+  # {MM} {DD}, and the version as {v} (v1, v2…) or {vv} (nothing for v1, then v2, v3…).
+  # E.g. "{name} resume {YYYY}-{MM} {company} - {title}". Blank means {title} - {company}.
+  pdf_name: "{title} - {company}"
   # How résumé PDFs look: signature, executive, modern, minimal or compact (one page). Set on the Profile tab.
   resume_format: signature
   # Your existing résumés in references/, scored alongside the impact record:

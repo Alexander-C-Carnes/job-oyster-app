@@ -365,10 +365,21 @@
           </section>
           <section class="pcard">
             <h2>PDF file names</h2>
-            <div class="row2">
-              <label>Prefix <input name="pdf_prefix"></label>
-              <div class="line-preview"><span class="hint">Example</span><div id="pdf-preview"></div></div>
+            <p class="muted">How every résumé PDF is named: the one you download, the one a run saves, and the copy kept as the one you sent. Click a variable to add it where the cursor is. The date is the day you save it; <code>{vv}</code> leaves the version out of v1.</p>
+            <label>Name <input name="pdf_name" spellcheck="false" autocomplete="off"></label>
+            <div class="var-chips" id="pdf-vars">
+              <button type="button" class="chip var-chip" data-var="{name}" title="your name">{name}</button>
+              <button type="button" class="chip var-chip" data-var="{first}" title="your first name">{first}</button>
+              <button type="button" class="chip var-chip" data-var="{company}" title="the company">{company}</button>
+              <button type="button" class="chip var-chip" data-var="{title}" title="the role's title">{title}</button>
+              <button type="button" class="chip var-chip" data-var="{YYYY}" title="the year, e.g. 2026">{YYYY}</button>
+              <button type="button" class="chip var-chip" data-var="{YY}" title="the year's last two digits">{YY}</button>
+              <button type="button" class="chip var-chip" data-var="{MM}" title="the month, 01–12">{MM}</button>
+              <button type="button" class="chip var-chip" data-var="{DD}" title="the day, 01–31">{DD}</button>
+              <button type="button" class="chip var-chip" data-var="{v}" title="the version: v1, v2, v3…">{v}</button>
+              <button type="button" class="chip var-chip" data-var="{vv}" title="the version from v2 on: nothing for v1, then v2, v3…">{vv}</button>
             </div>
+            <div class="line-preview"><span class="hint">Example</span><div id="pdf-preview"></div></div>
           </section>
           <details class="pcard">
             <summary>How the signal score describes your evidence</summary>

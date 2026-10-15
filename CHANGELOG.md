@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-16
+
+### Résumés
+- PDF file names can use the date and the version
+- Clearer note when the evidence models aren't used
+
 ## 2026-10-14
 
 ### Name

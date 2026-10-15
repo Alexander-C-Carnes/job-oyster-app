@@ -61,7 +61,7 @@ def test_full_run(tmp_dirs):
 
     out = config.OUTPUTS
     day = next(out.iterdir())
-    pdf = day / f"Jordan-Rivera-Resume-Acme-{TITLE.replace(' ', '-')}.pdf"
+    pdf = day / f"{TITLE} - Acme.pdf"
     assert pdf.exists() and len(PdfReader(str(pdf)).pages) == 2
     assert (day / f"heatmap-Acme-{TITLE.replace(' ', '-')}.html").exists()
     run_dir = next((day / "runs").iterdir())

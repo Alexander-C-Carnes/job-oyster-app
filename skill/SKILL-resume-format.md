@@ -38,7 +38,7 @@ Source: Jobscan, "Greenhouse ATS: How to Optimize for the Recruiter Scorecard" (
 - **Skills as plain text**, separated by pipes.
 - **Contact details written out in full** (email, phone, LinkedIn URL as visible text such as `linkedin.com/in/…`). A parser can't read a hyperlink hidden behind the word "LinkedIn".
 - **Standard fonts only**, embedded in the PDF: Helvetica Neue, Helvetica or Arial.
-- **Deliver as a text-based PDF** (not a scan or image) with a descriptive filename, e.g. `{pdf_prefix}-[Company]-[Role].pdf`.
+- **Deliver as a text-based PDF** (not a scan or image) with a descriptive filename, e.g. `{pdf_name}.pdf`.
 - Content: mirror the posting's exact nouns and verbs; one evidence-backed, measurable result per bullet; cover every listed must-have in the employer's wording. (Content still comes from the md; flag missing must-haves rather than inventing them.)
 
 ## Type

@@ -130,7 +130,7 @@ Also write `merge-notes.md`: which draft each line came from, and every posting 
 Read the resume-format skill's SKILL.md and follow it to render `resume-final.md` to a PDF. The wording comes only from `resume-final.md`. Handoff notes, since that skill was written for older resumes:
 - The section is **CORE SKILLS**, not Core Capabilities. Put it where that skill puts Core Capabilities, with the heavy red rule above it, and render the `Hard Skills:` and `Soft Skills:` lines as two separate paragraphs.
 - Each job renders as one row (`Employer | Title` left, `Mon YYYY–Mon YYYY | Location` right), so it parses as the single job line the rules require.
-- File name: `{pdf_prefix}-[Company]-[Role].pdf` in the outputs folder.
+- File name: `{pdf_name}.pdf` in the outputs folder.
 - To make the PDF, use headless Chromium via Playwright if available, otherwise `wkhtmltopdf`.
 
 After rendering: confirm the page count (two pages; one in the Compact format) and run `pdftotext -layout` on the PDF, then `check_resume.py`-style spot checks on the text (exact title present, headings in order, no stray dashes) and `ats_score.py` with the PDF text as the resume. Report the final Total %.

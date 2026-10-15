@@ -1,15 +1,16 @@
 import subprocess
 import sys
+from datetime import date
 
 import pytest
 
-from jobpipe import config, llm, triage
+from jobpipe import config, evidence, llm, triage
 from jobpipe.config import candidate as load_candidate   # the real loader; conftest swaps config.candidate
 from jobpipe.tailor import section
 from jobpipe.web import resumes
 from conftest import CANDIDATE, _resume
 
-PLACEHOLDERS = ("{name}", "{first}", "{contact}", "{city}", "{linkedin}", "{pdf_prefix}")
+PLACEHOLDERS = ("{name}", "{first}", "{contact}", "{city}", "{linkedin}", "{pdf_prefix}", "{pdf_name}")
 
 
 def test_no_candidate_section_means_the_placeholder(tmp_path):
@@ -129,7 +130,7 @@ def test_prompts_name_only_the_configured_candidate():
         assert not [p for p in PLACEHOLDERS if p in text], text[:80]
     writer = llm.brief("05-resume-writer.md")
     assert "# Jordan Rivera" in writer and CANDIDATE.contact in writer
-    assert "Jordan-Rivera-Resume-[Company]" in prompts[1]
+    assert "[Role] - [Company].pdf" in prompts[1]
     assert "only if they held it" in writer
 
 
@@ -210,3 +211,46 @@ def test_a_checkout_from_before_profiles_moves_into_one(tmp_path):
     assert con.execute("SELECT resume, fit FROM tracker").fetchone() == (new_pdf, 8)
     con.close()
     assert (old / "searches.yaml").exists()                            # the originals stay
+
+
+def test_pdf_file_names_follow_the_pattern():
+    day = date(2026, 10, 15)
+    fill = lambda pattern, v=None, **kw: config.fill_pdf_name(
+        pattern, **{"name": "Sam Lee", "company": "Acme", "title": "Staff Technical Program Manager", **kw},
+        version=v, day=day)
+    assert fill("{name} resume {YYYY}-{MM} {company} - {title}", 5) == \
+        "Sam Lee resume 2026-10 Acme - Staff Technical Program Manager"
+    assert fill("{first}_{YY}{MM}{DD}_{company}_{v}", 3) == "Sam_261015_Acme_v3"
+    # {vv} is nothing for v1, and the separator before it goes too
+    assert fill("{title} - {company} - {vv}", 1) == "Staff Technical Program Manager - Acme"
+    assert fill("{title} - {company} - {vv}", 2) == "Staff Technical Program Manager - Acme - v2"
+    assert fill("{title} {v}") == "Staff Technical Program Manager"            # no version: the run's own copy
+    assert fill("{title} - {company}", title="Eng, Payments/Risk: L5", company="") == "Eng, Payments Risk L5"
+    assert fill("{nope} {title}") == "{nope} Staff Technical Program Manager"
+    assert config.pdf_name_unknown("{name} {nope} {YYYY}") == ["{nope}"]
+
+
+def test_a_chosen_prefix_still_names_files():
+    assert config.Candidate(name="Sam Lee").pdf_name == config.DEFAULT_PDF_NAME
+    assert config.Candidate(name="Sam Lee", pdf_prefix="Sam-Lee-Resume").pdf_name == config.DEFAULT_PDF_NAME
+    legacy = config.Candidate(name="Sam Lee", pdf_prefix="SL-CV")
+    assert legacy.resume_title("Staff TPM", "Acme") == "SL-CV-Acme-Staff TPM"
+    both = config.Candidate(name="Sam Lee", pdf_prefix="SL-CV", pdf_name="{company} {title}")
+    assert both.resume_title("Staff TPM", "Acme") == "Acme Staff TPM"
+    assert config.Candidate(name="Sam Lee").resume_title() == "Sam Lee Resume"
+
+
+def test_evidence_models_missing_says_what_adds_them(monkeypatch):
+    monkeypatch.delenv("OYSTER_APP_VERSION", raising=False)
+    assert "pip install -r requirements.txt" in evidence.not_installed()
+    monkeypatch.setenv("OYSTER_APP_VERSION", "0.2.0")
+    assert "Mac app doesn't include them" in evidence.not_installed() and "pip" not in evidence.not_installed()
+
+
+def test_the_profile_shows_an_older_prefix_as_its_pattern(tmp_path):
+    from jobpipe.web import searches_file
+    p = tmp_path / "searches.yaml"
+    p.write_text("candidate:\n  name: Sam Lee\n  pdf_prefix: SL-CV\n  resumes:\n    Main: resume-main.md\n")
+    assert searches_file.load_candidate(p)["pdf_name"] == "SL-CV-{company}-{title}"
+    p.write_text("candidate:\n  name: Sam Lee\n  pdf_prefix: Sam-Lee-Resume\n  resumes:\n    Main: resume-main.md\n")
+    assert searches_file.load_candidate(p)["pdf_name"] == ""          # the made-up prefix: the default pattern

@@ -133,7 +133,7 @@ def save(path: Path, searches: list[dict]) -> None:
 
 
 # ---- the candidate (searches.yaml's `candidate:` section, edited on the Profile tab) ----------------
-CANDIDATE_TEXT = ("name", "pronouns", "city", "phone", "email", "linkedin", "pdf_prefix")
+CANDIDATE_TEXT = ("name", "pronouns", "city", "phone", "email", "linkedin", "pdf_name")
 PRONOUNS = ("he/him", "she/her", "they/them")
 RESUME_FILE = re.compile(r"resume-[a-z0-9][a-z0-9-]*\.md")
 
@@ -146,6 +146,9 @@ def load_candidate(path: Path) -> Optional[dict]:
     out = {k: str(c[k]) if c.get(k) is not None else "" for k in (*CANDIDATE_TEXT, "evidence")}
     out["resumes"] = [{"name": str(k), "file": str(v)} for k, v in (c.get("resumes") or {}).items()]
     out["resume_format"] = str(c.get("resume_format") or "signature")
+    if not out["pdf_name"] and c.get("pdf_prefix"):     # a prefix from before patterns: show what it names files
+        named = config.Candidate(name=str(c.get("name") or "x"), pdf_prefix=str(c["pdf_prefix"])).pdf_name
+        out["pdf_name"] = "" if named == config.DEFAULT_PDF_NAME else named
     return out
 
 
@@ -170,7 +173,12 @@ def clean_candidate(raw: dict, references: Path) -> dict:
     if li and "linkedin.com/in/" not in li:
         raise SearchError("LinkedIn: use your profile's address, like linkedin.com/in/your-name.")
     out["linkedin"] = li
-    out["pdf_prefix"] = re.sub(r"[^A-Za-z0-9]+", "-", out["pdf_prefix"]).strip("-")
+    unknown = config.pdf_name_unknown(out["pdf_name"])
+    if unknown:
+        raise SearchError(f"PDF file names: {', '.join(unknown)} isn't a variable. Use "
+                          f"{', '.join(config.PDF_NAME_VARS)}.")
+    if out["pdf_name"] and not re.search(r"\{(title|company)\}", out["pdf_name"]):
+        raise SearchError("PDF file names: put {company} or {title} in it, or every résumé gets the same name.")
     out["evidence"] = one_line("evidence", 600)
     resumes, names = [], set()
     for r in raw.get("resumes") or []:
@@ -197,7 +205,8 @@ def save_resume_format(path: Path, fid: str) -> None:
         raise SearchError("Save your profile first, then choose a résumé format.")
     if "resume_format" not in m:
         keys = list(m)
-        at = keys.index("pdf_prefix") + 1 if "pdf_prefix" in keys else len(keys)
+        after = next((k for k in ("pdf_name", "pdf_prefix") if k in keys), None)
+        at = keys.index(after) + 1 if after else len(keys)
         m.insert(at, "resume_format", fid, comment="how résumé PDFs look (Profile › Résumé format)")
     else:
         m["resume_format"] = fid
@@ -242,7 +251,11 @@ def save_candidate(path: Path, cand: dict) -> None:
         m = CommentedMap()
         doc.insert(0, "candidate", m, comment="Who the résumés are for (edited on the app's Profile tab).")
     for k in (*CANDIDATE_TEXT, "evidence"):
-        m[k] = cand.get(k, "")
+        if k == "pdf_name" and k not in m and "pdf_prefix" in m:    # beside the setting it replaces
+            m.insert(list(m).index("pdf_prefix") + 1, k, cand.get(k, ""),
+                     comment="what résumé PDFs are named (Profile › PDF file names); blank means {title} - {company}")
+        else:
+            m[k] = cand.get(k, "")
     m.pop("example", None)
     old = m.get("resumes")
     new = CommentedMap((r["name"], r["file"]) for r in cand["resumes"])
