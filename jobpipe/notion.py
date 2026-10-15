@@ -27,11 +27,18 @@ API = "https://api.notion.com/v1"
 VERSION = "2025-09-03"  # data-source API
 # "Interviewing" and "Offer" follow "Applied".
 # "Denied": applied and turned down, e.g. not offered an interview (the dashboard calls it Rejected).
+# "Ghosted": applied and never heard back. The app moves a job here on its own after tracker.ghost_after_days
+# (searches.yaml) at Applied or Interviewing with no change of status; any other status can be picked again.
 # "Not Applying": ruled out (a poor fit, or little chance of an interview). Kept so it isn't found and scored again.
-STATUSES = ("Not started", "In progress", "Blocked", "Applied", "Interviewing", "Offer", "Denied", "Done", "Not Applying")
+STATUSES = ("Not started", "In progress", "Blocked", "Applied", "Interviewing", "Offer", "Denied", "Ghosted", "Done",
+            "Not Applying")
 # The stages that mean the application was sent: they count as applied on the dashboard.
-APPLIED_STATUSES = ("Applied", "Interviewing", "Offer", "Denied", "Done")
+APPLIED_STATUSES = ("Applied", "Interviewing", "Offer", "Denied", "Ghosted", "Done")
 SCORE_NOTE_RE = re.compile(r"(?:Scored|Triaged) \d{4}-\d{2}-\d{2}[^\n]*")
+
+
+class StatusRefused(RuntimeError):
+    """Notion wouldn't set a Status, usually because its Status property has no option by that name."""
 
 
 @dataclass
@@ -134,7 +141,7 @@ class NotionTracker:
         except RuntimeError as e:
             # Notion's API can't add options to a Status property, so a missing one has to be added by hand.
             if "-> 400" in str(e):
-                raise RuntimeError(f'Notion would not set Status to "{status}" ({e}). If its Status property has no '
+                raise StatusRefused(f'Notion would not set Status to "{status}" ({e}). If its Status property has no '
                                    f'"{status}" option, add one in Notion, then sync again.') from e
             raise
 

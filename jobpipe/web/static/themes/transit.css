@@ -25,7 +25,7 @@ html[data-theme="transit"] {
   --fit-hi-bg: #0B1F3A; --fit-hi: #FFFFFF; --fit-mid-bg: #6B7A90; --fit-mid: #FFFFFF; --fit-lo-bg: #CBD5E0; --fit-lo: #0B1F3A;
   --st-untracked: #6B7A90; --st-not-started: #DDAA00; --st-in-progress: #F4520A; --st-blocked: #57ADDB;
   --st-applied: #00A862; --st-done: #0066CC; --st-denied: #AC64BB; --st-not-applying: #925720;
-  --st-interviewing: #00A4A7; --st-offer: #F3A9BB;
+  --st-interviewing: #00A4A7; --st-offer: #F3A9BB; --st-ghosted: #9AA9BC;
   --chart: #0066CC;
   --board: #0E1E38; --board-cell: #1A2C4C; --board-text: #FFD60A;
   --shadow: 0 1px 0 rgba(11, 31, 58, .08), 0 6px 18px rgba(11, 31, 58, .08);
@@ -132,7 +132,8 @@ html[data-theme="transit"] .stage[data-stage="Offer"] { order: 6; }
 html[data-theme="transit"] .stage[data-stage="Done"] { order: 7; }
 html[data-theme="transit"] .stage[data-stage="Blocked"] { order: 8; margin-left: 30px; }
 html[data-theme="transit"] .stage[data-stage="Denied"] { order: 9; }
-html[data-theme="transit"] .stage[data-stage="Not Applying"] { order: 10; }
+html[data-theme="transit"] .stage[data-stage="Ghosted"] { order: 10; }
+html[data-theme="transit"] .stage[data-stage="Not Applying"] { order: 11; }
 /* the line: each station draws the segment leaving it, in its colour, with an ink casing */
 html[data-theme="transit"] .stage::before { content: ""; position: absolute; left: 50%; width: 100%; top: 19.5px; height: 9px; background: var(--c);
   box-shadow: 0 -2.5px 0 var(--ink), 0 2.5px 0 var(--ink); z-index: 0; }
@@ -210,7 +211,7 @@ html[data-theme="transit"] .ref-chip { border: 1.5px solid var(--line); color: v
 html[data-theme="transit"] .board { padding: 10px 16px 14px; gap: 10px; }
 html[data-theme="transit"] .col { background: var(--panel); border: 1.5px solid var(--line); border-top: 8px solid var(--c); border-radius: var(--radius); }
 html[data-theme="transit"] .col[data-stage="Blocked"] { border-top-style: dashed; }
-html[data-theme="transit"] .col[data-stage="Blocked"], html[data-theme="transit"] .col[data-stage="Denied"], html[data-theme="transit"] .col[data-stage="Not Applying"] { background: var(--panel-2); }
+html[data-theme="transit"] .col[data-stage="Blocked"], html[data-theme="transit"] .col[data-stage="Denied"], html[data-theme="transit"] .col[data-stage="Ghosted"], html[data-theme="transit"] .col[data-stage="Not Applying"] { background: var(--panel-2); }
 html[data-theme="transit"] .col header { padding: 10px 12px 8px; font: 700 18px var(--display); gap: 8px; }
 html[data-theme="transit"] .col header .dot { display: none; }
 html[data-theme="transit"] .col header .n { order: -1; margin-left: 0; width: 26px; height: 26px; border-radius: 50%; border: 4px solid var(--c); background: var(--panel); box-shadow: 0 0 0 1.5px var(--ink);
@@ -450,3 +451,7 @@ html[data-theme="transit"] .wysiwyg .ProseMirror h1, html[data-theme="transit"] 
   html[data-theme="transit"] .cat-transit .ear.r { transform: rotate(30deg); }
   html[data-theme="transit"] .cat-transit .sigh { opacity: .6; }
 }
+
+/* Ghosted: the note on a role moved there on its own, as a service notice */
+html[data-theme="transit"] .ghosted-note { border-left: 6px solid var(--st-ghosted); border-radius: 0 var(--radius) var(--radius) 0; background: var(--tint); color: var(--ink); }
+html[data-theme="transit"] .ghosted-note b { font-family: var(--display); font-weight: 700; font-size: 14px; }

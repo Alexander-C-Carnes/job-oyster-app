@@ -24,7 +24,7 @@ html[data-theme="arcade"] {
   --fit-hi-bg: #15AC7D; --fit-hi: #1B1B4D; --fit-mid-bg: #DDAD0F; --fit-mid: #1B1B4D; --fit-lo-bg: #C9D6E8; --fit-lo: #1B1B4D;
   --st-untracked: #8A9BB0; --st-not-started: #12A9DB; --st-in-progress: #EF6505; --st-blocked: #A3602F;
   --st-applied: #15AC7D; --st-done: #DDAD0F; --st-denied: #8B5DCE; --st-not-applying: #186A99;
-  --st-interviewing: #FF2D95; --st-offer: #FFD500;
+  --st-interviewing: #FF2D95; --st-offer: #FFD500; --st-ghosted: #5B6B82;
   --chart: #0E58A8;
   --shadow: 4px 4px 0 var(--ink);
   --radius: 0px;
@@ -135,7 +135,8 @@ html[data-theme="arcade"] .stage[data-stage="Offer"] { order: 6; }
 html[data-theme="arcade"] .stage[data-stage="Done"] { order: 7; }
 html[data-theme="arcade"] .stage[data-stage="Blocked"] { order: 8; margin-left: 12px; }
 html[data-theme="arcade"] .stage[data-stage="Denied"] { order: 9; }
-html[data-theme="arcade"] .stage[data-stage="Not Applying"] { order: 10; }
+html[data-theme="arcade"] .stage[data-stage="Ghosted"] { order: 10; }
+html[data-theme="arcade"] .stage[data-stage="Not Applying"] { order: 11; }
 html[data-theme="arcade"] .stage[data-kind="side"] { flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; min-width: 66px; padding: 3px 8px; margin-left: 6px;
   background: var(--c); color: #fff; }
 /* a segment with nothing in it fades to a tint (the overlay's opacity is 1 - min(n, 1)); the words stay on top */
@@ -217,7 +218,7 @@ html[data-theme="arcade"] .round-tile.big { font-size: 12px; }
 html[data-theme="arcade"] .board { padding: 12px 16px 14px; gap: 10px; }
 html[data-theme="arcade"] .col { border: var(--px) solid var(--ink); border-top: var(--px) solid var(--ink); border-radius: 0; background: var(--panel); }
 html[data-theme="arcade"] .col header { background: var(--c); color: var(--ink); border-bottom: var(--px) solid var(--ink); padding: 8px 10px; font-weight: 500; font-size: 14px; }
-html[data-theme="arcade"] .col[data-stage="Blocked"] header, html[data-theme="arcade"] .col[data-stage="Denied"] header, html[data-theme="arcade"] .col[data-stage="Not Applying"] header { color: #fff; }
+html[data-theme="arcade"] .col[data-stage="Blocked"] header, html[data-theme="arcade"] .col[data-stage="Denied"] header, html[data-theme="arcade"] .col[data-stage="Ghosted"] header, html[data-theme="arcade"] .col[data-stage="Not Applying"] header { color: #fff; }
 html[data-theme="arcade"] .col header .dot { display: none; }
 html[data-theme="arcade"] .col header .n { font: 400 12px/1 var(--pixel); color: inherit; }
 html[data-theme="arcade"] .col-cards { padding: 8px; gap: 8px; }
@@ -464,3 +465,7 @@ html[data-theme="arcade"] #backend { max-width: 150px; overflow: hidden; text-ov
 html[data-theme="arcade"] .split-handle::before { border-radius: 0; border: var(--px) solid var(--ink); background: var(--panel); }
 html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::before { background: var(--green); border-color: var(--ink); }
 html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::after { background: var(--ink); }
+
+/* Ghosted: the note on a role moved there on its own, in a pixel frame */
+html[data-theme="arcade"] .ghosted-note { border: var(--px) solid var(--ink); border-left-width: 8px; border-left-color: var(--st-ghosted); border-radius: 0; background: var(--panel); color: var(--ink); }
+html[data-theme="arcade"] .ghosted-note b { color: var(--ink); font-weight: 700; }

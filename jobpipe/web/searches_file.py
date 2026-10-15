@@ -207,6 +207,33 @@ def save_resume_format(path: Path, fid: str) -> None:
     tmp.replace(path)
 
 
+GHOST_DAYS_MAX = 3650
+
+
+def save_ghost_days(path: Path, days: Any) -> int:
+    """Set `tracker.ghost_after_days`, keeping the file's comments (adding the section if needed). Returns the days."""
+    try:
+        days = int(str(days).strip() or 0)
+    except ValueError:
+        raise SearchError("Enter a whole number of days (0 turns it off).") from None
+    if not 0 <= days <= GHOST_DAYS_MAX:
+        raise SearchError(f"Enter a number of days from 0 (off) to {GHOST_DAYS_MAX}.")
+    doc = _yaml().load(path.read_text())
+    m = doc.get("tracker")
+    if m is None:
+        m = CommentedMap()
+        keys = list(doc)
+        doc.insert(keys.index("notion") + 1 if "notion" in keys else len(keys), "tracker", m)
+        doc.yaml_set_comment_before_after_key("tracker", before="The job tracker (Profile › Tracker). A job at Applied or "
+                                              "Interviewing this many days\nwith no change of status moves to Ghosted. 0 = never.")
+    m["ghost_after_days"] = days
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        _yaml().dump(doc, f)
+    tmp.replace(path)
+    return days
+
+
 def save_candidate(path: Path, cand: dict) -> None:
     """Write the `candidate:` section, keeping the file's comments (adding the section at the top if needed)."""
     doc = _yaml().load(path.read_text())

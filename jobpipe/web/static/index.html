@@ -197,7 +197,7 @@
           <div>
             <h1>Dashboard</h1>
             <p class="muted">Your applications, from the tracker. A job counts as applied once its stage is Applied,
-              Interviewing, Offer, Denied (shown here as Rejected) or Done.</p>
+              Interviewing, Offer, Denied (shown here as Rejected), Ghosted or Done.</p>
           </div>
         </div>
         <div id="dash" class="dash-grid"></div>
@@ -316,6 +316,17 @@
             <button type="button" id="format-save" class="primary" disabled>Use this format</button>
           </div>
           <div id="format-status" class="format-status"></div>
+        </section>
+
+        <section class="pcard look-card tracker-card" id="tracker-card">
+          <h2>Tracker</h2>
+          <p class="muted">A role you applied to and never heard back from moves to Ghosted on its own. If you do hear back, pick its status again; the wait starts over.</p>
+          <form id="ghosted-form" class="ghosted-form" novalidate>
+            <label class="inline">Move to Ghosted after <input id="ghosted-days" type="number" min="0" max="3650" step="1" inputmode="numeric" aria-describedby="ghosted-what"> days</label>
+            <span class="muted" id="ghosted-what">at Applied or Interviewing with no change of status. 0 turns it off.</span>
+            <span id="ghosted-state" class="muted"></span>
+            <button class="primary small" id="ghosted-save" disabled>Save</button>
+          </form>
         </section>
 
         <form id="profile-form" class="pview" autocomplete="off" novalidate>

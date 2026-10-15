@@ -218,6 +218,89 @@ def test_a_tracker_from_before_the_applied_day_is_backfilled(tmp_path):
     assert {r["page_id"]: r["applied_on"] for r in t.rows()} == {"a": "2026-09-20", "b": ""}
 
 
+def test_a_job_left_at_applied_or_interviewing_moves_to_ghosted(tmp_path, monkeypatch):
+    from datetime import date
+    import jobpipe.tracker as tracker_mod
+    day = {"v": "2026-08-01"}
+    monkeypatch.setattr(tracker_mod, "_today", lambda: day["v"])
+    t, fake, notion = make(tmp_path, [notion_row(f"p{i}", f"https://x.example/jobs/{i}") for i in range(1, 5)])
+    t.sync()
+    t.set_status("p1", "Applied")
+    t.set_status("p3", "Offer")                       # only Applied and Interviewing wait for an answer
+    day["v"] = "2026-08-20"
+    t.set_status("p2", "Applied")
+    t.set_status("p2", "Interviewing")
+    t.set_status("p2", "Interviewing")                # setting the same status again doesn't restart the clock
+    t.sync()
+    row = lambda pid: next(r for r in t.rows() if r["page_id"] == pid)
+    assert row("p2")["status_since"] == "2026-08-20"
+
+    assert t.ghost_stale(0, today=date(2027, 1, 1)) == []                 # 0 days: never
+    assert t.ghost_stale(60, today=date(2026, 9, 29)) == []               # 59 days
+    assert t.ghost_stale(60, today=date(2026, 9, 30)) == [{"id": "p1", "name": row("p1")["name"], "from": "Applied"}]
+    p1 = row("p1")
+    assert (p1["status"], p1["ghosted_on"], p1["ghosted_from"], p1["status_since"]) == ("Ghosted", "2026-09-30", "Applied", "2026-08-01")
+    assert p1["pending"] and p1["applied_on"] == "2026-08-01"            # still counts as applied, on the day it was
+    t.sync()
+    assert status_in_notion(fake, "p1") == "Ghosted" and not row("p1")["pending"]
+    assert t.known_urls()["https://x.example/jobs/1"] == "Ghosted"        # searches skip it
+    assert [m["from"] for m in t.ghost_stale(60, today=date(2026, 10, 19))] == ["Interviewing"]
+    t.sync()
+    assert row("p3")["status"] == "Offer" and row("p4")["status"] == "Not started"
+
+    # Heard back after all: picking a status again forgets the move and starts the clock again.
+    day["v"] = "2026-10-20"
+    t.set_status("p1", "Interviewing")
+    assert (row("p1")["ghosted_on"], row("p1")["status_since"]) == ("", "2026-10-20")
+    assert t.ghost_stale(60, today=date(2026, 12, 18)) == []
+    # A status changed in Notion restarts it too.
+    fake.rows["p2"]["properties"]["Status"]["status"]["name"] = "Applied"
+    day["v"] = "2026-10-25"
+    t.sync()
+    assert (row("p2")["status"], row("p2")["ghosted_on"], row("p2")["status_since"]) == ("Applied", "", "2026-10-25")
+
+
+def test_a_status_notion_has_no_option_for_waits_without_holding_up_the_rest(tmp_path):
+    from jobpipe.notion import StatusRefused
+    t, fake, notion = make(tmp_path, [notion_row("p1", URL, status="Applied"), notion_row("p2", "https://x.example/jobs/2")])
+    t.sync()
+
+    def no_ghosted(request):
+        if request.method == "PATCH" and b"Ghosted" in request.content:
+            return httpx.Response(400, json={"object": "error", "status": 400, "message": "Invalid status option."})
+        return fake(request)
+    notion.http = httpx.Client(transport=httpx.MockTransport(no_ghosted))
+    t.set_status("p1", "Ghosted")
+    t.set_status("p2", "Applied")
+    fake.rows["p2"]["properties"]["Notes"] = {"rich_text": [{"plain_text": "edited in Notion"}]}
+    with pytest.raises(StatusRefused, match='"Ghosted" option'):
+        t.sync()
+    rows = {r["page_id"]: r for r in t.rows()}
+    assert rows["p1"]["pending"] and status_in_notion(fake, "p1") == "Applied"     # waits for the option
+    assert status_in_notion(fake, "p2") == "Applied" and not rows["p2"]["pending"]  # the rest went
+    assert rows["p2"]["notes"] == "edited in Notion"                                # and Notion was still read
+    assert '"Ghosted"' in t.state()["error"]
+
+
+def test_a_tracker_from_before_the_status_day_is_backfilled(tmp_path):
+    import sqlite3
+    db = tmp_path / "tracker.db"
+    con = sqlite3.connect(db)
+    con.executescript("""CREATE TABLE tracker (id TEXT PRIMARY KEY, notion_page_id TEXT UNIQUE, page_url TEXT NOT NULL DEFAULT '',
+        job_id TEXT, name TEXT NOT NULL DEFAULT '', company TEXT NOT NULL DEFAULT '', job_url TEXT NOT NULL DEFAULT '',
+        url_key TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', fit REAL, notes TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT '', due TEXT NOT NULL DEFAULT '', entry TEXT, dirty_status INTEGER NOT NULL DEFAULT 0,
+        updated TEXT NOT NULL DEFAULT '', resume_files TEXT NOT NULL DEFAULT '[]', resume_upload TEXT,
+        applied TEXT NOT NULL DEFAULT '');
+        INSERT INTO tracker(id, status, applied, updated) VALUES ('a', 'Applied', '2026-09-01', '2026-09-20T12:00:00+00:00'),
+                                                               ('b', 'Interviewing', '2026-09-01', '2026-09-25T12:00:00+00:00');""")
+    con.commit()
+    con.close()
+    t = LocalTracker(db)
+    # Applied since the day it was applied to; any other stage since the row last changed (never earlier than it was)
+    assert {r["page_id"]: r["status_since"] for r in t.rows()} == {"a": "2026-09-01", "b": "2026-09-25"}
+
+
 def test_two_processes_syncing_at_once_make_one_notion_page(tmp_path):
     # The app's background sync and a run's own process (scoring startup roles) each open tracker.db. Both used
     # to send the same queued job at once; each found no page by its URL and made one, so it was in Notion twice.

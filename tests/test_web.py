@@ -1276,6 +1276,35 @@ def test_denied_without_marking_applied_keeps_the_resume_sent(env):
     assert notion.rows["p1"]["properties"]["Status"]["status"]["name"] == "Denied"
 
 
+def test_ghosted_after_the_days_set_on_the_profile(env):
+    import sqlite3
+    from contextlib import closing
+    from datetime import timedelta
+    c, notion = env["client"], env["notion"]
+    s = c.get("/api/summary", headers=H).json()
+    assert "Ghosted" in s["statuses"] and s["ghost_after_days"] == 60
+    assert c.get("/api/tracker/settings", headers=H).json() == {"ghost_after_days": 60}
+    jobs = lambda: {j["id"]: j for j in c.get("/api/jobs?wait=1", headers=H).json()["jobs"]}
+    assert jobs()["notion-p9"]["status"] == "Applied"
+    # Applied 45 days ago and not heard from since.
+    with closing(sqlite3.connect(env["store"].root / "tracker.db")) as con, con:
+        con.execute("UPDATE tracker SET status_since = ? WHERE id = 'p9'", ((date.today() - timedelta(days=45)).isoformat(),))
+    for bad in ("soon", -1, 99999):
+        assert c.put("/api/tracker/settings", headers=H, json={"ghost_after_days": bad}).status_code == 400
+    r = c.put("/api/tracker/settings", headers=H, json={"ghost_after_days": 30}).json()
+    assert r["ghost_after_days"] == 30 and [m["from"] for m in r["moved"]] == ["Applied"]
+    assert "ghost_after_days: 30" in env["searches"].read_text() and config.load(env["searches"]).ghost_after_days == 30
+    job = jobs()["notion-p9"]
+    assert (job["status"], job["ghosted_on"], job["ghosted_from"]) == ("Ghosted", date.today().isoformat(), "Applied")
+    assert job["status_since"] == (date.today() - timedelta(days=45)).isoformat()     # the wait it had, for the note
+    assert notion.rows["p9"]["properties"]["Status"]["status"]["name"] == "Ghosted"
+    # Not ghosted after all: any status can be picked again, and the wait starts over.
+    assert c.post("/api/tracker/p9/status", headers=H, json={"status": "Applied"}).json() == {"ok": True}
+    job = jobs()["notion-p9"]
+    assert (job["status"], job["ghosted_on"], job["status_since"]) == ("Applied", "", date.today().isoformat())
+    assert c.put("/api/tracker/settings", headers=H, json={"ghost_after_days": 0}).json()["moved"] == []
+
+
 def test_interviewing_counts_as_applied_with_its_day(env):
     c = env["client"]
     statuses = c.get("/api/summary", headers=H).json()["statuses"]

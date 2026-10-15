@@ -20,7 +20,7 @@ html[data-theme="bauhaus"] {
   --fit-hi-bg: #19B36B; --fit-hi: #000000; --fit-mid-bg: #FFD400; --fit-mid: #000000; --fit-lo-bg: #FF4F1F; --fit-lo: #000000;
   --st-untracked: #E9E9E9; --st-not-started: #FFD400; --st-in-progress: #FF4F1F; --st-blocked: #E3D7C3;
   --st-applied: #19B36B; --st-done: #2E6BFF; --st-denied: #8FA5C6; --st-not-applying: #E9E9E9;
-  --st-interviewing: #9B7BFF; --st-offer: #FF77B7;
+  --st-interviewing: #9B7BFF; --st-offer: #FF77B7; --st-ghosted: #BDBDBD;
   --chart: #2E6BFF;
   --rd-pre-seed: #E3D7C3; --rd-seed: #FFD400; --rd-a: #19B36B; --rd-b: #2E6BFF; --rd-c: #FF77B7; --rd-d: #FF4F1F; --rd-growth: #8FA5C6; --rd-unknown: #E9E9E9;
   --shadow: none;
@@ -128,7 +128,8 @@ html[data-theme="bauhaus"] .stage[data-stage="Offer"] { order: 6; }
 html[data-theme="bauhaus"] .stage[data-stage="Done"] { order: 7; }
 html[data-theme="bauhaus"] .stage[data-stage="Blocked"] { order: 8; }
 html[data-theme="bauhaus"] .stage[data-stage="Denied"] { order: 9; }
-html[data-theme="bauhaus"] .stage[data-stage="Not Applying"] { order: 10; }
+html[data-theme="bauhaus"] .stage[data-stage="Ghosted"] { order: 10; }
+html[data-theme="bauhaus"] .stage[data-stage="Not Applying"] { order: 11; }
 html[data-theme="bauhaus"] .stage:hover { background: var(--c); }
 html[data-theme="bauhaus"] .stage:hover .l { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
 html[data-theme="bauhaus"] .stage[aria-pressed="true"] { background: var(--c); outline: 4px solid var(--black); outline-offset: -4px; z-index: 1; }
@@ -446,3 +447,7 @@ html[data-theme="bauhaus"] .dash-table th { border-bottom: var(--rule); color: v
 html[data-theme="bauhaus"] .split-handle::before { border-radius: 0; border: var(--rule); background: var(--white); }
 html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::before { background: var(--yellow); border-color: var(--black); }
 html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::after { background: var(--black); }
+
+/* Ghosted: the note on a role moved there on its own */
+html[data-theme="bauhaus"] .ghosted-note { border-left: 8px solid var(--st-ghosted); border-radius: 0; background: var(--grey-soft); color: var(--black); }
+html[data-theme="bauhaus"] .ghosted-note b { color: var(--black); font-weight: 700; }

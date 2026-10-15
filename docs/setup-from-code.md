@@ -76,7 +76,7 @@ The app writes to a Notion database with these properties. Names and types must 
 | `Name` | Title | Written as "Job title — Company" |
 | `Company` | Text | |
 | `Job URL` | URL | Rows are matched by this, so it must be unique per job |
-| `Status` | Status | Options: `Not started`, `In progress`, `Blocked`, `Applied`, `Interviewing`, `Offer`, `Denied`, `Done`, `Not Applying`. Notion's API can't add options, so add any that are missing by hand |
+| `Status` | Status | Options: `Not started`, `In progress`, `Blocked`, `Applied`, `Interviewing`, `Offer`, `Denied`, `Ghosted`, `Done`, `Not Applying`. Notion's API can't add options, so add any that are missing by hand |
 | `Type` | Select | The app only reads and writes rows where this is `Apply to Job`, so the database can hold other tasks too |
 | `Fit Score` | Number | |
 | `Notes` | Text | The app updates its own score line and keeps anything else you write |

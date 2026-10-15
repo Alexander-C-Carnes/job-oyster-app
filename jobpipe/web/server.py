@@ -202,6 +202,18 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     sync = TrackerSync(local, after=keeper.kick)
     keeper.kick()
 
+    def ghost_check(force: bool = False) -> list[dict]:
+        """Move jobs left at Applied or Interviewing for cfg.ghost_after_days to Ghosted: once a day (the summary and
+        the board ask), or at once when the setting changes. Returns the jobs moved."""
+        today = date.today().isoformat()
+        if not force and state.get("ghost_day") == today:
+            return []
+        state["ghost_day"] = today
+        moved = local.ghost_stale(cfg.ghost_after_days)
+        if moved:
+            sync.kick()
+        return moved
+
     def materials() -> tuple[str, int]:
         """The impact record's path, plus a signature of every file the runner's cached system
         prompt is built from and of the candidate, so an edited impact record is used at once."""
@@ -405,12 +417,13 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     # ---- summary & jobs -------------------------------------------------------------
     @app.get("/api/summary")
     def summary():
+        ghost_check()
         record = Path(materials()[0])
         return {"impact_record": {"path": str(record), "updated": record.stat().st_mtime if record.exists() else None},
                 "credits": {"used": board.credits_used(cfg.allowance_period), "allowance": cfg.allowance_amount,
                             "period": cfg.allowance_period, "per_run": cfg.max_credits_per_run},
                 "backend": cfg.backend, "backend_label": BACKEND_LABELS.get(cfg.backend, cfg.backend),
-                "notion": local.notion is not None,
+                "notion": local.notion is not None, "ghost_after_days": cfg.ghost_after_days,
                 "statuses": list(STATUSES), "active_runs": [{**r.public(len(r.lines)), "progress": progress.of(r),
                                  "queue_position": runs.queue_position(r)} for r in (*runs.running(), *runs.waiting)],
                 "max_runs": runs.max_runs,
@@ -420,6 +433,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def jobs(request: Request, refresh: bool = False, wait: bool = False):
         """The board. Answers from the local tracker; `syncing` says a Notion sync is running, and
         ?wait=1 returns once it has finished. ?refresh=1 syncs with Notion first."""
+        ghost_check()
         if local.notion is not None and refresh:
             try:
                 sync.refresh()
@@ -442,7 +456,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             raise HTTPException(400, str(e)) from None
         except KeyError:
             raise HTTPException(404, "That job isn't in the tracker.") from None
-        if body.get("status") in ("Applied", "Interviewing", "Offer", "Denied"):
+        if body.get("status") in ("Applied", "Interviewing", "Offer", "Denied", "Ghosted"):
             # Marked Applied (or a later stage, which means it was sent): keep the résumé it was sent with, unless one is already on file.
             row = board.by_tracker(row_id)
             if row and not sent_info(row)[0]:
@@ -453,6 +467,19 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         keeper.kick()
         sync.kick()
         return {"ok": True}
+
+    @app.get("/api/tracker/settings")
+    def tracker_settings():
+        return {"ghost_after_days": cfg.ghost_after_days}
+
+    @app.put("/api/tracker/settings")
+    def put_tracker_settings(body: dict):
+        """searches.yaml's `tracker:` section. A shorter wait moves the jobs already past it to Ghosted now."""
+        try:
+            cfg.ghost_after_days = searches_file.save_ghost_days(searches_path, body.get("ghost_after_days"))
+        except searches_file.SearchError as e:
+            raise HTTPException(400, str(e)) from None
+        return {**tracker_settings(), "moved": ghost_check(force=True)}
 
     @app.post("/api/jobs/{jid}/track")
     def track(jid: str):

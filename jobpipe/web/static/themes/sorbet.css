@@ -17,7 +17,7 @@ html[data-theme="sorbet"] {
   --fit-hi-bg: #75CB33; --fit-hi: #2A1B3D; --fit-mid-bg: #FF9F1C; --fit-mid: #2A1B3D; --fit-lo-bg: #D9D0EA; --fit-lo: #2A1B3D;
   --st-untracked: #B7AECB; --st-not-started: #A682E1; --st-in-progress: #E96500; --st-blocked: #CEAD59;
   --st-applied: #75CB33; --st-done: #00A5E7; --st-denied: #C5617C; --st-not-applying: #7062A6;
-  --st-interviewing: #2EC4B6; --st-offer: #FF3E7F;
+  --st-interviewing: #2EC4B6; --st-offer: #FF3E7F; --st-ghosted: #A9B4D0;
   --chart: #FF3E7F;
   /* funding rounds: candy, but dark enough to read on white (4.5:1+). Without these a Mac in dark mode
      lent Sorbet app.css's dark-mode pastels, about 2.4:1 */
@@ -129,7 +129,8 @@ html[data-theme="sorbet"] .stage[data-stage="Offer"] { order: 6; z-index: 2; }
 html[data-theme="sorbet"] .stage[data-stage="Done"] { order: 7; z-index: 1; }
 html[data-theme="sorbet"] .stage[data-stage="Blocked"] { order: 8; margin-left: 18px; }
 html[data-theme="sorbet"] .stage[data-stage="Denied"] { order: 9; }
-html[data-theme="sorbet"] .stage[data-stage="Not Applying"] { order: 10; }
+html[data-theme="sorbet"] .stage[data-stage="Ghosted"] { order: 10; }
+html[data-theme="sorbet"] .stage[data-stage="Not Applying"] { order: 11; }
 html[data-theme="sorbet"] .stage[data-kind="path"]:not([data-stage="Not started"]) { margin-left: -22px; padding-left: 30px; }
 html[data-theme="sorbet"] .stage[data-kind="side"] { flex: 0 0 auto; height: 54px; min-width: 78px; padding: 0 12px; margin-left: 8px; }
 html[data-theme="sorbet"] .stage:hover { background: var(--c); transform: translateY(-2px); z-index: 9; }
@@ -536,3 +537,13 @@ html[data-theme="sorbet"] :is(.split-handle:hover, .split-handle:focus-visible, 
   background: var(--accent); border-color: var(--accent); transform: scaleY(1.3); }
 html[data-theme="sorbet"] :is(.split-handle:hover, .split-handle:focus-visible, .resume.dragging .split-handle)::after { background: var(--accent); }
 @media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] .split-handle::before { transition: none; transform: none; } }
+
+/* Ghosted: the note on a role moved there on its own, and the Tracker card's days (Profile) */
+html[data-theme="sorbet"] .ghosted-note { border-left: 0; border-radius: 16px; padding: 8px 14px; color: var(--ink);
+  background: color-mix(in srgb, var(--st-ghosted) 26%, white); }
+html[data-theme="sorbet"] .ghosted-note b { font: 600 13.5px var(--display); }
+html[data-theme="sorbet"] .ghosted-form label.inline { font: 600 15px var(--display); }
+html[data-theme="sorbet"] .ghosted-form input { border-radius: 999px; text-align: center; font: 700 16px var(--display); }
+html[data-theme="sorbet"] #ghosted-state { display: inline-block; color: var(--good); font-weight: 700; }
+html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: sorbet-pop 930ms var(--open); }
+@media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: none; } }

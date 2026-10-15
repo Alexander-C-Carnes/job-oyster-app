@@ -168,7 +168,7 @@ Leave `Due/Submitted`, `Priority`, `Contact` and `Resume Used` empty — those a
 
 **3. Existing row → update it:**
 - Set `Fit Score` to the new impact-record score and refresh the scores in `Notes` (keep any text he added).
-- Set `Status` to `In progress` only if it's currently `Not started` or empty. Never move a row that is `Applied`, `Denied`, `Done`, `Blocked` or `Not Applying` back to In progress.
+- Set `Status` to `In progress` only if it's currently `Not started` or empty. Never move a row that is `Applied`, `Denied`, `Ghosted`, `Done`, `Blocked` or `Not Applying` back to In progress.
 - Fill `Job URL` if it's empty; don't overwrite a different URL he entered.
 
 **4. Confirm.** Fetch the row back and check that Job URL, Status and Fit Score saved. In the reply, add one line: "Added to your job tracker (In progress, fit X/10)" or "Updated your job tracker row (fit X/10)", with a link to the row.

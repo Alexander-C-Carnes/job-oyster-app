@@ -390,11 +390,14 @@ def says_remote(text: str) -> bool:
 
 def _tracker_fields(n: Optional[dict]) -> dict:
     """tracker_id: the job is tracked. notion_page_id: its row exists in Notion. pending: it has a change Notion hasn't had yet.
-    applied_on: the day it was applied to (YYYY-MM-DD), for the dashboard."""
+    applied_on: the day it was applied to (YYYY-MM-DD), for the dashboard. status_since: the day its status last changed (by you).
+    ghosted_on, ghosted_from: the day the app moved it to Ghosted on its own, and the status it had then."""
     if not n:
-        return {"tracker_id": None, "notion_page_id": None, "notion_url": None, "pending": False, "applied_on": ""}
+        return {"tracker_id": None, "notion_page_id": None, "notion_url": None, "pending": False, "applied_on": "",
+                "status_since": "", "ghosted_on": "", "ghosted_from": ""}
     return {"tracker_id": n["page_id"], "notion_page_id": n["notion_page_id"], "notion_url": n["page_url"] or None,
-            "pending": n["pending"], "applied_on": n.get("applied_on", "")}
+            "pending": n["pending"], "applied_on": n.get("applied_on", ""), "status_since": n.get("status_since", ""),
+            "ghosted_on": n.get("ghosted_on", ""), "ghosted_from": n.get("ghosted_from", "")}
 
 
 def referral_fields(m: dict) -> dict:

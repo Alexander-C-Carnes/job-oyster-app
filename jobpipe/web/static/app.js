@@ -105,15 +105,15 @@ function formError(form, msg) {
 }
 
 // ---- app state -------------------------------------------------------------------------
-const STAGES = ["Not started", "In progress", "Blocked", "Applied", "Interviewing", "Offer", "Denied", "Done", "Not Applying"];
+const STAGES = ["Not started", "In progress", "Blocked", "Applied", "Interviewing", "Offer", "Denied", "Ghosted", "Done", "Not Applying"];
 // The stages that mean the application was sent (APPLIED_STATUSES in jobpipe/notion.py).
-const APPLIED_STAGES = ["Applied", "Interviewing", "Offer", "Denied", "Done"];
+const APPLIED_STAGES = ["Applied", "Interviewing", "Offer", "Denied", "Ghosted", "Done"];
 // The main line, in order, and the exits off it: how the stage strip and a role's stage path draw them.
 const PATH = ["Not started", "In progress", "Applied", "Interviewing", "Offer", "Done"];
-const EXITS = ["Blocked", "Denied", "Not Applying"];
+const EXITS = ["Blocked", "Denied", "Ghosted", "Not Applying"];
 const STAGE_BLURB = { "Not started": "Tracked, nothing done yet", "In progress": "Having its résumé made, or you're working on it", Blocked: "Waiting on something",
                       Applied: "Application sent", Interviewing: "In interviews",
-                      Offer: "They made an offer", Denied: "They said no", Done: "Interviews finished or closed out", "Not Applying": "Ruled out" };
+                      Offer: "They made an offer", Denied: "They said no", Ghosted: "Never heard back", Done: "Interviews finished or closed out", "Not Applying": "Ruled out" };
 // The two job lists: what's in the tracker, and what the searches found that isn't tracked yet.
 // The tracker is kept on this Mac (tracker_id); Notion is its synced copy (notion_page_id, once the row is there).
 const SCOPES = {
@@ -127,7 +127,7 @@ const prefs = (() => {
   try { return JSON.parse(localStorage.getItem("jobpipe-ui") || "{}"); } catch (_) { return {}; }
 })();
 function savePrefs() {
-  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split })); }
+  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split, ghostSeen: [...S.ghostSeen] })); }
   catch (_) { /* optional */ }
 }
 const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, syncing: false, notionError: "",
@@ -143,6 +143,7 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
             dashRange: ["14", "30", "all"].includes(prefs.dashRange) ? prefs.dashRange : "30",
             trend: ["ats", "keywords", "skills", "experience"].includes(prefs.trend) ? prefs.trend : "ats",
             split: prefs.split > 0.1 && prefs.split < 0.9 ? prefs.split : null,    // the PDF's share of the résumé workspace
+            ghostSeen: new Set(Array.isArray(prefs.ghostSeen) ? prefs.ghostSeen : []),   // moves to Ghosted already announced
             docViews: Object.fromEntries(["impact", "prep"].map((k) => {
               const v = prefs.docViews?.[k] ?? (k === "impact" ? prefs.impactView : null);   // impactView: before Interview prep
               return [k, ["formatted", "edit", "split"].includes(v) ? v : "formatted"];
@@ -162,7 +163,7 @@ function showTab(name) {
   if (name === "runs") loadRuns();
   if (name === "dashboard") renderDashboard();
   if (name in DOCS) DOCS[name].load();
-  if (name === "profile") { loadProfile(); loadAI(); loadFormats(); }
+  if (name === "profile") { loadProfile(); loadAI(); loadFormats(); loadGhostDays(); }
 }
 
 // ---- what each action is called ----------------------------------------------------------------
@@ -343,7 +344,7 @@ function stageCounts() {
   const tracked = S.jobs.filter((j) => SCOPES.tracker.has(j));
   const n = (...st) => tracked.filter((j) => st.includes(stageOf(j))).length;
   return { out: n(...APPLIED_STAGES), inPlay: n("Not started", "In progress", "Blocked", "Applied", "Interviewing", "Offer"),
-           applied: n("Applied"), done: n("Done"), denied: n("Denied"), interviewing: n("Interviewing"), offer: n("Offer") };
+           applied: n("Applied"), done: n("Done"), denied: n("Denied"), ghosted: n("Ghosted"), interviewing: n("Interviewing"), offer: n("Offer") };
 }
 function indexJob(j) {
   j._hay = [j.title, j.company, j.location, j.mode, j.status, j.one_line, j.referral_name, j.referral_url, j.referral_note, j.funding?.line, j.funding?.stage, j.source, ...j.searches].join(" ").toLowerCase();
@@ -392,7 +393,20 @@ function applyJobs(data) {
   } else if (cur) renderDetailHead();
   if (S.tab === "searches") renderSearches();
   if (S.tab === "dashboard") renderDashboard();
+  announceGhosted();
 }
+// Roles the app moved to Ghosted on its own (tracker.ghost_after_days): said once, in a toast.
+function announceGhosted() {
+  const recent = dayKey(new Date(Date.now() - 7 * 864e5));
+  const fresh = S.jobs.filter((j) => j.tracker_id && j.ghosted_on && j.ghosted_on >= recent && !S.ghostSeen.has(`${j.tracker_id}@${j.ghosted_on}`));
+  if (!fresh.length) return;
+  fresh.forEach((j) => S.ghostSeen.add(`${j.tracker_id}@${j.ghosted_on}`));
+  S.ghostSeen = new Set([...S.ghostSeen].slice(-200));
+  savePrefs();
+  const names = fresh.slice(0, 3).map(jobLine).join(", ") + (fresh.length > 3 ? ` and ${fresh.length - 3} more` : "");
+  toast(`Moved to Ghosted after ${ghostDays()} days with no change: ${names}. Heard back? Pick its status.`);
+}
+const ghostDays = () => S.summary?.ghost_after_days || 60;
 function renderSync() {
   const el = $("#sync-state");
   // While Notion isn't answering, ask again every minute so the list recovers without a click.
@@ -705,7 +719,7 @@ $("#refresh-jobs").addEventListener("click", () => loadJobs({ refresh: true, ann
 // Counted from the tracked jobs on screen. applied_on is the day a job reached an applied stage, or its
 // Due/Submitted day in Notion (see _applied_on in jobpipe/tracker.py).
 const DASH_STAGES = [["In progress", "In progress"], ["Applied", "Applied"],
-                     ["Interviewing", "Interviewing"], ["Offer", "Offer"], ["Denied", "Rejected"]];
+                     ["Interviewing", "Interviewing"], ["Offer", "Offer"], ["Denied", "Rejected"], ["Ghosted", "Ghosted"]];
 const DASH_RANGES = [["14", "14 days"], ["30", "30 days"], ["all", "All"]];
 const dayKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const keyDate = (k) => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
@@ -1457,6 +1471,10 @@ function quickStatus(j) {
     case "Applied": return [go("Interviewing", "Interviewing", "primary small"), go("Denied", "Denied")];
     case "Interviewing": return [go("Offer", "Offer", "primary small"), go("Denied", "Denied")];
     case "Offer": return [go("Mark done", "Done")];
+    case "Ghosted": {      // heard back after all: where it was, or the step after
+      const back = j.ghosted_from || "Applied";
+      return [go(`Back to ${back.toLowerCase()}`, back), back === "Applied" ? go("Interviewing", "Interviewing") : go("Offer", "Offer")];
+    }
     default: return [go("Back to in progress", "In progress")];
   }
 }
@@ -1501,14 +1519,25 @@ function detailHead(j) {
         h("b", {}, j.resume_score ?? "–"), "/10 · ATS ", h("b", {}, pct(j.ats_total)))
         : j.impact_score != null && h("span", { class: "score" }, "Full score ", h("b", {}, j.impact_score), "/10")),
     refCard(j),
+    ghostNote(j),
     j.tracker_id && stagePath(j));
+}
+// A role the app moved to Ghosted on its own says so, when, and after how long (status_since: the day it reached
+// the stage it was moved from).
+function ghostNote(j) {
+  if (stageOf(j) !== "Ghosted" || !j.ghosted_on) return null;
+  const waited = j.status_since ? Math.round((keyDate(j.ghosted_on) - keyDate(j.status_since)) / 864e5) : null;
+  return h("p", { class: "ghosted-note" }, h("b", {}, "Moved here on its own"),
+    ` on ${fmtDate(keyDate(j.ghosted_on))}, after ${waited != null ? `${waited} days` : "a long wait"} at ${j.ghosted_from || "Applied"} with no change`,
+    j.status_since ? ` (since ${fmtDate(keyDate(j.status_since))})` : "", ". Heard back? Pick its status.");
 }
 // Where a tracked role stands: the main line with the steps reached so far, and the exits, with the one taken.
 function stagePath(j) {
   const cur = stageOf(j);
   const exit = EXITS.includes(cur) ? cur : null;
-  // An exit is taken from somewhere on the line: Denied after applying, the other two before.
-  const at = exit ? PATH.indexOf(exit === "Denied" ? "Applied" : "In progress") : PATH.indexOf(cur);
+  // An exit is taken from somewhere on the line: Denied and Ghosted after applying (or interviewing), the other two before.
+  const from = exit === "Ghosted" && j.ghosted_from === "Interviewing" ? "Interviewing" : ["Denied", "Ghosted"].includes(exit) ? "Applied" : "In progress";
+  const at = exit ? PATH.indexOf(from) : PATH.indexOf(cur);
   return h("div", { class: "stage-path", "aria-label": `Status: ${cur}`, style: `--steps:${PATH.length}` },
     h("ol", { class: "path-line" }, ...PATH.map((s, i) => h("li", {
       class: ["step", i < at && "reached", i === at && (exit ? "reached" : "current")].filter(Boolean).join(" "),
@@ -3734,6 +3763,38 @@ async function showLook(d, box) {
 // ---- résumé format: the Profile's one default (jobpipe/formats.py). Choosing one can redraw every résumé
 // already made; one that would go over the new format's page limit keeps its format until it's trimmed.
 const F = { data: null, pick: null };
+// ---- profile: the tracker (searches.yaml's tracker.ghost_after_days) ----------------------------------------
+const GH = { saved: null };
+async function loadGhostDays() {
+  try { GH.saved = (await api("/api/tracker/settings")).ghost_after_days; } catch (e) { toast(e.message, true); return; }
+  $("#ghosted-days").value = GH.saved;
+  ghostDaysChanged();
+}
+function ghostDaysChanged() {
+  const v = $("#ghosted-days").value.trim();
+  $("#ghosted-save").disabled = v === "" || Number(v) === GH.saved;
+  $("#ghosted-state").textContent = "";
+}
+$("#ghosted-days").addEventListener("input", ghostDaysChanged);
+$("#ghosted-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#ghosted-save");
+  btn.disabled = true;
+  try {
+    const r = await put("/api/tracker/settings", { ghost_after_days: $("#ghosted-days").value.trim() });
+    GH.saved = r.ghost_after_days;
+    if (S.summary) S.summary.ghost_after_days = r.ghost_after_days;
+    $("#ghosted-days").value = r.ghost_after_days;
+    $("#ghosted-state").textContent = r.ghost_after_days ? "✓ saved" : "✓ off";
+    r.moved.forEach((m) => S.ghostSeen.add(`${m.id}@${dayKey(new Date())}`));   // said here, not again in a toast
+    savePrefs();
+    toast(!r.ghost_after_days ? "Roles won't move to Ghosted on their own."
+      : r.moved.length ? `Saved. ${r.moved.length} role${r.moved.length === 1 ? " was" : "s were"} past ${r.ghost_after_days} days with no change and moved to Ghosted.`
+      : `Saved. Roles move to Ghosted after ${r.ghost_after_days} days with no change.`);
+    if (r.moved.length) loadJobs();
+  } catch (err) { toast(err.message, true); ghostDaysChanged(); }
+});
+
 async function loadFormats() {
   try { F.data = await api("/api/formats"); } catch (e) { toast(e.message, true); return; }
   if (!F.pick || F.pick === F.data.default) F.pick = F.data.default;

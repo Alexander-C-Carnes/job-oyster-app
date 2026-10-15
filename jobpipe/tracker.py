@@ -13,7 +13,8 @@ status works at once and offline. The Notion tracker is a synced copy:
 When Notion can't be reached nothing is lost: the queue waits and the next sync sends it.
 
 Each row also keeps the day it reached an applied stage (Applied, Interviewing, ... see APPLIED_STATUSES),
-set here or by a sync, for the dashboard's applications per day.
+set here or by a sync, for the dashboard's applications per day, and the day its status last changed: a job left
+at Applied or Interviewing that long (ghost_stale) moves to Ghosted on its own.
 """
 from __future__ import annotations
 
@@ -23,11 +24,11 @@ import sqlite3
 import threading
 import time
 from contextlib import closing, contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from .notion import APPLIED_STATUSES, STATUSES, NotionTracker, TrackerEntry, merge_notes
+from .notion import APPLIED_STATUSES, STATUSES, NotionTracker, StatusRefused, TrackerEntry, merge_notes
 from .store import canonical_url, now_iso
 
 try:
@@ -50,14 +51,21 @@ CREATE TABLE IF NOT EXISTS tracker (
   updated TEXT NOT NULL DEFAULT '',
   resume_files TEXT NOT NULL DEFAULT '[]',   -- names of the files in Notion's Resume Used
   resume_upload TEXT,                        -- queued for Notion: a PDF to set as Resume Used
-  applied TEXT NOT NULL DEFAULT ''           -- the local day (YYYY-MM-DD) the status reached an applied stage
+  applied TEXT NOT NULL DEFAULT '',          -- the local day (YYYY-MM-DD) the status reached an applied stage
+  status_since TEXT NOT NULL DEFAULT '',     -- the local day the status last changed (a move to Ghosted keeps it)
+  ghosted_on TEXT NOT NULL DEFAULT '',       -- the day ghost_stale moved it to Ghosted ('' if you set it, or it moved on)
+  ghosted_from TEXT NOT NULL DEFAULT ''      -- the status it had then
 );
 CREATE INDEX IF NOT EXISTS tracker_url ON tracker(url_key);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 FROM_NOTION = ("page_url", "name", "company", "job_url", "fit", "notes", "priority", "due", "resume_files")
 # Columns added after the first release, for tracker.db files made before them.
-ADDED = {"resume_files": "TEXT NOT NULL DEFAULT '[]'", "resume_upload": "TEXT", "applied": "TEXT NOT NULL DEFAULT ''"}
+ADDED = {"resume_files": "TEXT NOT NULL DEFAULT '[]'", "resume_upload": "TEXT", "applied": "TEXT NOT NULL DEFAULT ''",
+         "status_since": "TEXT NOT NULL DEFAULT ''", "ghosted_on": "TEXT NOT NULL DEFAULT ''",
+         "ghosted_from": "TEXT NOT NULL DEFAULT ''"}
+# The stages a job is moved to Ghosted from when its status hasn't changed in ghost_after_days.
+GHOSTABLE = ("Applied", "Interviewing")
 
 
 class LocalTracker:
@@ -78,6 +86,12 @@ class LocalTracker:
                             (_local_day(r["updated"]), r["id"]) for r in con.execute(
                                 f"SELECT id, updated FROM tracker WHERE status IN ({','.join('?' * len(APPLIED_STATUSES))})",
                                 APPLIED_STATUSES)])
+                    if col == "status_since":
+                        # Rows from before this column: an Applied row got there on its applied day; for the rest the
+                        # day the row last changed is the best guess (no earlier, so nothing is ghosted too soon).
+                        con.executemany("UPDATE tracker SET status_since = ? WHERE id = ?", [
+                            (r["applied"] if r["status"] == "Applied" and r["applied"] else _local_day(r["updated"]), r["id"])
+                            for r in con.execute("SELECT id, status, applied, updated FROM tracker")])
             con.execute("PRAGMA journal_mode=WAL")
         if seed is not None:
             self._seed(seed)
@@ -129,7 +143,8 @@ class LocalTracker:
                 "name": r["name"], "company": r["company"], "job_url": r["job_url"], "status": r["status"],
                 "fit": r["fit"], "notes": r["notes"], "priority": r["priority"], "due": r["due"],
                 "resume_files": json.loads(r["resume_files"] or "[]"),
-                "applied_on": _applied_on(r["status"], r["due"], r["applied"]),
+                "applied_on": _applied_on(r["status"], r["due"], r["applied"]), "status_since": r["status_since"],
+                "ghosted_on": r["ghosted_on"], "ghosted_from": r["ghosted_from"],
                 "pending": bool(r["dirty_status"] or (r["entry"] and r["job_url"]) or r["resume_upload"])} for r in found])
         return self._cache[1]
 
@@ -152,9 +167,10 @@ class LocalTracker:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
         with closing(self._db()) as con, con:
             done = con.execute("UPDATE tracker SET status = ?, dirty_status = 1, updated = ?, "
-                               "applied = CASE WHEN ? THEN CASE WHEN applied = '' THEN ? ELSE applied END ELSE '' END "
-                               "WHERE id = ?",
-                               (status, now_iso(), status in APPLIED_STATUSES, _today(), row_id))
+                               "applied = CASE WHEN ? THEN CASE WHEN applied = '' THEN ? ELSE applied END ELSE '' END, "
+                               f"{_SINCE} WHERE id = ?",
+                               (status, now_iso(), status in APPLIED_STATUSES, _today(), status, _today(), status, status,
+                                row_id))
             if not done.rowcount:
                 raise KeyError(row_id)
             self._bump(con)
@@ -191,10 +207,10 @@ class LocalTracker:
             row = (con.execute("SELECT * FROM tracker WHERE job_id = ?", (job_id,)).fetchone() if job_id else None) \
                 or (con.execute("SELECT * FROM tracker WHERE url_key = ?", (key,)).fetchone() if key else None)
             if row is None:
-                con.execute("INSERT INTO tracker(id, job_id, name, company, job_url, url_key, status, fit, notes, entry, updated) "
-                            "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO tracker(id, job_id, name, company, job_url, url_key, status, fit, notes, entry, updated, "
+                            "status_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                             ("local-" + secrets.token_hex(8), job_id, f"{e.title} — {e.company}", e.company, e.url, key,
-                             e.status, e.fit_score, e.notes, queued, now_iso()))
+                             e.status, e.fit_score, e.notes, queued, now_iso(), _today()))
                 action = "created"
             else:
                 status = "In progress" if row["status"] in ("", "Not started") and e.status == "In progress" else row["status"]
@@ -202,9 +218,10 @@ class LocalTracker:
                     queued = json.dumps({**e.__dict__, "url": e.url or row["job_url"]})
                 con.execute("UPDATE tracker SET job_id = COALESCE(?, job_id), status = ?, fit = COALESCE(?, fit), notes = ?, "
                             "job_url = CASE WHEN job_url = '' THEN ? ELSE job_url END, "
-                            "url_key = CASE WHEN url_key = '' THEN ? ELSE url_key END, entry = ?, updated = ? WHERE id = ?",
+                            f"url_key = CASE WHEN url_key = '' THEN ? ELSE url_key END, entry = ?, updated = ?, {_SINCE} "
+                            "WHERE id = ?",
                             (job_id, status, e.fit_score, merge_notes(row["notes"], e.notes), e.url, key,
-                             queued, now_iso(), row["id"]))
+                             queued, now_iso(), status, _today(), status, status, row["id"]))
                 action = "updated"
             self._bump(con)
         return action
@@ -219,14 +236,14 @@ class LocalTracker:
             row = (con.execute("SELECT * FROM tracker WHERE job_id = ?", (job_id,)).fetchone() if job_id else None) \
                 or (con.execute("SELECT * FROM tracker WHERE url_key = ?", (key,)).fetchone() if key else None)
             if row is None:
-                con.execute("INSERT INTO tracker(id, job_id, name, company, job_url, url_key, status, fit, notes, updated) "
-                            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                con.execute("INSERT INTO tracker(id, job_id, name, company, job_url, url_key, status, fit, notes, updated, "
+                            "status_since) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                             ("local-" + secrets.token_hex(8), job_id, f"{e.title} — {e.company}", e.company, e.url, key,
-                             "In progress", e.fit_score, e.notes, now_iso()))
+                             "In progress", e.fit_score, e.notes, now_iso(), _today()))
                 action = "created"
             elif row["status"] in ("", "Not started"):
                 con.execute("UPDATE tracker SET job_id = COALESCE(?, job_id), status = 'In progress', dirty_status = 1, "
-                            "updated = ? WHERE id = ?", (job_id, now_iso(), row["id"]))
+                            "updated = ?, status_since = ? WHERE id = ?", (job_id, now_iso(), _today(), row["id"]))
                 action = "updated"
             else:
                 return "unchanged"
@@ -243,6 +260,24 @@ class LocalTracker:
         key = canonical_url(e.url)
         return action, next((r["page_url"] for r in self.rows() if key and canonical_url(r["job_url"]) == key), "")
 
+    def ghost_stale(self, days: int, today: Optional[date] = None) -> list[dict]:
+        """Move the jobs whose status has been Applied or Interviewing for `days` days or more to Ghosted (queued for
+        Notion like a status set here). status_since stays the day it reached that status, so the app can say how long
+        it waited. 0 days: never. Returns the jobs moved: id, name and the status they had."""
+        if days <= 0:
+            return []
+        today = today or date.today()
+        cutoff = (today - timedelta(days=days)).isoformat()
+        with closing(self._db()) as con, con:
+            stale = con.execute(f"SELECT id, name, status FROM tracker WHERE status IN ({','.join('?' * len(GHOSTABLE))}) "
+                                "AND status_since != '' AND status_since <= ?", (*GHOSTABLE, cutoff)).fetchall()
+            for r in stale:
+                con.execute("UPDATE tracker SET status = 'Ghosted', dirty_status = 1, updated = ?, ghosted_on = ?, "
+                            "ghosted_from = ? WHERE id = ?", (now_iso(), today.isoformat(), r["status"], r["id"]))
+            if stale:
+                self._bump(con)
+        return [{"id": r["id"], "name": r["name"], "from": r["status"]} for r in stale]
+
     # ---- sync with Notion -----------------------------------------------------------
     def sync(self) -> None:
         """Send the queue, then read Notion's rows. Raises what Notion raises; the queue is kept."""
@@ -250,8 +285,10 @@ class LocalTracker:
             return
         with self._syncing():
             try:
-                self._push()
+                refused = self._push()
                 self._pull()
+                if refused:      # the rest went through; this status waits in the queue until Notion has its option
+                    raise refused
             except Exception as e:
                 with closing(self._db()) as con, con:
                     self._set_meta(con, error=str(e), tried=time.time())
@@ -269,7 +306,9 @@ class LocalTracker:
                 fcntl.flock(f, fcntl.LOCK_EX)      # let go when the file closes
             yield
 
-    def _push(self) -> None:
+    def _push(self) -> Optional[StatusRefused]:
+        """Send the queue. A status Notion has no option for stays queued and the rest still go: returns that error."""
+        refused = None
         with closing(self._db()) as con:
             queued = con.execute("SELECT * FROM tracker WHERE (entry IS NOT NULL AND url_key != '') OR dirty_status = 1 "
                                  "OR resume_upload IS NOT NULL").fetchall()
@@ -288,10 +327,14 @@ class LocalTracker:
                     con.execute("UPDATE tracker SET entry = NULL WHERE id = ? AND entry = ?", (row["id"], row["entry"]))
                     self._bump(con)
             if row["dirty_status"] and page_id:
-                self.notion.set_status(page_id, row["status"])
-                with closing(self._db()) as con, con:
-                    con.execute("UPDATE tracker SET dirty_status = 0 WHERE id = ? AND status = ?", (row["id"], row["status"]))
-                    self._bump(con)
+                try:
+                    self.notion.set_status(page_id, row["status"])
+                except StatusRefused as e:
+                    refused = refused or e
+                else:
+                    with closing(self._db()) as con, con:
+                        con.execute("UPDATE tracker SET dirty_status = 0 WHERE id = ? AND status = ?", (row["id"], row["status"]))
+                        self._bump(con)
             if row["resume_upload"] and page_id:
                 # A file already in Notion's Resume Used was put there by hand: it is kept, not replaced.
                 pdf = Path(row["resume_upload"])
@@ -301,14 +344,15 @@ class LocalTracker:
                     con.execute("UPDATE tracker SET resume_upload = NULL WHERE id = ? AND resume_upload = ?",
                                 (row["id"], row["resume_upload"]))
                     self._bump(con)
+        return refused
 
     def _insert_from_notion(self, con: sqlite3.Connection, r: dict) -> None:
         con.execute("INSERT INTO tracker(id, notion_page_id, page_url, name, company, job_url, url_key, status, fit, notes, "
-                    "priority, due, resume_files, updated, applied) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "priority, due, resume_files, updated, applied, status_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (r["page_id"], r["page_id"], r.get("page_url", ""), r.get("name", ""), r.get("company", ""),
                      r.get("job_url", ""), canonical_url(r.get("job_url")), r.get("status", ""), r.get("fit"),
                      r.get("notes", ""), r.get("priority", ""), r.get("due", ""),
-                     _file_names(r.get("resume_files")), now_iso(), _applied(r.get("status", ""), "")))
+                     _file_names(r.get("resume_files")), now_iso(), _applied(r.get("status", ""), ""), _today()))
 
     def _pull(self) -> None:
         theirs = self.notion.list_jobs()
@@ -327,6 +371,8 @@ class LocalTracker:
                 if not row["dirty_status"]:       # an unsent status set here wins over Notion's
                     values["status"] = r["status"]
                     values["applied"] = _applied(r["status"], row["applied"])
+                    if r["status"] != row["status"]:     # changed in Notion: its clock starts again
+                        values.update(status_since=_today(), ghosted_on="", ghosted_from="")
                 for k in ("name", "company", "job_url"):     # an empty field in Notion doesn't blank what's known here
                     if not values[k]:
                         del values[k]
@@ -347,6 +393,13 @@ class LocalTracker:
 
 def _today() -> str:
     return date.today().isoformat()
+
+
+# SET clauses for a status change (parameters: the new status, today, the new status, the new status): the day the
+# status changed, and a move to Ghosted made on its own is forgotten once the status moves on.
+_SINCE = ("status_since = CASE WHEN status = ? THEN status_since ELSE ? END, "
+          "ghosted_on = CASE WHEN status = ? THEN ghosted_on ELSE '' END, "
+          "ghosted_from = CASE WHEN status = ? THEN ghosted_from ELSE '' END")
 
 
 def _local_day(iso: str) -> str:
