@@ -1,10 +1,10 @@
-# Job Search
+# Job Oyster
 
 **A job-hunting assistant that runs on your Mac.** It finds new job postings, tells you how well each one fits your experience, writes a tailored résumé for the good ones, and keeps track of every application.
 
 [![Latest release](https://img.shields.io/github/v/release/Alexander-C-Carnes/job-search-app?label=latest%20release)](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest)
 
-**Download for Mac:** [Apple silicon (M1 or later)](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Search-arm64.dmg) · [Intel](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Search-x86_64.dmg) · [What's new](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest) · [All releases](https://github.com/Alexander-C-Carnes/job-search-app/releases)
+**Download for Mac:** [Apple silicon (M1 or later)](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-arm64.dmg) · [Intel](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-x86_64.dmg) · [What's new](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest) · [All releases](https://github.com/Alexander-C-Carnes/job-search-app/releases)
 
 ![The Tracker tab, with made-up jobs](docs/images/tracker.png)
 
@@ -23,8 +23,8 @@
 
 | Your Mac | Download |
 |---|---|
-| Apple silicon (M1 or later) | [Job-Search-arm64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Search-arm64.dmg) |
-| Intel | [Job-Search-x86_64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Search-x86_64.dmg) |
+| Apple silicon (M1 or later) | [Job-Oyster-arm64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-arm64.dmg) |
+| Intel | [Job-Oyster-x86_64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-x86_64.dmg) |
 
 Not sure which you have? Apple menu → **About This Mac** → **Chip** (Apple M-something means Apple silicon).
 
@@ -32,8 +32,8 @@ These links always get the newest version. To read what changed, see the [latest
 
 ### 2. Install it
 
-1. Open the DMG and drag **Job Search** into **Applications**.
-2. Open **Job Search**. If macOS says it can't check the app for malicious software, go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only need to do this once.
+1. Open the DMG and drag **Job Oyster** into **Applications**.
+2. Open **Job Oyster**. If macOS says it can't check the app for malicious software, go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only need to do this once.
 3. The app opens in your browser with a made-up example person, Jordan Rivera, so you can look around first.
 
 ### 3. Make it yours
@@ -64,7 +64,7 @@ The fit report ends with questions about anything you haven't shown yet. Answer 
 
 ## Your data stays yours
 
-Everything about you (your record, résumés, keys, and every job and application) is kept in one folder on your Mac, `~/JobSearch`. Your record and résumés go only to the AI you choose, your searches go to JobsPipe, and your tracker goes to Notion only if you turn that on. Updating the app never touches that folder. **Back it up**: it's the only copy.
+Everything about you (your record, résumés, keys, and every job and application) is kept in one folder on your Mac, `~/JobOyster`. Your record and résumés go only to the AI you choose, your searches go to JobsPipe, and your tracker goes to Notion only if you turn that on. Updating the app never touches that folder. **Back it up**: it's the only copy.
 
 ## More screenshots
 
@@ -93,11 +93,13 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 
 **Does it work on Windows or Linux?** The download is for macOS. You can [run it from the code](docs/setup-from-code.md) on Linux, but that isn't tested.
 
-**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Search** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Your files aren't affected.
+**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Oyster** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Your files aren't affected.
+
+**Wasn't this called Job Search?** Yes, until v0.1.9. It's the same app. The first time you open Job Oyster it offers to move the old Job Search app to the Trash, and it moves your profile folder from `~/JobSearch` to `~/JobOyster` (the old path keeps working). From the code, `oyster` replaces the `jobsearch` command, which still works.
 
 ## Buy me a coffee
 
-Job Search is free. If it helped you, especially if it helped you land a job, you can [buy me a coffee](https://buy.stripe.com/bJe6oI8zu7mX8tN74u3F600). You choose the amount, it's paid through Stripe, and it doesn't unlock anything: everyone gets the same app.
+Job Oyster is free. If it helped you, especially if it helped you land a job, you can [buy me a coffee](https://buy.stripe.com/bJe6oI8zu7mX8tN74u3F600). You choose the amount, it's paid through Stripe, and it doesn't unlock anything: everyone gets the same app.
 
 ## License
 

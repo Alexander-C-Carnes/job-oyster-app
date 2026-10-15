@@ -1,4 +1,5 @@
-// Draws the app icon (a résumé page on the app's red) as a 1024px PNG: swift make_icon.swift out.png
+// Draws the app icon (Side Clam: an oyster seen from the side, its lid swung open on the hinge and a pearl in its
+// mouth) as a 1024px PNG: swift make_icon.swift out.png. The web app's logo is the same drawing (index.html).
 import AppKit
 
 let size: CGFloat = 1024
@@ -9,44 +10,43 @@ let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsH
 NSGraphicsContext.saveGraphicsState()
 NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-let red = NSColor(srgbRed: 0xE5 / 255, green: 0x08 / 255, blue: 0x15 / 255, alpha: 1)
-let dark = NSColor(srgbRed: 0xA8 / 255, green: 0x05 / 255, blue: 0x0F / 255, alpha: 1)
-let tile = NSBezierPath(roundedRect: NSRect(x: 100, y: 100, width: 824, height: 824), xRadius: 185, yRadius: 185)
-NSGradient(starting: red, ending: dark)!.draw(in: tile, angle: -90)
+// Draw in the SVG's coordinates (y down), so the numbers match index.html's logo.
+let flip = NSAffineTransform()
+flip.translateX(by: 0, yBy: size)
+flip.scaleX(by: 1, yBy: -1)
+flip.concat()
 
-// The page.
-let page = NSRect(x: 300, y: 215, width: 424, height: 560)
-let shadow = NSShadow()
-shadow.shadowColor = NSColor.black.withAlphaComponent(0.25)
-shadow.shadowOffset = NSSize(width: 0, height: -14)
-shadow.shadowBlurRadius = 30
-NSGraphicsContext.saveGraphicsState()
-shadow.set()
-NSColor.white.setFill()
-NSBezierPath(roundedRect: page, xRadius: 28, yRadius: 28).fill()
-NSGraphicsContext.restoreGraphicsState()
+let teal = NSColor(srgbRed: 0x0E / 255, green: 0x7C / 255, blue: 0x7B / 255, alpha: 1)
+let shell = NSColor(srgbRed: 0xF4 / 255, green: 0xEB / 255, blue: 0xDD / 255, alpha: 1)
+let pearl = NSColor(srgbRed: 0xFF / 255, green: 0x8A / 255, blue: 0x65 / 255, alpha: 1)
 
-// A name line, then text lines.
-red.setFill()
-NSBezierPath(roundedRect: NSRect(x: 350, y: 680, width: 220, height: 34), xRadius: 17, yRadius: 17).fill()
-NSColor(white: 0.78, alpha: 1).setFill()
-for (i, w) in [324.0, 290, 324, 250, 324, 210].enumerated() {
-    NSBezierPath(roundedRect: NSRect(x: 350, y: 610 - Double(i) * 58, width: w, height: 22), xRadius: 11, yRadius: 11).fill()
+teal.setFill()
+NSBezierPath(roundedRect: NSRect(x: 100, y: 100, width: 824, height: 824), xRadius: 185, yRadius: 185).fill()
+
+// A bowl from the hinge at the left to the lip at the right: M250 y Q520 y±270 800 y Z.
+func bowl(_ y: CGFloat, bulge: CGFloat) -> NSBezierPath {
+    let p = NSBezierPath()
+    p.move(to: NSPoint(x: 250, y: y))
+    p.curve(to: NSPoint(x: 800, y: y),   // the quadratic Q520,y+bulge as a cubic
+            controlPoint1: NSPoint(x: 250 + 2.0 / 3 * 270, y: y + 2.0 / 3 * bulge),
+            controlPoint2: NSPoint(x: 800 - 2.0 / 3 * 280, y: y + 2.0 / 3 * bulge))
+    p.close()
+    return p
 }
 
-// A check mark: tailored and checked.
-let badge = NSRect(x: 585, y: 165, width: 220, height: 220)
-NSColor.white.setFill()
-NSBezierPath(ovalIn: badge).fill()
-let check = NSBezierPath()
-check.move(to: NSPoint(x: 640, y: 278))
-check.line(to: NSPoint(x: 683, y: 232))
-check.line(to: NSPoint(x: 755, y: 318))
-check.lineWidth = 30
-check.lineCapStyle = .round
-check.lineJoinStyle = .round
-red.setStroke()
-check.stroke()
+shell.setFill()
+bowl(560, bulge: 270).fill()                       // the cup
+NSGraphicsContext.saveGraphicsState()              // the lid, swung open 24° on the hinge
+let lid = NSAffineTransform()
+lid.translateX(by: 250, yBy: 548)
+lid.rotate(byDegrees: -24)
+lid.translateX(by: -250, yBy: -548)
+lid.concat()
+bowl(536, bulge: -270).fill()
+NSGraphicsContext.restoreGraphicsState()
+
+pearl.setFill()
+NSBezierPath(ovalIn: NSRect(x: 600 - 60, y: 510 - 60, width: 120, height: 120)).fill()
 
 NSGraphicsContext.restoreGraphicsState()
 try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: out))

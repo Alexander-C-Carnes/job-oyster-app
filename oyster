@@ -1,0 +1,218 @@
+#!/bin/bash
+# oyster: run and update Job Oyster, the web app.
+#
+#   oyster run       start the app and open it (if it's already running, just open it)
+#   oyster update    get the latest code and packages
+#   oyster go        update, then run (restarting the app if it's running)
+#   oyster restart   stop the app and start it again, to pick up code changes
+#   oyster install   make `oyster` work from any folder
+#
+# Extra arguments to run/go/restart go to `jobpipe serve`, e.g. oyster run --no-open.
+# Runs going in the app (a search, Make résumé) carry on through restart and go, and the app picks them up;
+# add --force to stop them too. Quitting the app (Ctrl+C in its window) stops them, after asking.
+# The port is 8765, or $OYSTER_PORT. Your profile (résumés, settings, keys, data) is in ~/JobOyster,
+# or $JOBPIPE_HOME. Written for macOS's bash 3.2, so no bash 4 features.
+set -e
+
+# The repo is wherever this file really lives (`oyster install` puts a link to it on your PATH).
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir=$(cd -P "$(dirname "$src")" && pwd)
+  src=$(readlink "$src")
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+REPO=$(cd -P "$(dirname "$src")" && pwd)
+cd "$REPO"
+
+PORT=${OYSTER_PORT:-${JOBSEARCH_PORT:-8765}}
+PROFILE=${JOBPIPE_HOME:-$HOME/JobOyster}
+[ -e "$PROFILE" ] || PROFILE=$HOME/JobSearch     # its name before Job Oyster; the app renames it on start
+DATA=${JOBPIPE_DATA_DIR:-$PROFILE/data}
+
+say() { printf '%s\n' "$*"; }
+
+running() {   # the app answers on its port
+  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/" 2>/dev/null
+}
+
+app_url() {
+  local token=""
+  [ -f "$DATA/web-token" ] && token=$(cat "$DATA/web-token")
+  printf 'http://127.0.0.1:%s/?token=%s' "$PORT" "$token"
+}
+
+open_url() {
+  if command -v open >/dev/null 2>&1; then open "$1"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1
+  fi
+}
+
+setup() {     # .venv with the packages in requirements.txt and the PDF browser; redone when requirements.txt changes
+  if [ ! -x .venv/bin/python ]; then
+    local py
+    py=$(command -v python3 || true)
+    if [ -z "$py" ]; then
+      say "Python 3 isn't installed. Install it from https://www.python.org/downloads/ (or: brew install python), then try again."
+      exit 1
+    fi
+    say "Setting up .venv (first time only, a minute or two)…"
+    "$py" -m venv .venv
+  fi
+  if ! cmp -s requirements.txt .venv/.requirements; then
+    say "Installing Python packages…"
+    .venv/bin/python -m pip install --quiet --upgrade pip
+    .venv/bin/python -m pip install --quiet -r requirements.txt
+    .venv/bin/python -m playwright install chromium
+    cp requirements.txt .venv/.requirements
+  fi
+}
+
+api() {       # api METHOD PATH: ask the app on $PORT (with its token); prints the answer, fails on an error status
+  local token=""
+  [ -f "$DATA/web-token" ] && token=$(cat "$DATA/web-token")
+  curl -sf --max-time 15 -X "$1" -H "X-Jobpipe-Token: $token" "http://127.0.0.1:$PORT$2" 2>/dev/null
+}
+
+run_going() {  # a run (search or tailoring) is going in the app
+  api GET /api/runs | grep -q '"status":"running"'
+}
+
+stop_app() {  # stop the app on $PORT, only if that's this app's server
+  if [ -n "$FORCE" ]; then
+    api POST /api/runs/stop-all >/dev/null && say "Stopped the runs that were going."
+  elif run_going; then
+    if api GET /api/runs/going >/dev/null; then
+      say "Runs are going: they carry on, and the app picks them up when it starts again."
+    else   # an app from before runs outlived it: stopping it would cut them short
+      say "A run is going in the app (see its Runs tab), and this version of the app can't keep it going"
+      say "through a restart. Wait for it to finish, or add --force to stop it anyway."
+      exit 1
+    fi
+  fi
+  local pids pid stopped=""
+  pids=$(lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true)
+  for pid in $pids; do
+    if ps -o command= -p "$pid" 2>/dev/null | grep -q "jobpipe serve"; then
+      kill "$pid" && stopped=1
+    fi
+  done
+  if [ -z "$stopped" ]; then
+    say "Something else is using port $PORT, or the app was started some other way. Stop it (Ctrl+C in its Terminal window) and try again."
+    exit 1
+  fi
+  for _ in 1 2 3 4 5 6 7 8 9 10; do running || return 0; sleep 1; done
+  say "The app didn't stop. Press Ctrl+C in its Terminal window, then try again."
+  exit 1
+}
+
+cmd_run() {
+  if running; then
+    say "The app is already running: $(app_url)"
+    open_url "$(app_url)"
+    return
+  fi
+  setup
+  [ -f "$PROFILE/.env" ] || [ -f .env ] || say "Note: add your keys to $PROFILE/.env (JOBSPIPE_API_KEY, NOTION_TOKEN; see docs/setup-from-code.md)."
+  say "Starting the app. Keep this window open; Ctrl+C stops it."
+  exec .venv/bin/python -m jobpipe serve --port "$PORT" "$@"
+}
+
+cmd_update() {
+  local before after branch
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  before=$(git rev-parse HEAD)
+  say "Getting the latest code (branch $branch)…"
+  if ! git pull --ff-only -q; then
+    say ""
+    say "Couldn't update. If git says local changes would be overwritten, run \`git status\` to see them;"
+    say "\`git stash\` sets them aside. Then run oyster update again."
+    exit 1
+  fi
+  after=$(git rev-parse HEAD)
+  if [ "$before" = "$after" ]; then
+    say "Already up to date."
+  else
+    say "Updated:"
+    git log --format='  %s' "$before..$after"
+  fi
+  setup
+  UPDATED=""
+  [ "$before" != "$after" ] && UPDATED=1
+  if [ -n "$UPDATED" ] && [ -z "$QUIET_RESTART_HINT" ] && running; then
+    say "The app is still running the old version. Restart it with: oyster go"
+  fi
+  return 0
+}
+
+cmd_go() {
+  QUIET_RESTART_HINT=1 cmd_update
+  if running; then
+    if [ -n "$UPDATED" ]; then
+      say "Restarting the app on the new version…"
+      stop_app
+    else
+      say "Nothing new; the app is already running."
+    fi
+  fi
+  cmd_run "$@"
+}
+
+cmd_restart() {
+  if running; then
+    say "Stopping the app…"
+    stop_app
+  else
+    say "The app wasn't running."
+  fi
+  cmd_run "$@"
+}
+
+cmd_install() {
+  local target="" d
+  for d in /opt/homebrew/bin /usr/local/bin; do
+    if [ -d "$d" ] && [ -w "$d" ]; then target=$d; break; fi
+  done
+  if [ -z "$target" ]; then
+    target="$HOME/.local/bin"
+    mkdir -p "$target"
+    case ":$PATH:" in
+      *":$target:"*) ;;
+      *)
+        for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+          if [ "$rc" = "$HOME/.zshrc" ] || [ -f "$rc" ]; then
+            grep -qsE '(oyster|jobsearch): add ~/.local/bin' "$rc" ||
+              printf '\n# oyster: add ~/.local/bin to PATH\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+          fi
+        done
+        say "Added ~/.local/bin to your PATH. Open a new Terminal window for it to take effect."
+        ;;
+    esac
+  fi
+  ln -sf "$REPO/oyster" "$target/oyster"
+  say "Installed: $target/oyster -> $REPO/oyster"
+  say "Now, from any folder: oyster run | oyster update | oyster go | oyster restart"
+}
+
+usage() {
+  sed -n '2,12p' "$REPO/oyster" | sed 's/^# \{0,1\}//'
+}
+
+# --force (restart and go): stop the app even if a run is going. The rest go to `jobpipe serve`.
+FORCE=""
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+args=()
+for a in "$@"; do
+  if [ "$a" = "--force" ]; then FORCE=1; else args+=("$a"); fi
+done
+set -- ${args[@]+"${args[@]}"}
+
+case "$cmd" in
+  run) cmd_run "$@" ;;
+  update) cmd_update ;;
+  go) cmd_go "$@" ;;
+  restart) cmd_restart "$@" ;;
+  install) cmd_install ;;
+  ""|-h|--help|help) usage ;;
+  *) say "Unknown command: $cmd"; usage; exit 1 ;;
+esac

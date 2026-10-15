@@ -1,4 +1,4 @@
-# dmgbuild settings for the Job Search DMG: a fixed window with the app on the left, Applications on the
+# dmgbuild settings for the Job Oyster DMG: a fixed window with the app on the left, Applications on the
 # right and mac/make_dmg_background.swift's picture behind them. mac/build.sh passes the paths with -D.
 # dmgbuild writes the window's layout itself, so no Finder or AppleScript is needed (GitHub's Macs have neither).
 # No hide_extensions: it sets Finder info on the app, which breaks its signature (Finder hides ".app" anyway).

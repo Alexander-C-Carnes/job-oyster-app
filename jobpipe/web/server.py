@@ -253,7 +253,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 request.query_params.get("t") if request.method == "GET" else None)
             if not supplied or not secrets.compare_digest(supplied, token):
                 return JSONResponse({"detail": "Missing or wrong token. Open the app with "
-                                               "`jobsearch run`, or the URL it prints."}, status_code=401)
+                                               "`oyster run`, or the URL it prints."}, status_code=401)
         response = await call_next(request)
         if path.startswith("/static/"):
             # index.html links assets as ?v=<hash of their mtimes>, so those can be cached for good.
@@ -1167,7 +1167,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.post("/api/runs/stop-all")
     def stop_all_runs():
-        """Stop every run going and drop the waiting ones (`jobsearch restart --force`)."""
+        """Stop every run going and drop the waiting ones (`oyster restart --force`)."""
         return {"stopped": runs.stop_all()}
 
     @app.get("/api/runs/{run_id}")
@@ -1562,7 +1562,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             raise HTTPException(400, f"Run {found} in a terminal and type /login.")
         script = config.DATA / "claude-sign-in.command"
         script.parent.mkdir(parents=True, exist_ok=True)
-        script.write_text("#!/bin/bash\nclear\necho 'Signing in to Claude for Job Search.'\n"
+        script.write_text("#!/bin/bash\nclear\necho 'Signing in to Claude for Job Oyster.'\n"
                           "echo 'Type /login and press Return, sign in in your browser, then type /exit and close this window.'\n"
                           f"echo\nexec {shlex.quote(found)}\n")
         script.chmod(0o700)
@@ -2143,7 +2143,7 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
     if open_browser:
         webbrowser.open(url)
     runs = app.state.runs
-    if "JOBSEARCH_APP_VERSION" in os.environ:
+    if "OYSTER_APP_VERSION" in os.environ:
         # Started by the Mac app (mac/Launcher.swift): stop when it's gone, even if it was force-quit. That's
         # quitting, so the runs stop too (the Mac app asks first when it can).
         parent = os.getppid()
@@ -2197,7 +2197,7 @@ def at_terminal() -> bool:
 
 def app_server(uvicorn_config, runs: RunManager):
     """uvicorn's server, which tells apart how it was stopped. Runs outlive the app (runs.py), so:
-    - SIGTERM (`jobsearch restart`, `kill`) restarts: the runs going carry on, and the waiting ones wait on.
+    - SIGTERM (`oyster restart`, `kill`) restarts: the runs going carry on, and the waiting ones wait on.
     - SIGINT (Ctrl+C, or quitting the Mac app) and SIGHUP (its terminal window closed) quit: `quitting` is set
       and serve() stops the runs. At a terminal, Ctrl+C with runs going says so first; a second Ctrl+C quits."""
     import uvicorn
@@ -2217,7 +2217,7 @@ def app_server(uvicorn_config, runs: RunManager):
                     them = "it" if going["running"] + going["waiting"] == 1 else "them"
                     print(f"\n  {going['text'][0].upper() + going['text'][1:]}. Quitting stops {them}.\n"
                           f"  Press Ctrl+C again to quit and stop {them}, or leave it and the app keeps running.\n"
-                          "  (To restart the app without stopping them: jobsearch restart)\n", flush=True)
+                          "  (To restart the app without stopping them: oyster restart)\n", flush=True)
                     return
                 self.quitting = True
             super().handle_exit(sig, frame)

@@ -1,7 +1,7 @@
-// Job Search.app: starts the bundled web app (Python, in Contents/Resources) and opens it in the browser.
+// Job Oyster.app: starts the bundled web app (Python, in Contents/Resources) and opens it in the browser.
 //
 // The app's files are read-only inside the bundle; everything personal is in the profile folder
-// (~/JobSearch, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
+// (~/JobOyster, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
 // and with it any runs going (a search, Make résumé); it asks first when there are some.
 // Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
 // Check for Updates… in the menu does so any time.
@@ -19,10 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenu()
-        let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Job Search")
+        let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Job Oyster")
         try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         logURL = logs.appendingPathComponent("server.log")
         start()
+        offerToTrashOldApp()
         checkForUpdate()
     }
 
@@ -32,14 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Quitting stops the runs going and drops the waiting ones (the server does, on SIGINT), so say so first.
-    // Only for the server this app started: quitting leaves one started some other way (`jobsearch run`) alone.
+    // Only for the server this app started: quitting leaves one started some other way (`oyster run`) alone.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let s = server, s.isRunning, let going = runsGoing() else { return .terminateNow }
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = going.prefix(1).uppercased() + going.dropFirst()
-        a.informativeText = "Quitting Job Search stops them: résumés being made are cut short, and the ones waiting "
-            + "their turn won't start. To let them finish, keep Job Search open."
+        a.informativeText = "Quitting Job Oyster stops them: résumés being made are cut short, and the ones waiting "
+            + "their turn won't start. To let them finish, keep Job Oyster open."
         a.addButton(withTitle: "Quit and Stop Runs")
         a.addButton(withTitle: "Keep Running")
         return a.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
@@ -77,9 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func start() {
         let res = Bundle.main.resourceURL!
         let python = res.appendingPathComponent("python/bin/python3")
-        let port = Int(ProcessInfo.processInfo.environment["JOBSEARCH_PORT"] ?? "") ?? defaultPort
+        let port = Int(ProcessInfo.processInfo.environment["OYSTER_PORT"] ?? ProcessInfo.processInfo.environment["JOBSEARCH_PORT"] ?? "") ?? defaultPort
 
-        if answers(port: port) {                     // already running (another copy of the app, or `jobsearch run`)
+        if answers(port: port) {                     // already running (another copy of the app, or `oyster run`)
             waitForURL(fromLog: nil, port: port)
             return
         }
@@ -98,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         env["PYTHONDONTWRITEBYTECODE"] = "1"       // the bundle is read-only (and signed)
         env["PYTHONUNBUFFERED"] = "1"
         env["PLAYWRIGHT_BROWSERS_PATH"] = res.appendingPathComponent("ms-playwright").path
-        env["JOBSEARCH_APP_VERSION"] = info["CFBundleShortVersionString"] as? String ?? ""
+        env["OYSTER_APP_VERSION"] = info["CFBundleShortVersionString"] as? String ?? ""
         p.environment = env
         p.standardOutput = log
         p.standardError = log
@@ -106,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { self?.serverStopped(proc.terminationStatus) }
         }
         do { try p.run() } catch {
-            fail("Job Search couldn't start its server: \(error.localizedDescription)")
+            fail("Job Oyster couldn't start its server: \(error.localizedDescription)")
             return
         }
         server = p
@@ -126,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let s = self.server, !s.isRunning { return }
                 Thread.sleep(forTimeInterval: 0.4)
             }
-            DispatchQueue.main.async { self.fail("Job Search didn't start within two minutes.") }
+            DispatchQueue.main.async { self.fail("Job Oyster didn't start within two minutes.") }
         }
     }
 
@@ -139,8 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Someone else's server: its token is in the profile's data folder.
         let env = ProcessInfo.processInfo.environment
-        let home = env["JOBPIPE_HOME"].map { ($0 as NSString).expandingTildeInPath }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("JobSearch").path
+        let home = profileFolder().path
         let data = env["JOBPIPE_DATA_DIR"].map { ($0 as NSString).expandingTildeInPath } ?? home + "/data"
         let token = (try? String(contentsOfFile: data + "/web-token", encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -163,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func serverStopped(_ status: Int32) {
         if quitting { return }
-        fail("Job Search stopped unexpectedly (exit \(status)).")
+        fail("Job Oyster stopped unexpectedly (exit \(status)).")
     }
 
     func fail(_ message: String) {
@@ -178,6 +178,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
+    // $JOBPIPE_HOME, else ~/JobOyster, or ~/JobSearch (its name before the rename) until the server moves it.
+    func profileFolder() -> URL {
+        if let h = ProcessInfo.processInfo.environment["JOBPIPE_HOME"], !h.isEmpty {
+            return URL(fileURLWithPath: (h as NSString).expandingTildeInPath)
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let now = home.appendingPathComponent("JobOyster")
+        return FileManager.default.fileExists(atPath: now.path) ? now : home.appendingPathComponent("JobSearch")
+    }
+
+    // The app was called Job Search up to v0.1.9, so dragging this one into Applications leaves the old one there.
+    // Offer once to move it to the Trash (from where it can be put back).
+    func offerToTrashOldApp() {
+        let old = URL(fileURLWithPath: "/Applications/Job Search.app")
+        let key = "askedToTrashJobSearchApp"
+        guard Bundle.main.bundleURL.standardizedFileURL != old.standardizedFileURL,
+              FileManager.default.fileExists(atPath: old.path),
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let a = NSAlert()
+        a.messageText = "Job Search is now Job Oyster"
+        a.informativeText = "The old Job Search app is still in Applications. Move it to the Trash? "
+            + "Your profile folder and everything in it stay as they are."
+        a.addButton(withTitle: "Move to Trash")
+        a.addButton(withTitle: "Keep It")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        NSWorkspace.shared.recycle([old]) { _, error in
+            if let error = error {
+                DispatchQueue.main.async { self.tell("Couldn't move Job Search to the Trash", error.localizedDescription) }
+            }
+        }
+    }
+
     // MARK: menu actions
 
     @objc func openInBrowser(_ sender: Any?) {
@@ -185,10 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showProfile(_ sender: Any?) {
-        let env = ProcessInfo.processInfo.environment
-        let home = env["JOBPIPE_HOME"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("JobSearch")
-        NSWorkspace.shared.open(home)
+        NSWorkspace.shared.open(profileFolder())
     }
 
     @objc func showLog(_ sender: Any?) {
@@ -200,17 +230,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let m = NSMenu()
-        m.addItem(withTitle: "Open Job Search", action: #selector(openInBrowser(_:)), keyEquivalent: "o")
+        m.addItem(withTitle: "Open Job Oyster", action: #selector(openInBrowser(_:)), keyEquivalent: "o")
         m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         m.addItem(.separator())
         m.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
         m.addItem(withTitle: "Show Log", action: #selector(showLog(_:)), keyEquivalent: "")
         m.addItem(.separator())
-        m.addItem(withTitle: "Quit Job Search", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        m.addItem(withTitle: "Quit Job Oyster", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = m
         NSApp.mainMenu = main
         let dock = NSMenu()
-        dock.addItem(withTitle: "Open Job Search", action: #selector(openInBrowser(_:)), keyEquivalent: "")
+        dock.addItem(withTitle: "Open Job Oyster", action: #selector(openInBrowser(_:)), keyEquivalent: "")
         dock.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
         dock.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
         dockMenu = dock
@@ -230,14 +260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let repo = info["JSUpdateRepo"] as? String, !repo.isEmpty else {
             if announce {
                 tell("This copy can't check for updates", "It was built without a place to check. The newest "
-                     + "version is on the Job Search GitHub page.")
+                     + "version is on the Job Oyster GitHub page.")
             }
             return
         }
         guard !version.isEmpty, !version.contains("-"),
               let api = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else {
             if announce {
-                tell("Job Search \(version) is a development build", "It was built from the code rather than a "
+                tell("Job Oyster \(version) is a development build", "It was built from the code rather than a "
                      + "release, so it doesn't update from GitHub. Pull the latest code and build it again.")
             }
             return
@@ -254,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DispatchQueue.main.async {
                     let a = NSAlert()
                     a.messageText = "Couldn't check for updates"
-                    a.informativeText = "Job Search couldn't reach GitHub"
+                    a.informativeText = "Job Oyster couldn't reach GitHub"
                         + (error.map { ": \($0.localizedDescription)" } ?? ".")
                         + " Check your connection and try again, or look at the releases page yourself."
                     a.addButton(withTitle: "OK")
@@ -268,12 +298,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let latest = tag.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
             guard latest.compare(current, options: .numeric) == .orderedDescending else {
-                if announce { self.tell("You're on the latest version", "Job Search \(current) is the newest release.") }
+                if announce { self.tell("You're on the latest version", "Job Oyster \(current) is the newest release.") }
                 return
             }
             DispatchQueue.main.async {
                 let a = NSAlert()
-                a.messageText = "Job Search \(latest) is available"
+                a.messageText = "Job Oyster \(latest) is available"
                 a.informativeText = "You have \(current). Download the new version, quit this one, and drag the new one "
                     + "into Applications. Your profile folder and everything in it stay as they are."
                 a.addButton(withTitle: "Download")

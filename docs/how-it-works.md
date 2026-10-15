@@ -36,9 +36,9 @@ searches.yaml ──► JobsPipe search ──► local filters ──► skip j
 | `jobpipe/` | The Python app: CLI (`cli.py`), pipeline (`pipeline.py`), JobsPipe client (`jobs_api.py`), triage, tailoring orchestrator (`tailor.py`), PDF renderer (`render.py`), tracker and Notion sync, the startup search (`startups.py`), and the web app (`web/`) |
 | `skill/` | The `resume-job-fit` method: agent briefs (`agents/`), rules and scoring rubric (`references/`), check scripts. Nobody's personal details: the prompts say `{name}`, `{contact}` and the like, filled in from your profile as they load |
 | `example-profile/` | What a new profile starts as: a made-up candidate (Jordan Rivera) with an impact record, a résumé and example searches. The tests run as Jordan too |
-| `jobsearch`, `start.sh` | Scripts that set up `.venv` and start the web app |
+| `oyster`, `start.sh` | Scripts that set up `.venv` and start the web app |
 
-Your profile folder (`~/JobSearch`, or `$JOBPIPE_HOME`), which never goes in git:
+Your profile folder (`~/JobOyster`, or `$JOBPIPE_HOME`), which never goes in git:
 
 | Path | What's in it |
 |---|---|

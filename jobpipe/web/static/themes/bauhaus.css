@@ -44,10 +44,8 @@ html[data-theme="bauhaus"] ::placeholder { color: #555555; opacity: 1; }
 /* top bar: a yellow field; the active tab is a white block */
 html[data-theme="bauhaus"] .topbar { height: auto; min-height: 52px; gap: 0 20px; padding: 0 20px; background: var(--yellow); border-bottom: 0; }
 html[data-theme="bauhaus"] .brand { font: 400 20px/1 var(--display); letter-spacing: -.02em; gap: 12px; white-space: nowrap; }
-html[data-theme="bauhaus"] .brand-mark { position: relative; width: 54px; height: 16px; border-radius: 0;
-  background: linear-gradient(var(--red), var(--red)) 19px 0 / 16px 16px no-repeat; }
-html[data-theme="bauhaus"] .brand-mark::before { content: ""; position: absolute; left: 0; top: 0; width: 16px; height: 16px; border-radius: 50%; background: var(--blue); }
-html[data-theme="bauhaus"] .brand-mark::after { content: ""; position: absolute; left: 38px; top: 0; width: 16px; height: 16px; background: var(--black); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+html[data-theme="bauhaus"] .brand-mark { --bm-tile: var(--blue); --bm-shell: #FFFFFF; --bm-pearl: var(--red); width: 28px; height: 28px; }
+html[data-theme="bauhaus"] .bm-tile { rx: 0; }
 html[data-theme="bauhaus"] .tabs { gap: 2px; align-self: stretch; align-items: stretch; flex-wrap: wrap; }
 html[data-theme="bauhaus"] .tabs button { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 11px; border: 0; color: var(--black); font-weight: 600; font-size: 13.5px; white-space: nowrap; }
 html[data-theme="bauhaus"] .tabs button:hover { color: var(--black); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }

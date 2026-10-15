@@ -1077,7 +1077,7 @@ def test_the_app_says_what_quitting_would_stop_and_restarting_keeps(env, monkeyp
 
     make = lambda: server_mod.app_server(uvicorn.Config(env["app"]), runs)
     restart = make()
-    restart.handle_exit(signal.SIGTERM, None)                    # jobsearch restart: the runs carry on
+    restart.handle_exit(signal.SIGTERM, None)                    # oyster restart: the runs carry on
     assert restart.should_exit and not restart.quitting
     monkeypatch.setattr(server_mod, "at_terminal", lambda: False)
     quit_ = make()

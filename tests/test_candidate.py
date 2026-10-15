@@ -39,6 +39,47 @@ def test_a_new_profile_starts_from_the_example(tmp_path, monkeypatch):
         config.set_profile(old)
 
 
+def test_a_job_search_profile_moves_to_job_oyster(tmp_path, monkeypatch):
+    """The app was called Job Search: its ~/JobSearch becomes ~/JobOyster, with a link left at the old path."""
+    monkeypatch.delenv("JOBPIPE_HOME", raising=False)
+    monkeypatch.delenv("JOBPIPE_DATA_DIR", raising=False)
+    monkeypatch.delenv("JOBPIPE_OUTPUTS_DIR", raising=False)
+    old_home, home = tmp_path / "JobSearch", tmp_path / "JobOyster"
+    monkeypatch.setattr(config, "OLD_HOME", old_home)
+    monkeypatch.setattr(config, "HOME", home)
+    (old_home / "data").mkdir(parents=True)
+    (old_home / "searches.yaml").write_text("searches: []\n")
+    assert config._default_home() == old_home
+    before = config.PROFILE
+    config.set_profile(old_home)
+    try:
+        said = []
+        assert not config.ensure_profile(log=said.append)          # moved, not made
+        assert config.PROFILE == home and config.DATA == home / "data" and "Job Oyster" in said[0]
+        assert (home / "searches.yaml").read_text() == "searches: []\n"
+        assert old_home.is_symlink() and (old_home / "searches.yaml").exists()
+        assert config._default_home() == home
+        config.move_old_profile(log=said.append)                    # only once
+        assert len(said) == 1
+    finally:
+        config.set_profile(before)
+
+
+def test_jobpipe_home_is_never_moved(tmp_path, monkeypatch):
+    old_home = tmp_path / "JobSearch"
+    old_home.mkdir()
+    monkeypatch.setattr(config, "OLD_HOME", old_home)
+    monkeypatch.setattr(config, "HOME", tmp_path / "JobOyster")
+    monkeypatch.setenv("JOBPIPE_HOME", str(old_home))
+    before = config.PROFILE
+    config.set_profile(old_home)
+    try:
+        config.move_old_profile(log=lambda m: None)
+        assert old_home.is_dir() and not old_home.is_symlink() and not (tmp_path / "JobOyster").exists()
+    finally:
+        config.set_profile(before)
+
+
 def test_the_repo_holds_no_ones_personal_files():
     """Résumés, the impact record and searches.yaml live in the profile folder, never in the repo."""
     refs = sorted(f.name for f in (config.SKILL / "references").iterdir())

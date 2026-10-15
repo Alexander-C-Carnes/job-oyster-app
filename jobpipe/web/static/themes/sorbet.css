@@ -39,7 +39,12 @@ html[data-theme="sorbet"] code, html[data-theme="sorbet"] kbd { font-size: 12px;
 /* top bar: a pill for every tab */
 html[data-theme="sorbet"] .topbar { height: auto; min-height: 54px; flex-wrap: wrap; row-gap: 4px; padding-block: 6px; gap: 16px; border-bottom: 1px solid var(--line); background: var(--paper); }
 html[data-theme="sorbet"] .brand { font: 700 19px var(--display); }
-html[data-theme="sorbet"] .brand-mark { width: 18px; height: 18px; border-radius: 50%; background: conic-gradient(from 200deg, #FF3E7F 0 33%, #FF9F1C 33% 66%, #38B6FF 66%); }
+html[data-theme="sorbet"] .brand-mark { --bm-tile: #FF3E7F; --bm-shell: #FFF6F9; --bm-pearl: #FF9F1C; width: 30px; height: 30px; }
+html[data-theme="sorbet"] .bm-lid { transform-box: view-box; transform-origin: 250px 548px; }
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme="sorbet"] .bm-lid { transition: transform .45s var(--close); }
+  html[data-theme="sorbet"] .brand:hover .bm-lid { transform: rotate(-14deg); transition: transform .5s var(--open); }
+}
 html[data-theme="sorbet"] .tabs { gap: 2px; align-self: center; flex-wrap: wrap; }
 html[data-theme="sorbet"] .tabs button { height: 32px; padding: 0 11px; border: 0; border-radius: 999px; font-weight: 600; font-size: 13.5px; color: var(--muted); }
 html[data-theme="sorbet"] .tabs button:hover { background: var(--sel); color: var(--ink); }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build "Job Search.app" and a DMG people can download: Python, the app's packages and the PDF renderer
+# Build "Job Oyster.app" and a DMG people can download: Python, the app's packages and the PDF renderer
 # (headless Chromium) bundled inside, so nothing needs installing first.
 #
 #   mac/build.sh [--version 1.2.0] [--repo owner/repo] [--arch arm64|x86_64] [--no-sign] [--notarize]
@@ -15,7 +15,7 @@
 #             $NOTARY_ISSUER), or a keychain profile ($NOTARY_PROFILE, default jobsearch-notary) made with
 #             xcrun notarytool store-credentials jobsearch-notary --key <AuthKey.p8> --key-id <ID> --issuer <ISSUER>
 #
-# Output: build/Job Search.app and build/Job-Search-<version>-<arch>.dmg (plus build/Job-Search-<arch>.dmg,
+# Output: build/Job Oyster.app and build/Job-Oyster-<version>-<arch>.dmg (plus build/Job-Oyster-<arch>.dmg,
 # a stable name for "latest" download links).
 set -euo pipefail
 
@@ -39,7 +39,7 @@ case "$ARCH" in arm64|aarch64) ARCH=arm64; PBS_ARCH=aarch64 ;; x86_64) PBS_ARCH=
 PYVER=3.12
 
 BUILD="$REPO_DIR/build"
-APP="$BUILD/Job Search.app"
+APP="$BUILD/Job Oyster.app"
 RES="$APP/Contents/Resources"
 CACHE="$BUILD/cache"
 say() { printf '\n==> %s\n' "$*"; }
@@ -79,7 +79,7 @@ find "$RES/python" -name "*.pyc" -path "*/test/*" -delete 2>/dev/null || true
 rm -rf "$RES/python/lib/python$PYVER/test" "$RES/python/lib/python$PYVER/idlelib" "$RES/python/lib/python$PYVER/tkinter"
 
 say "Launcher and icon"
-swiftc -O -target "$ARCH-apple-macos12.0" -o "$APP/Contents/MacOS/JobSearch" mac/Launcher.swift
+swiftc -O -target "$ARCH-apple-macos12.0" -o "$APP/Contents/MacOS/JobOyster" mac/Launcher.swift
 ICONSET="$BUILD/AppIcon.iconset"; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
 swift mac/make_icon.swift "$BUILD/icon-1024.png"
 for s in 16 32 128 256 512; do
@@ -92,10 +92,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Job Search</string>
-  <key>CFBundleDisplayName</key><string>Job Search</string>
+  <key>CFBundleName</key><string>Job Oyster</string>
+  <key>CFBundleDisplayName</key><string>Job Oyster</string>
   <key>CFBundleIdentifier</key><string>io.github.job-search.app</string>
-  <key>CFBundleExecutable</key><string>JobSearch</string>
+  <key>CFBundleExecutable</key><string>JobOyster</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -109,9 +109,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # Signing, the DMG and notarizing: mac/package.sh, which mac/sign-release.sh also uses.
-DMG="$BUILD/Job-Search-$VERSION-$ARCH.dmg"
+DMG="$BUILD/Job-Oyster-$VERSION-$ARCH.dmg"
 PKG_FLAGS=(); [ -n "$SIGN" ] || PKG_FLAGS+=(--no-sign); [ -z "$NOTARIZE" ] || PKG_FLAGS+=(--notarize)
 mac/package.sh "$APP" "$DMG" ${PKG_FLAGS[@]+"${PKG_FLAGS[@]}"}
-cp "$DMG" "$BUILD/Job-Search-$ARCH.dmg"
+cp "$DMG" "$BUILD/Job-Oyster-$ARCH.dmg"
 
 say "Done: $DMG ($(du -h "$DMG" | cut -f1))"

@@ -1,7 +1,7 @@
 """Load searches.yaml and resolve the repo's and the profile's paths.
 
 The repo holds the code and the method (skill/). Everything about the person using it lives in
-their profile folder, outside the repo: ~/JobSearch, or $JOBPIPE_HOME. A new profile starts as a
+their profile folder, outside the repo: ~/JobOyster, or $JOBPIPE_HOME. A new profile starts as a
 copy of example-profile/ (ensure_profile)."""
 from __future__ import annotations
 
@@ -35,7 +35,37 @@ def set_profile(home: Path) -> None:
     OUTPUTS = _env_path("JOBPIPE_OUTPUTS_DIR", PROFILE / "outputs")
 
 
-set_profile(_env_path("JOBPIPE_HOME", Path.home() / "JobSearch"))
+HOME = Path.home() / "JobOyster"
+OLD_HOME = Path.home() / "JobSearch"   # its name while the app was called Job Search (up to v0.1.9)
+
+
+def _default_home() -> Path:
+    """~/JobOyster, or ~/JobSearch while a profile from before the rename is still there (move_old_profile)."""
+    if not HOME.exists() and OLD_HOME.is_dir() and not OLD_HOME.is_symlink():
+        return OLD_HOME
+    return HOME
+
+
+set_profile(_env_path("JOBPIPE_HOME", _default_home()))
+
+
+def move_old_profile(log=print) -> None:
+    """Rename ~/JobSearch to ~/JobOyster and leave a link at the old path, so the paths the tracker stored
+    (and anything else pointing there) keep working. Only for the default folder, not $JOBPIPE_HOME."""
+    if (os.environ.get("JOBPIPE_HOME") or PROFILE != OLD_HOME or HOME.exists() or OLD_HOME.is_symlink()
+            or not OLD_HOME.is_dir()):
+        return
+    try:
+        OLD_HOME.rename(HOME)
+    except OSError as e:
+        log(f"Couldn't rename {OLD_HOME} to {HOME} ({e}); still using {OLD_HOME}.")
+        return
+    try:
+        OLD_HOME.symlink_to(HOME)
+    except OSError:
+        pass
+    set_profile(HOME)
+    log(f"Job Search is now Job Oyster: your profile folder moved from {OLD_HOME} to {HOME}; the old path still works.")
 
 
 def searches_path() -> Path:
@@ -46,6 +76,7 @@ def searches_path() -> Path:
 def ensure_profile(log=print) -> bool:
     """Make the profile folder if it has no searches.yaml yet: from the files a pre-profile checkout kept
     in the repo, if this one has them, or else from example-profile/. True if it made one."""
+    move_old_profile(log)
     if searches_path().exists():
         return False
     from . import legacy

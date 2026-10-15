@@ -10,7 +10,7 @@ let openAnyway = args.contains("--open-anyway")
 let outs = args.dropFirst().filter { !$0.hasPrefix("--") }
 let width: CGFloat = 660, height: CGFloat = 440
 
-let red = NSColor(srgbRed: 0xE5 / 255, green: 0x08 / 255, blue: 0x15 / 255, alpha: 1)
+let teal = NSColor(srgbRed: 0x0E / 255, green: 0x7C / 255, blue: 0x7B / 255, alpha: 1)   // the icon's tile
 let ink = NSColor(srgbRed: 0x1F / 255, green: 0x1B / 255, blue: 0x1A / 255, alpha: 1)
 let muted = NSColor(srgbRed: 0x6E / 255, green: 0x66 / 255, blue: 0x63 / 255, alpha: 1)
 
@@ -36,7 +36,7 @@ func draw() {
     shaft.lineWidth = 5
     shaft.lineCapStyle = .round
     shaft.setLineDash([0.1, 13], count: 2, phase: 0)
-    red.withAlphaComponent(0.55).setStroke()
+    teal.withAlphaComponent(0.55).setStroke()
     shaft.stroke()
     let head = NSBezierPath()
     head.move(to: NSPoint(x: 380, y: y + 15))
@@ -45,11 +45,11 @@ func draw() {
     head.lineWidth = 5
     head.lineCapStyle = .round
     head.lineJoinStyle = .round
-    red.setStroke()
+    teal.setStroke()
     head.stroke()
 
     // The text, under the icons' names (y is each line's bottom, so 316 is 316 points from the top).
-    centered("Drag Job Search into Applications", y: height - 316, size: 17, weight: .semibold, color: ink)
+    centered("Drag Job Oyster into Applications", y: height - 316, size: 17, weight: .semibold, color: ink)
     centered("Then open it from your Applications folder.", y: height - 340, size: 13, weight: .regular, color: muted)
     if openAnyway {
         centered("If macOS says it can't check the app: System Settings › Privacy & Security › Open Anyway (once).",

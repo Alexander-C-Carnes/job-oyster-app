@@ -49,7 +49,8 @@ html[data-theme="arcade"] #moment-canvas, html[data-theme="arcade"] .cat-art svg
 /* top bar: a HUD strip with a navy rule, tabs as tiles, counts as yellow pixel badges */
 html[data-theme="arcade"] .topbar { height: auto; min-height: 52px; padding: 6px 16px; gap: 6px 16px; flex-wrap: wrap; row-gap: 4px; background: var(--panel); border-bottom: var(--px) solid var(--ink); }
 html[data-theme="arcade"] .brand { font: 400 17px/1 var(--pixel-lg); letter-spacing: 0; gap: 10px; }
-html[data-theme="arcade"] .brand-mark { width: 12px; height: 12px; border-radius: 0; background: var(--accent); border: 2px solid var(--ink); }
+html[data-theme="arcade"] .brand-mark { --bm-tile: var(--accent); --bm-shell: #FFFFFF; --bm-pearl: var(--yellow); width: 26px; height: 26px; shape-rendering: crispEdges; }
+html[data-theme="arcade"] .bm-tile { rx: 0; stroke: var(--ink); stroke-width: 60; }
 html[data-theme="arcade"] .tabs { gap: 1px; align-self: center; flex-wrap: wrap; }
 html[data-theme="arcade"] .tabs button { padding: 5px 5px; border: var(--px) solid transparent; border-radius: 0; font-weight: 500; font-size: 14px; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
 html[data-theme="arcade"] .tabs button:hover { border-color: var(--ink); color: var(--ink); }

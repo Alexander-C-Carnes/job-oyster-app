@@ -13,13 +13,13 @@ Most people should [download the Mac app](https://github.com/Alexander-C-Carnes/
 
 ```bash
 git clone https://github.com/Alexander-C-Carnes/job-search-app.git job-search && cd job-search
-./jobsearch install                  # once: puts `jobsearch` on your PATH
-jobsearch run                        # first time: builds .venv, installs packages and the PDF browser, opens the app
+./oyster install                  # once: puts `oyster` on your PATH
+oyster run                        # first time: builds .venv, installs packages and the PDF browser, opens the app
 ```
 
-The first start makes your profile folder, `~/JobSearch`, as a copy of `example-profile/`: a made-up candidate, Jordan Rivera, so you can look around the app before you've added anything. (To keep it somewhere else, set `JOBPIPE_HOME` before the first start, e.g. `export JOBPIPE_HOME=~/Dropbox/JobSearch` in `~/.zshrc`.) The app opens in your browser at `http://127.0.0.1:8765/?token=…`. Bookmark that URL.
+The first start makes your profile folder, `~/JobOyster`, as a copy of `example-profile/`: a made-up candidate, Jordan Rivera, so you can look around the app before you've added anything. (To keep it somewhere else, set `JOBPIPE_HOME` before the first start, e.g. `export JOBPIPE_HOME=~/Dropbox/JobOyster` in `~/.zshrc`.) The app opens in your browser at `http://127.0.0.1:8765/?token=…`. Bookmark that URL.
 
-You never edit files in the repo itself, so `jobsearch update` can always pull the latest code.
+You never edit files in the repo itself, so `oyster update` can always pull the latest code.
 
 ## 3. Add your evidence
 
@@ -55,7 +55,7 @@ Every prompt, the PDF file names and the contact-line check read it: the method'
 
 ## 5. Add your keys
 
-The first start copied `.env.example` to `~/JobSearch/.env`. Fill in:
+The first start copied `.env.example` to `~/JobOyster/.env`. Fill in:
 
 | Key | Where to get it |
 |---|---|
@@ -126,9 +126,9 @@ They run offline (JobsPipe, Notion and Claude are mocked), so they're safe to ru
 
 ## Keeping it updated
 
-`jobsearch update` pulls the latest code and reinstalls packages if `requirements.txt` changed; `jobsearch go` does that and restarts the app. Your profile folder isn't in the repo, so updates never conflict with your files.
+`oyster update` pulls the latest code and reinstalls packages if `requirements.txt` changed; `oyster go` does that and restarts the app. Your profile folder isn't in the repo, so updates never conflict with your files.
 
-**Back up your profile folder.** It's the only copy of your evidence and tracker. Keep it in a synced folder (set `JOBPIPE_HOME`), or make it a private git repo of its own: `cd ~/JobSearch && git init`.
+**Back up your profile folder.** It's the only copy of your evidence and tracker. Keep it in a synced folder (set `JOBPIPE_HOME`), or make it a private git repo of its own: `cd ~/JobOyster && git init`.
 
-**From a checkout made before profile folders,** where your files were in the repo: the first start after updating copies them (`searches.yaml`, `.env`, `skill/references/`, `resume-runs/`, `data/`, `outputs/`) into `~/JobSearch` and points the stored paths at the new folders. It leaves the originals; delete them from the repo once everything looks right. To run it yourself: `.venv/bin/python -m jobpipe.legacy /path/to/old/checkout`.
+**From a checkout made before profile folders,** where your files were in the repo: the first start after updating copies them (`searches.yaml`, `.env`, `skill/references/`, `resume-runs/`, `data/`, `outputs/`) into `~/JobOyster` and points the stored paths at the new folders. It leaves the originals; delete them from the repo once everything looks right. To run it yourself: `.venv/bin/python -m jobpipe.legacy /path/to/old/checkout`.
 

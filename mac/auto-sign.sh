@@ -12,17 +12,17 @@
 # agent runs that copy, which also outlives a worktree; the signed DMGs land in its build/signed/. It skips a
 # run while the Mac is on an iPhone hotspot (slow and metered) or another copy of the signing is going, and
 # gives a tag three tries before leaving it to you. Each failure shows a notification; the log is
-# ~/Library/Logs/Job Search/auto-sign.log. Notary auth is whatever mac/sign-release.sh finds: put the API key
-# in ~/JobSearch/.notary.env so it can't vanish with the keychain profile.
+# ~/Library/Logs/Job Oyster/auto-sign.log. Notary auth is whatever mac/sign-release.sh finds: put the API key
+# in ~/JobOyster/.notary.env so it can't vanish with the keychain profile.
 set -uo pipefail
 
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 REPO=${JS_RELEASE_REPO:-Alexander-C-Carnes/job-search-app}
 LABEL=io.github.job-search.auto-sign
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_DIR="$HOME/Library/Logs/Job Search"; LOG="$LOG_DIR/auto-sign.log"
-STATE="$HOME/Library/Caches/Job Search/auto-sign"; MAX_TRIES=3
-SIGNING_DIR="$HOME/Library/Application Support/Job Search/signing"
+LOG_DIR="$HOME/Library/Logs/Job Oyster"; LOG="$LOG_DIR/auto-sign.log"
+STATE="$HOME/Library/Caches/Job Oyster/auto-sign"; MAX_TRIES=3
+SIGNING_DIR="$HOME/Library/Application Support/Job Oyster/signing"
 mkdir -p "$LOG_DIR" "$STATE"
 
 case "${1:-}" in
@@ -60,7 +60,7 @@ EOF
 esac
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
-notify() { osascript -e "display notification \"$1\" with title \"Job Search signing\"" >/dev/null 2>&1 || true; }
+notify() { osascript -e "display notification \"$1\" with title \"Job Oyster signing\"" >/dev/null 2>&1 || true; }
 
 if pgrep -f "mac/sign-release.sh" >/dev/null; then log "Signing is already going: skipping"; exit 0; fi
 # An iPhone hotspot hands out 172.20.10.x; the address, not the gateway, since a VPN hides the gateway.
@@ -84,5 +84,5 @@ log "$TAG is unsigned: signing it (try $((tries + 1)) of $MAX_TRIES)"
 if "$REPO_DIR/mac/sign-release.sh" "$TAG" --repo "$REPO"; then
   rm -f "$tries_file"; log "$TAG signed and notarized"; notify "$TAG is signed and notarized."
 else
-  log "Signing $TAG failed"; notify "Signing $TAG failed. See ~/Library/Logs/Job Search/auto-sign.log."
+  log "Signing $TAG failed"; notify "Signing $TAG failed. See ~/Library/Logs/Job Oyster/auto-sign.log."
 fi

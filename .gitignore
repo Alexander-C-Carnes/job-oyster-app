@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 .env
-# Personal files belong in your profile folder (~/JobSearch), not here. These catch copies left in
+# Personal files belong in your profile folder (~/JobOyster), not here. These catch copies left in
 # the repo from before profiles (or put here by mistake) so they never reach git.
 data/
 outputs/

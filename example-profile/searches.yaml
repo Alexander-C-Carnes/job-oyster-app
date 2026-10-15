@@ -1,5 +1,5 @@
 # Your profile's settings: who you are, your saved job searches, and how the app runs.
-# It lives in your profile folder (~/JobSearch unless $JOBPIPE_HOME says otherwise), out of git.
+# It lives in your profile folder (~/JobOyster unless $JOBPIPE_HOME says otherwise), out of git.
 #
 # Credits: JobsPipe charges 1 credit per job returned, once per calendar month
 # (re-seeing a job you already paid for this month is free). So `limit` is the

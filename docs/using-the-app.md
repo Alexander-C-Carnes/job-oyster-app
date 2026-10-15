@@ -19,16 +19,16 @@ Searches (the **Filters** tab): **Check filters** (≤1 credit per filter), **Se
 The Mac app needs none of this: open it from Applications, and quit it with ⌘Q.
 
 ```bash
-./jobsearch install      # once: makes `jobsearch` work from any folder
-jobsearch run            # start the app and open it (if it's already running, just open it)
-jobsearch update         # get the latest code and packages
-jobsearch go             # update, then run (restarting the app if it's running on an older version)
-jobsearch restart        # stop the app and start it again, e.g. after merging a change
+./oyster install      # once: makes `oyster` work from any folder
+oyster run            # start the app and open it (if it's already running, just open it)
+oyster update         # get the latest code and packages
+oyster go             # update, then run (restarting the app if it's running on an older version)
+oyster restart        # stop the app and start it again, e.g. after merging a change
 ```
 
 Runs going in the app (a search, Make résumé) carry on through `restart` and `go`: each run is its own process, saving what it prints and how it ended in `data/tracker.db`, and the restarted app picks it up, along with the runs that were waiting their turn. Add `--force` to stop them too. Quitting is different: Ctrl+C in the app's window (or closing the window) stops the runs, and with runs going the first Ctrl+C says so and a second one quits. Restarting from a new Terminal window stops the app in the old one and runs it in the new one. (An app started before this change can't keep its runs through a restart, so `restart` still waits for them the first time.)
 
-The app opens at `http://127.0.0.1:8765/?token=…`; keep its Terminal window open (Ctrl+C stops it). The first run sets up `.venv` (Python packages and the PDF browser), and packages are reinstalled whenever `requirements.txt` changes, so nothing needs activating. `./start.sh` is the same as `jobsearch run`. On a Mac, `python` alone isn't a command outside `.venv`; use `python3` or `.venv/bin/python`.
+The app opens at `http://127.0.0.1:8765/?token=…`; keep its Terminal window open (Ctrl+C stops it). The first run sets up `.venv` (Python packages and the PDF browser), and packages are reinstalled whenever `requirements.txt` changes, so nothing needs activating. `./start.sh` is the same as `oyster run`. On a Mac, `python` alone isn't a command outside `.venv`; use `python3` or `.venv/bin/python`.
 
 Bookmark the URL it prints; the token in it stays the same until you delete `data/web-token`.
 

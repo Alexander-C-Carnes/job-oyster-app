@@ -251,7 +251,7 @@ def no_posting_keeper(monkeypatch):
 @pytest.fixture(autouse=True)
 def fixture_candidate(tmp_path_factory, monkeypatch):
     """Every test runs for CANDIDATE, from a copy of example-profile in a temp folder (never the real
-    ~/JobSearch): its references are the example impact record and résumé."""
+    ~/JobOyster): its references are the example impact record and résumé."""
     profile = tmp_path_factory.mktemp("profile")
     shutil.copytree(EXAMPLE_REFS, profile / "references")
     for name, path in (("PROFILE", profile), ("REFERENCES", profile / "references"), ("RUNS", profile / "resume-runs"),

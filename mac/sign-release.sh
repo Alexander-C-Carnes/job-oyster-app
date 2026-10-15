@@ -2,7 +2,7 @@
 # Sign and notarize a published release's DMGs on this Mac, so the Developer ID certificate and the notary key
 # never leave it. GitHub's Macs build and publish the DMGs unsigned (the repo holds no signing secrets); this
 # downloads them, signs the app inside each with mac/package.sh, notarizes the new DMGs and puts them on the
-# release in place of the old ones (the versioned names and the stable Job-Search-<arch>.dmg ones).
+# release in place of the old ones (the versioned names and the stable Job-Oyster-<arch>.dmg ones).
 #
 #   mac/sign-release.sh [v0.1.4] [--repo owner/repo] [--no-upload]
 #
@@ -10,7 +10,7 @@
 # The signed DMGs are kept in build/signed/. --no-upload stops there and leaves the release as it is.
 # Once they're up, the release notes lose their Open Anyway step.
 # Needs gh signed in with write access to that repo, a "Developer ID Application" identity in the keychain
-# (or $SIGN_IDENTITY), and notary auth: an App Store Connect API key named in ~/JobSearch/.notary.env (your profile
+# (or $SIGN_IDENTITY), and notary auth: an App Store Connect API key named in ~/JobOyster/.notary.env (your profile
 # folder, or $JOBPIPE_HOME), three lines:
 #   NOTARY_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
 #   NOTARY_KEY_ID=XXXXXXXXXX
@@ -36,7 +36,8 @@ say() { printf '\n==> %s\n' "$*"; }
 VERSION=${TAG#v}
 security find-identity -v -p codesigning | grep -q "Developer ID Application" || [ -n "${SIGN_IDENTITY:-}" ] ||
   { echo "No Developer ID Application certificate in the keychain."; exit 1; }
-NOTARY_ENV="${JOBPIPE_HOME:-$HOME/JobSearch}/.notary.env"
+PROFILE=${JOBPIPE_HOME:-$HOME/JobOyster}; [ -e "$PROFILE" ] || PROFILE=$HOME/JobSearch   # its name before Job Oyster
+NOTARY_ENV="$PROFILE/.notary.env"
 if [ -z "${NOTARY_KEY:-}" ] && [ -f "$NOTARY_ENV" ]; then set -a; . "$NOTARY_ENV"; set +a; fi
 if [ -n "${NOTARY_KEY:-}" ]; then
   [ -f "$NOTARY_KEY" ] || { echo "NOTARY_KEY file not found: $NOTARY_KEY"; exit 1; }
@@ -69,10 +70,14 @@ gh release view "$TAG" -R "$REPO" --json assets -q '.assets[] | "\(.name) \(.siz
     [ -f "$f" ] && [ "$(stat -f %z "$f")" != "$size" ] && rm -f "$f"
     true
   done
-gh release download "$TAG" -R "$REPO" -p "Job-Search-$VERSION-*.dmg" -D "$DL" --skip-existing
 shopt -s nullglob
-DMGS=("$DL"/Job-Search-"$VERSION"-*.dmg)
-[ ${#DMGS[@]} -gt 0 ] || { echo "$TAG has no Job-Search-$VERSION-<arch>.dmg files."; exit 1; }
+for APP_NAME in "Job Oyster" "Job Search"; do     # releases up to v0.1.9 were Job Search
+  PREFIX=${APP_NAME// /-}
+  gh release download "$TAG" -R "$REPO" -p "$PREFIX-$VERSION-*.dmg" -D "$DL" --skip-existing 2>/dev/null || true
+  DMGS=("$DL"/"$PREFIX"-"$VERSION"-*.dmg)
+  [ ${#DMGS[@]} -eq 0 ] || break
+done
+[ ${#DMGS[@]} -gt 0 ] || { echo "$TAG has no Job-Oyster-$VERSION-<arch>.dmg files."; exit 1; }
 
 for dmg in "${DMGS[@]}"; do
   name=$(basename "$dmg" .dmg); ARCH=${name##*-}
@@ -84,19 +89,19 @@ for dmg in "${DMGS[@]}"; do
   mnt="$WORK/mnt-$ARCH"; mkdir -p "$mnt"
   hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$dmg"
   mkdir -p "$WORK/$ARCH"
-  ditto "$mnt/Job Search.app" "$WORK/$ARCH/Job Search.app"
+  ditto "$mnt/$APP_NAME.app" "$WORK/$ARCH/$APP_NAME.app"
   hdiutil detach -quiet "$mnt"
-  xattr -cr "$WORK/$ARCH/Job Search.app"         # codesign refuses files with Finder info or quarantine flags
-  have=$(defaults read "$WORK/$ARCH/Job Search.app/Contents/Info" CFBundleShortVersionString)
+  xattr -cr "$WORK/$ARCH/$APP_NAME.app"         # codesign refuses files with Finder info or quarantine flags
+  have=$(defaults read "$WORK/$ARCH/$APP_NAME.app/Contents/Info" CFBundleShortVersionString)
   [ "$have" = "$VERSION" ] || { echo "The app in $name.dmg says it's $have, not $VERSION."; exit 1; }
 
   # Made in the work folder, so only notarized DMGs reach build/signed/.
-  "$REPO_DIR/mac/package.sh" "$WORK/$ARCH/Job Search.app" "$WORK/$name.signed.dmg" --notarize
+  "$REPO_DIR/mac/package.sh" "$WORK/$ARCH/$APP_NAME.app" "$WORK/$name.signed.dmg" --notarize
   mv "$WORK/$name.signed.dmg" "$OUT/$name.dmg"
-  cp "$OUT/$name.dmg" "$OUT/Job-Search-$ARCH.dmg"
+  cp "$OUT/$name.dmg" "$OUT/$PREFIX-$ARCH.dmg"
   [ -n "$UPLOAD" ] || continue
-  say "Replacing $name.dmg and Job-Search-$ARCH.dmg on $TAG"
-  gh release upload "$TAG" -R "$REPO" --clobber "$OUT/$name.dmg" "$OUT/Job-Search-$ARCH.dmg"
+  say "Replacing $name.dmg and $PREFIX-$ARCH.dmg on $TAG"
+  gh release upload "$TAG" -R "$REPO" --clobber "$OUT/$name.dmg" "$OUT/$PREFIX-$ARCH.dmg"
   touch "$DL/$name.done"
 done
 

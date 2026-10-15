@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sign "Job Search.app", put it in the install DMG, and (with --notarize) have Apple notarize the DMG.
+# Sign "Job Oyster.app" (or a release from before the rename, "Job Search.app"), put it in the install DMG, and (with --notarize) have Apple notarize the DMG.
 # mac/build.sh runs it on the app it just built; mac/sign-release.sh on the app from a published release.
 #
 #   mac/package.sh <app> <dmg> [--no-sign] [--notarize]
@@ -84,7 +84,7 @@ swift mac/make_dmg_background.swift "$BUILD/dmg-background.png" "$BUILD/dmg-back
 for try in 1 2 3; do
   rm -f "$DMG"
   if out=$(PYTHONPATH="$DMGBUILD" "$PY" -m dmgbuild -s mac/dmg_settings.py -D app="$APP" \
-      -D icon="$APP/Contents/Resources/AppIcon.icns" -D background="$BUILD/dmg-background.png" "Job Search" "$DMG" 2>&1); then break; fi
+      -D icon="$APP/Contents/Resources/AppIcon.icns" -D background="$BUILD/dmg-background.png" "$(basename "$APP" .app)" "$DMG" 2>&1); then break; fi
   printf 'Making the DMG failed (try %s of 3):\n%s\n' "$try" "$out"
   [ "$try" = 3 ] && exit 1
   sleep $((try * 15))

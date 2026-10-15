@@ -3,7 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Job Search</title>
+  <title>Job Oyster</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <script src="/static/theme-boot.js"></script>
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/themes/sorbet.css">
@@ -20,7 +21,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Job Search</div>
+    <div class="brand"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><rect class="bm-tile" x="100" y="100" width="824" height="824" rx="185"/><path class="bm-shell" d="M250 560 Q520 830 800 560 Z"/><g class="bm-lid"><path class="bm-shell" d="M250 536 Q520 266 800 536 Z" transform="rotate(-24 250 548)"/></g><circle class="bm-pearl" cx="600" cy="510" r="60"/></svg>Job Oyster</div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="find">Find jobs <span class="count" id="count-find"></span></button>
       <span class="tab-sep" aria-hidden="true"></span>
@@ -45,10 +46,10 @@
   </header>
 
   <div id="auth-error" class="banner hidden">
-    Open this app with <code>jobsearch run</code>, or the link it prints (it includes your access token).
+    Open this app with <code>oyster run</code>, or the link it prints (it includes your access token).
   </div>
   <div id="offline" class="banner hidden">
-    The app can't reach its server, so what you see may be out of date. If it isn't running, start it with <code>jobsearch run</code>. This page reconnects by itself within a few seconds.
+    The app can't reach its server, so what you see may be out of date. If it isn't running, start it with <code>oyster run</code>. This page reconnects by itself within a few seconds.
   </div>
   <div id="toast" class="toast hidden" role="status"></div>
 

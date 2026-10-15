@@ -26,7 +26,7 @@ async function request(path, opts = {}) {
     if (!(e instanceof TypeError)) throw e;
     // The server isn't answering: say so in words, not the browser's "Failed to fetch". Still a TypeError for the checks below.
     $("#offline").classList.remove("hidden");
-    throw new TypeError("Can't reach the app's server. Start it with jobsearch run.");
+    throw new TypeError("Can't reach the app's server. Start it with oyster run.");
   }
   if (res.status === 401) { $("#auth-error").classList.remove("hidden"); throw new Error("Not authorized"); }
   return res;
@@ -210,7 +210,7 @@ function openActionsHelp() {
       row("Résumé", "1–10", "How well the résumé you made covers the posting. Every edit is rated again."),
       row("ATS", "%", "How much of the posting's skills, experience and keywords an applicant tracking system would find in the résumé.")),
     h("h3", {}, "Runs"),
-    h("p", {}, "The Runs tab lists searches and Make résumé, with each one's log. A signal or full score shows on the job instead. Runs carry on when the app restarts (jobsearch restart); quitting the app stops them, and it asks first."),
+    h("p", {}, "The Runs tab lists searches and Make résumé, with each one's log. A signal or full score shows on the job instead. Runs carry on when the app restarts (oyster restart); quitting the app stops them, and it asks first."),
     h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close")));
   dlg.showModal();
 }

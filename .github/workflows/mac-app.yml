@@ -128,7 +128,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: dmg-${{ matrix.arch }}
-          path: build/Job-Search-*.dmg
+          path: build/Job-Oyster-*.dmg
 
   release:
     needs: [version, build]
@@ -147,15 +147,17 @@ jobs:
         run: |
           if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             {
-              echo "The latest Job Search${SINCE:+, with everything changed since $SINCE}."
+              echo "The latest Job Oyster${SINCE:+, with everything changed since $SINCE}."
               echo
-              echo "**Download:** \`Job-Search-${TAG#v}-arm64.dmg\` for Apple silicon (M1 and later), \`Job-Search-${TAG#v}-x86_64.dmg\` for Intel."
+              echo "**Download:** \`Job-Oyster-${TAG#v}-arm64.dmg\` for Apple silicon (M1 and later), \`Job-Oyster-${TAG#v}-x86_64.dmg\` for Intel."
               echo
-              echo "**Already have it?** Quit Job Search, open the new DMG and drag the app into Applications to replace the old one. Your profile folder (~/JobSearch) and everything in it stay as they are."
+              echo "**Coming from Job Search?** It's the same app with a new name. Open Job Oyster and it offers to move the old app to the Trash; your profile folder moves from ~/JobSearch to ~/JobOyster by itself."
+              echo
+              echo "**Already have it?** Quit Job Oyster, open the new DMG and drag the app into Applications to replace the old one. Your profile folder (~/JobOyster) and everything in it stay as they are."
               echo
               echo "**New here?** Drag the app into Applications and open it. If macOS says it can't check the app, open System Settings > Privacy & Security and click Open Anyway (once). Then follow [Get started](https://github.com/$GITHUB_REPOSITORY#get-started) to make it yours."
               if [ -n "$SINCE" ]; then echo; echo "Every change: https://github.com/$GITHUB_REPOSITORY/compare/$SINCE...$TAG"; fi
             } > notes.md
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Job Search ${TAG#v}" --notes-file notes.md
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Job Oyster ${TAG#v}" --notes-file notes.md
           fi
           gh release upload "$TAG" dmgs/*.dmg -R "$GITHUB_REPOSITORY" --clobber
