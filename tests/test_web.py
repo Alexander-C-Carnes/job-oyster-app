@@ -349,7 +349,8 @@ def test_add_a_job_from_its_link(env, monkeypatch):
     c = env["client"]
     import jobpipe.jd
     read = {"https://jobs.lever.co/zeta/1": {"job_title": "Staff TPM", "company": "Zeta", "location": "Remote",
-                                             "remote": True, "description": "Lead the release train. " * 40}}
+                                             "remote": True, "description": "Lead the release train. " * 40},
+            "https://hiring.cafe/job/abc123": {"browser_check": "HiringCafe", "description": ""}}
     monkeypatch.setattr(jobpipe.jd, "read_posting",
                         lambda url, client=None: {"url": url, **read.get(url, {"description": ""})})
     assert c.post("/api/jobs/lookup", headers=H, json={"url": "not a link"}).status_code == 400
@@ -372,6 +373,11 @@ def test_add_a_job_from_its_link(env, monkeypatch):
     # a page that can't be read needs the description pasted
     r = c.post("/api/jobs", headers=H, json={"url": "https://example.com/jobs/9", "title": "PM", "company": "Ex"})
     assert r.status_code == 400 and "Paste the full job description" in r.json()["detail"]
+    # a job board that only opens in a browser: the form says so and asks for the employer's link
+    d = c.post("/api/jobs/lookup", headers=H, json={"url": "https://hiring.cafe/job/abc123"}).json()
+    assert d["browser_check"] == "HiringCafe" and not d["readable"]
+    r = c.post("/api/jobs", headers=H, json={"url": "https://hiring.cafe/job/abc123"})
+    assert r.status_code == 400 and "employer's own link" in r.json()["detail"]
     text = "Shape the roadmap for Ex's platform. " * 10
     r = c.post("/api/jobs", headers=H, json={"url": "https://example.com/jobs/9", "title": "PM", "company": "Ex",
                                              "description": text})
@@ -2190,6 +2196,16 @@ def test_customise_edit_preview_and_delete_a_format_of_your_own(env):
     assert "resume_format: signature" in env["searches"].read_text()
     assert c.delete(f"/api/formats/own/{fid}", headers=H).status_code == 404
     assert r["choices"]["fonts"][0] == "Helvetica Neue" and r["ranges"]["body_size"] == [9.5, 11.5]
+
+
+def test_about_says_which_version_runs_and_the_newest_release(env, monkeypatch):
+    from jobpipe.web import about
+    monkeypatch.setattr(about, "fetch_latest", lambda: {"tag": "v0.1.11", "url": "u", "date": "2026-10-16"})
+    c = env["client"]
+    assert c.get("/api/about").status_code == 401
+    r = c.get("/api/about", headers=H).json()
+    assert r["latest"]["tag"] == "v0.1.11" and r["repo"] == about.REPO_URL
+    assert r["running"].get("version") or r["running"].get("commit")       # this checkout, or the Mac app's number
 
 
 def test_the_page_script_calls_only_functions_and_elements_that_exist():

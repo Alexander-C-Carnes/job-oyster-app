@@ -551,3 +551,15 @@ html[data-theme="sorbet"] .ghosted-form input { border-radius: 999px; text-align
 html[data-theme="sorbet"] #ghosted-state { display: inline-block; color: var(--good); font-weight: 700; }
 html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: sorbet-pop 930ms var(--open); }
 @media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: none; } }
+
+/* About card (Profile): the links as springy pills, the Claude credit on a soft wash */
+html[data-theme="sorbet"] .about-version b { font: 600 15px var(--display); }
+html[data-theme="sorbet"] .about-links h3 { font: 600 15px var(--display); text-transform: none; letter-spacing: 0; color: var(--ink); margin-bottom: 6px; }
+html[data-theme="sorbet"] .about-links ul { display: flex; flex-wrap: wrap; gap: 6px; }
+html[data-theme="sorbet"] .about-links li { padding: 0; }
+html[data-theme="sorbet"] .about-links a { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--panel-2); color: var(--ink);
+  font: 600 13.5px var(--display); transition: transform 600ms var(--close), background-color 200ms; }
+html[data-theme="sorbet"] .about-links a:hover { text-decoration: none; background: var(--sel); transform: scale(1.07); transition: transform 760ms var(--open), background-color 200ms; }
+html[data-theme="sorbet"] .about-claude { padding: 10px 14px; border-radius: 16px; background: color-mix(in srgb, var(--st-done) 11%, white); }
+html[data-theme="sorbet"] .about-claude b { font: 600 14.5px var(--display); }
+@media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] .about-links a, html[data-theme="sorbet"] .about-links a:hover { transition: none; transform: none; } }

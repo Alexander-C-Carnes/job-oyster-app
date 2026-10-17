@@ -163,7 +163,8 @@ function showTab(name) {
   if (name === "runs") loadRuns();
   if (name === "dashboard") renderDashboard();
   if (name in DOCS) DOCS[name].load();
-  if (name === "profile") { loadProfile(); loadAI(); loadFormats(); loadGhostDays(); }
+  // Profile's cards load at once; the promise settles when all have (the About button scrolls down after that)
+  if (name === "profile") return Promise.allSettled([loadProfile(), loadAI(), loadFormats(), loadGhostDays(), loadAbout()]);
 }
 
 // ---- what each action is called ----------------------------------------------------------------
@@ -2748,9 +2749,13 @@ async function readPosting({ force = false } = {}) {
     if (e) lookupMsg("warn", `Already in your jobs: ${e.title}${e.company ? " at " + e.company : ""}${e.status ? ` (${e.status})` : ""}.`,
       h("button", { type: "button", class: "link-btn", onclick: () => { addDialog.close(); openJob(e.id); } }, "Open it"));
     else if (d.readable) lookupMsg("Read from the posting. Check the details, then add it.");
+    else if (d.browser_check) lookupMsg("warn", `${d.browser_check} only shows its pages to a person's browser, `
+      + "so the app can't read this link. Paste the employer's own link above (a job board's Apply button leads "
+      + "there), or copy the posting from the page and paste it below.");
     else lookupMsg("warn", (got.title ? "Found the title, but not" : "Couldn't read") + " the description on this page. "
       + "It may need a sign-in or a browser. Copy the posting from the page and paste it below.");
-    if (!d.readable) addField("description").focus();
+    if (d.browser_check && !d.readable) addField("url").select();  // pasting the employer's link reads it
+    else if (!d.readable) addField("description").focus();
   } catch (err) {
     if (seq !== add.seq) return;
     add.url = "";
@@ -3844,6 +3849,39 @@ $("#ghosted-form").addEventListener("submit", async (e) => {
       : `Saved. Roles move to Ghosted after ${r.ghost_after_days} days with no change.`);
     if (r.moved.length) loadJobs();
   } catch (err) { toast(err.message, true); ghostDaysChanged(); }
+});
+
+// ---- about ------------------------------------------------------------------------------------
+// Profile's About card: the version this copy runs (the Mac app's number, or the commit a checkout is on) and
+// the newest release. The guides and GitHub links are plain links in index.html.
+const newerTag = (tag, v) => {
+  const n = (x) => String(x).replace(/^v/, "").split(/[.-]/).map((p) => parseInt(p, 10) || 0);
+  const a = n(tag), b = n(v);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return false;
+};
+const longDate = (d) => new Date(`${d}T12:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+async function loadAbout() {
+  let r;
+  try { r = await api("/api/about"); } catch (e) { $("#about-version").textContent = ""; return; }
+  const run = r.running || {}, latest = r.latest;
+  const rel = latest && h("a", { href: latest.url, target: "_blank", rel: "noopener" }, latest.tag);
+  const parts = [];
+  if (run.version) {
+    parts.push(h("b", {}, `Version ${run.version}`));
+    if (latest && newerTag(latest.tag, run.version))
+      parts.push(" · ", rel, " is out. Check for Updates… in the Job Oyster menu gets it.");
+    else if (latest) parts.push(" · the newest release");
+  } else {
+    parts.push(h("b", {}, run.commit ? "Running from the code" : "Version unknown"));
+    if (run.commit) parts.push(`: ${run.branch ? run.branch + " at " : ""}${run.commit}, ${longDate(run.date)}`);
+    if (latest) parts.push(" · newest release ", rel, latest.date ? `, ${longDate(latest.date)}` : "");
+  }
+  $("#about-version").replaceChildren(...parts);
+}
+$("#about-btn").addEventListener("click", async () => {
+  await showTab("profile");      // the cards above it change height as they fill in
+  $("#about-card").scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
 });
 
 async function loadFormats() {

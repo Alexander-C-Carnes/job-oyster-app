@@ -270,7 +270,8 @@ def fetch_posting_text(url: str, client: Optional[httpx.Client] = None) -> str:
 def read_posting(url: str, client: Optional[httpx.Client] = None) -> dict:
     """A posting read from its link, as a job to store: url, job_title, company, location, description
     (and remote or pay when the page states them). Fields the page doesn't give are left out;
-    description is "" when the page has no posting text this can read."""
+    description is "" when the page has no posting text this can read. browser_check names the site
+    when it only shows its pages to a person's browser."""
     url = normalize_posting_url(url)
     c = client or httpx.Client(timeout=20, follow_redirects=True,
                                headers={"User-Agent": "Mozilla/5.0 (jobpipe resume tailoring)"})
@@ -279,7 +280,22 @@ def read_posting(url: str, client: Optional[httpx.Client] = None) -> dict:
     return {"url": url, **{k: v for k, v in meta.items() if v not in (None, "")}, "description": text}
 
 
+# Sites that show every page only after a "verify you are human" check (Cloudflare's challenge), whatever
+# the request says it is: the app can't read them, so it doesn't try. HiringCafe's listings, searches and
+# API all answered with the challenge on 2026-10-17. Its Apply button leads to the employer's own posting.
+BROWSER_CHECK_SITES = {"hiring.cafe": "HiringCafe", "hiringcafe.com": "HiringCafe"}
+
+
+def browser_check_site(url: str) -> str:
+    """The site's name when its pages only open in a person's browser, else ""."""
+    return BROWSER_CHECK_SITES.get(urlsplit(url).netloc.lower().removeprefix("www."), "")
+
+
 def _read_with_retry(url: str, c: httpx.Client, meta: dict) -> str:
+    site = browser_check_site(url)
+    if site:
+        meta["browser_check"] = site
+        return ""
     try:
         return _read_posting(url, c, meta)
     except httpx.TransportError:      # a timeout or dropped connection: one more try
@@ -296,6 +312,9 @@ def _read_posting(url: str, c: httpx.Client, meta: dict) -> str:
     if len(text) >= MIN_DESCRIPTION_CHARS:
         return text
     r = c.get(url)
+    if r.headers.get("cf-mitigated") == "challenge":  # Cloudflare wants a person's browser first
+        meta["browser_check"] = r.request.headers.get("host", r.url.host).removeprefix("www.")
+        return ""
     if r.status_code >= 400:
         return ""
     raw = r.text

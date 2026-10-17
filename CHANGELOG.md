@@ -4,6 +4,12 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-17
 
+### Adding a job
+- Links the app can't read say why
+
+### App
+- About Job Oyster, with the version, the guides and GitHub
+
 ### Running from code
 - `oyster start` runs the app in the background
 - The app can keep itself up to date

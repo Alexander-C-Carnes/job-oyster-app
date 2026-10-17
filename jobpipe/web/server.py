@@ -34,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import config
 from ..config import Config
 from .. import formats, jd, own_formats, record_import, regions, render, resume_import
-from . import follow
+from . import about, follow
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -424,6 +424,16 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def chat_payload(ws: ResumeWorkspace) -> list[dict]:
         return [{**m, "html": md_html(m["text"])} if m["role"] == "claude" else m for m in ws.chat()]
 
+    # ---- about ----------------------------------------------------------------------
+    # The code this process runs: read once, so a pull without a restart doesn't claim the new commit.
+    this_copy = about.running(config.ROOT)
+    newest = about.Latest()
+
+    @app.get("/api/about")
+    def about_app():
+        """Profile's About card: the version running, the newest release (None offline) and the public repo."""
+        return {"running": this_copy, "latest": newest.get(), "repo": about.REPO_URL}
+
     # ---- summary & jobs -------------------------------------------------------------
     @app.get("/api/summary")
     def summary():
@@ -626,6 +636,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if len(text) < MIN_PASTED_CHARS and url:
             found.update(jd.read_posting(url))
             text, read = found["description"].strip(), True
+        if len(text) < MIN_PASTED_CHARS and found.get("browser_check"):
+            raise HTTPException(400, f"{found['browser_check']} only shows its pages to a person's browser, so the "
+                                     "app can't read that link. Paste the employer's own link (a job board's Apply "
+                                     "button leads there), or paste the full job description.")
         if len(text) < MIN_PASTED_CHARS:
             raise HTTPException(400, "Couldn't read the posting from that link. Paste the full job description."
                                 if url else "Paste the full job description, or the posting's link.")

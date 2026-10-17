@@ -71,6 +71,19 @@ def test_read_posting_from_a_careers_page():
     assert (d["job_title"], d["company"], d["description"]) == ("Staff TPM", "Acme", "")
 
 
+def test_read_posting_from_a_site_that_wants_a_browser():
+    # HiringCafe puts every page behind Cloudflare's "verify you are human" check: the app doesn't ask
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"requested {request.url}")
+    d = read_posting("https://hiring.cafe/job/9naqj25yblgrkhki", httpx.Client(transport=httpx.MockTransport(refuse)))
+    assert (d["browser_check"], d["description"]) == ("HiringCafe", "")
+    # another site answering with the challenge is named, and "Just a moment..." isn't taken for the job's title
+    challenge = httpx.Response(403, headers={"cf-mitigated": "challenge"},
+                               text="<html><head><title>Just a moment...</title></head></html>")
+    d = read_posting("https://www.acme.example/careers/7", _pages({"https://www.acme.example/": challenge}))
+    assert (d["browser_check"], d["description"]) == ("acme.example", "") and "job_title" not in d
+
+
 def test_read_posting_from_a_company_page_on_an_ashby_board():
     # melodia.example/careers/<id>: no JobPosting data on the company's page (its text is in a Next.js blob
     # and its title is "Melodia | Staff TPM"), but it links to the job on its Ashby board, which has all of it
