@@ -523,6 +523,32 @@ class Tailor:
         return Analysis(exact_title=title, objectives=objectives, match_md=s2.files["04-match.md"], ratings=ratings,
                         keywords=keywords, base=base, baseline=baseline, warnings=warnings)
 
+    async def rate_final(self, md: str, jd_md: str, ratings: dict, run_dir: Path, warnings: list[str]) -> dict:
+        """A finished resume rated on every requirement row of the full score, FINAL_RATINGS times independently
+        and in parallel, then synthesized: ratings.json's table with a "Tailored resume" column added."""
+        A = self.cfg.analysis_model
+        sources = [config.IMPACT_SOURCE, *config.candidate().resumes, "Tailored resume"]
+
+        async def rate_once(n: int) -> dict:
+            out = f"ratings-final-{n}.json"
+            res = await self._checked(
+                AgentCall(label=f"rate-final-{n}", model=A,
+                          instructions=RATER_BRIEF.format(out=out) + '\nNew source: ["Tailored resume"]',
+                          documents={"jd.md": jd_md, "ratings.json": json.dumps(ratings, indent=2),
+                                     "resume-final.md [Tailored resume]": md},
+                          expect=[out], run_dir=run_dir),
+                {out: lambda t: check_ratings(t, sources)})
+            return json.loads(res.files[out])
+
+        runs = await asyncio.gather(*(rate_once(n) for n in range(1, FINAL_RATINGS + 1)), return_exceptions=True)
+        good = [r for r in runs if isinstance(r, dict)]
+        if not good:
+            raise runs[0]
+        if len(good) < len(runs):
+            warnings.append(f"final rating: {len(runs) - len(good)} of {len(runs)} raters failed; "
+                            f"synthesized the other {len(good)}")
+        return synthesize_ratings(good, "Tailored resume")
+
     async def run(self, meta: JobMeta, jd_md: str, run_dir: Path) -> TailorResult:
         cfg, A, W = self.cfg, self.cfg.analysis_model, self.cfg.writer_model
         a = await self.analyze(meta, jd_md, run_dir)
@@ -612,29 +638,7 @@ class Tailor:
         (run_dir / "checks-final.md").write_text(out + "\n")
         final_md = await self._honesty(final_md, title, jd_md, match_md, index, run_dir, warnings)
 
-        async def rate_once(md: str, n: int) -> dict:
-            out = f"ratings-final-{n}.json"
-            res = await self._checked(
-                AgentCall(label=f"rate-final-{n}", model=A,
-                          instructions=RATER_BRIEF.format(out=out) + '\nNew source: ["Tailored resume"]',
-                          documents={"jd.md": jd_md, "ratings.json": json.dumps(ratings, indent=2),
-                                     "resume-final.md [Tailored resume]": md},
-                          expect=[out], run_dir=run_dir),
-                {out: lambda t: check_ratings(t, base_sources + ["Tailored resume"])})
-            return json.loads(res.files[out])
-
-        async def rate_final(md: str) -> dict:
-            """The final resume rated FINAL_RATINGS times independently, in parallel, and synthesized."""
-            runs = await asyncio.gather(*(rate_once(md, n) for n in range(1, FINAL_RATINGS + 1)),
-                                        return_exceptions=True)
-            good = [r for r in runs if isinstance(r, dict)]
-            if not good:
-                raise runs[0]
-            if len(good) < len(runs):
-                warnings.append(f"final rating: {len(runs) - len(good)} of {len(runs)} raters failed; "
-                                f"synthesized the other {len(good)}")
-            return synthesize_ratings(good, "Tailored resume")
-
+        rate_final = lambda md: self.rate_final(md, jd_md, ratings, run_dir, warnings)
         ratings_final = await rate_final(final_md)
         md_card = scorecard(ratings_final, keywords, {"Tailored resume": final_md})["Tailored resume"]
         below = (md_card["total"] or 0) < best_total

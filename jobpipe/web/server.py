@@ -725,7 +725,41 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                      heatmap=str(run_dir / "heatmap-baseline.html") if code == 0 else None)
         return {"id": jid, "full_score": full, "impact_score": a.impact_score}
 
-    scorer = Scorer({"signal": signal_score, "full": full_score})
+    async def score_upload(jid: str) -> dict:
+        """Score the résumé uploaded for a role the app didn't tailor, as Make résumé scores its own: the role's
+        full score (reused when it has one) gives the posting's requirement rows, keywords and match brief, then
+        the upload's current version is rated on every row. Its Résumé tab then has scores, the format check
+        and the chat."""
+        from ..tailor import Tailor
+        row = board.row(jid)
+        src = outside_resume(jid)[0] if row and not row["tailored"] else None
+        if not src or src["key"] != linked.UPLOAD:
+            raise HTTPException(400, "Only a résumé uploaded for this role is scored this way.")
+        await full_score(jid)
+        analysis = Path(board.state()[jid]["analysis_dir"])
+        ws = ResumeWorkspace(linked.workspace_dir(jid, src, store.root), **role_of(jid))
+        n = (await asyncio.to_thread(ws.history))["current"]
+        md = ws.md(n)
+        upload = linked.job_dir("uploads", jid, store.root)
+        # The upload's own folder gets the files too, so a copy made from it later keeps them; the ratings
+        # only when they're of the upload itself (not a hand edit made since).
+        same = (upload / "resume-final.md").exists() and (upload / "resume-final.md").read_text().strip() == md.strip()
+        dirs = [ws.run_dir] + [upload] * same
+        for d in dirs:
+            for name in linked.ANALYSIS_FILES:
+                if (analysis / name).exists():
+                    shutil.copy(analysis / name, d / name)
+        try:
+            final = await Tailor(cfg, get_runner(), analysis.parent, log=lambda msg: None).rate_final(
+                md, (analysis / "jd.md").read_text(), json.loads((analysis / "ratings.json").read_text()), ws.run_dir, [])
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"Claude couldn't rate your résumé: {e}") from None
+        for d in dirs:
+            (d / "ratings-final.json").write_text(json.dumps(final, indent=2))
+        await asyncio.to_thread(ws.score_version, n)
+        return {"id": jid}
+
+    scorer = Scorer({"signal": signal_score, "full": full_score, "upload": score_upload})
 
     @app.post("/api/jobs/{jid}/score")
     async def score_job(jid: str):
@@ -741,7 +775,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         """Queue jobs for a signal or full score. Progress is in /api/summary under `scoring`."""
         kind = body.get("kind", "signal")
         if kind not in scorer.fns:
-            raise HTTPException(400, "kind must be signal or full")
+            raise HTTPException(400, "kind must be signal, full or upload")
         ids = [str(i) for i in body.get("job_ids") or [] if board.row(str(i))][:200]
         if not ids:
             raise HTTPException(400, "Pick at least one job.")
@@ -1779,7 +1813,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             pick_outside(row, jid, linked.UPLOAD)
             h = workspace(jid).history()
         shutil.rmtree(imp, ignore_errors=True)
-        return {**h, "added_version": as_version}
+        # A role the app didn't tailor has no posting breakdown to score the upload on until the page asks
+        # for one (POST /api/score, kind "upload").
+        unscored = not tailored and workspace(jid).requirements() is None
+        return {**h, "added_version": as_version, "unscored": unscored}
 
     @app.post("/api/profile/resumes/import/{iid}/check")
     def check_import(iid: str, body: dict):

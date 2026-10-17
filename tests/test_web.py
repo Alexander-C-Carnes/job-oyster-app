@@ -2105,6 +2105,45 @@ def test_upload_a_resume_for_a_job(env):
     assert c.post("/api/jobs/nope/resume/upload", headers=H, json={"import_id": d["id"], "markdown": _resume()}).status_code == 404
 
 
+
+def test_an_upload_for_a_role_the_app_didnt_tailor_is_scored_on_the_posting(env):
+    c, store = env["client"], env["store"]
+    _sorter(env["runner"])
+    with c:                      # one event loop for the whole test, as under uvicorn
+        d = _upload(c, "my-cv.md", _resume().encode()).json()
+        h = c.post("/api/jobs/j2/resume/upload", headers=H, json={"import_id": d["id"], "markdown": d["markdown"]}).json()
+        assert h["unscored"] and h["versions"][0].get("ats") is None
+        assert not c.get("/api/jobs/j2/outside-resume", headers=H).json()["resume"]["editable"]
+
+        # Score résumé: the role's full score, then the upload rated on every requirement row
+        env["runner"].calls.clear()
+        c.post("/api/score", headers=H, json={"job_ids": ["j2"], "kind": "upload"})
+        assert wait_for_scoring(c)["errors"] == {}
+        assert [x.label for x in env["runner"].calls] == ["01-objectives", "02-skills", "03-experience", "04-matcher",
+                                                          "rate-final-1", "rate-final-2", "rate-final-3"]
+        assert env["runner"].calls[-1].documents["resume-final.md [Tailored resume]"].strip() == d["markdown"].strip()
+        r = c.get("/api/jobs/j2/outside-resume", headers=H).json()["resume"]
+        v = r["versions"][0]
+        assert r["editable"] and v["resume_score"] == 9 and v["ats"] > 0 and v["keywords_pct"] > 0
+        assert v["check"]["passed"] is not None and not v["rating"]
+        assert c.get("/api/jobs/j2", headers=H).json()["impact_score"] == 8       # the full score is the role's too
+        up = next(store.root.glob("uploads/j2"))
+        assert (up / "ratings-final.json").exists() and (up / "04-match.md").exists()
+
+        # scored again with nothing changed: the full score is reused, only the upload is rated
+        env["runner"].calls.clear()
+        c.post("/api/score", headers=H, json={"job_ids": ["j2"], "kind": "upload"})
+        assert wait_for_scoring(c)["errors"] == {}
+        assert [x.label for x in env["runner"].calls] == ["rate-final-1", "rate-final-2", "rate-final-3"]
+
+        # a role whose résumé isn't an upload isn't scored this way
+        c.post("/api/score", headers=H, json={"job_ids": ["j1"], "kind": "upload"})
+        assert "Only a résumé uploaded" in wait_for_scoring(c)["errors"]["j1"]
+        # an upload over the app's own résumé is a version of it, rated as edits are
+        d = _upload(c, "again.md", _resume().replace("Ran the ledger", "Owned the ledger").encode()).json()
+        assert not c.post("/api/jobs/j1/resume/upload", headers=H,
+                          json={"import_id": d["id"], "markdown": d["markdown"]}).json()["unscored"]
+
 # ---- formats of your own --------------------------------------------------------------------------------
 def test_a_format_from_an_uploaded_resumes_look(env, tmp_path):
     from jobpipe import formats, own_formats

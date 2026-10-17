@@ -13,6 +13,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-14
 
+### Résumé
+- Uploads get scored
+
 ### Name
 - A new icon
 - Job Search is now Job Oyster

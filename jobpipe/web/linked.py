@@ -21,7 +21,11 @@ from typing import Optional
 from .. import config
 
 # Files copied from a skill run folder, so the résumé editor and checks have what they read.
-RUN_FILES = ("resume-final.md", "jd.md", "04-match.md", "01-objectives.md", "keywords.json", "uploaded-from.txt")
+RUN_FILES = ("resume-final.md", "jd.md", "04-match.md", "01-objectives.md", "keywords.json", "uploaded-from.txt",
+             "ratings.json", "ratings-final.json")
+# What scoring an upload copies in from the role's full score: the posting, its title, the match brief, the
+# keywords and the requirement rows (the upload's own ratings follow, in ratings-final.json).
+ANALYSIS_FILES = ("jd.md", "01-objectives.md", "04-match.md", "keywords.json", "ratings.json")
 ABBREV = {"tpm": "technical program manager", "pm": "product manager", "em": "engineering manager",
           "sr": "senior", "eng": "engineering", "mgr": "manager"}
 STOP = {"and", "of", "the", "for", "a", "an", "to", "in", "at", "resume", "final"}

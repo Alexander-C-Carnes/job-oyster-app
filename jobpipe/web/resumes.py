@@ -543,6 +543,21 @@ class ResumeWorkspace:
         self._save(h)
         return v
 
+    def score_version(self, n: int) -> dict:
+        """Store version n's scores and format check from the requirement rows now in the folder (an upload just
+        scored against the posting), and each version's keyword share."""
+        h = self.history()
+        rows = self.requirements()
+        for v in h["versions"]:
+            md = self.md(v["n"])
+            v["keywords_pct"] = self.keyword_pct(md)
+            if v["n"] == n:
+                txt = self.vdir / f"v{n}.pdf.txt"
+                v.update(self.scores(rows["ratings"], rows["score"], txt.read_text() if txt.exists() else md)
+                         if rows else {}, check=self.check(self.vdir / f"v{n}.md"), rating=False)
+        self._save(h)
+        return h
+
     # ---- formats -----------------------------------------------------------------------
     def redraw(self, fmt: formats.Format, printer: Optional[render.Printer] = None, force: bool = False) -> dict:
         """Draw the current version in `fmt` when it fits the format's page limit: {"applied", "pages"}.

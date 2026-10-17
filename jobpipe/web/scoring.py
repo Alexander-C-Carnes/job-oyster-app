@@ -13,7 +13,7 @@ from typing import Awaitable, Callable
 
 from fastapi import HTTPException
 
-PARALLEL = {"signal": 3, "full": 1}
+PARALLEL = {"signal": 3, "full": 1, "upload": 1}
 
 
 class Scorer:

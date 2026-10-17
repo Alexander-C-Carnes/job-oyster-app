@@ -174,6 +174,8 @@ const ACTIONS = {
     what: "A quick read on fit: scores the posting against your impact record from 1 to 10, with the strongest matches, the hard requirements to check and the likely gaps. Use it to pick which roles are worth more." },
   full: { name: "Full score", calls: "about four Claude calls",
     what: "Rates every requirement in the posting against your impact record and each of your résumés: a 1 to 10 score, a heat map and the gaps to confirm. No résumé is written. Make résumé reuses it." },
+  upload: { name: "Score résumé", calls: "three Claude calls, after a full score",
+    what: "Scores a résumé you uploaded for a role the way Make résumé scores its own: the role's full score (reused if it has one), then your résumé rated on every requirement. You get its résumé score, ATS and keywords, the format check and the chat. Nothing in it is rewritten." },
   resume: { name: "Make résumé", calls: "about eleven Claude calls",
     what: "Writes a résumé for this posting: the full score (reused if it has one), three drafts, the best of them merged and checked, a PDF and a fit report. The job moves to In progress, and its badge fills as it goes. When the most runs are going, it waits its turn and starts by itself." },
 };
@@ -182,6 +184,7 @@ function actionTime(kind) {
   const d = S.summary?.durations;
   if (kind === "signal") return "~30 sec";
   if (kind === "full") return d ? mins(d.full_score_s) : "a few min";
+  if (kind === "upload") return d ? mins(d.full_score_s + 90) : "a few min";
   return d ? mins(d.make_resume_s) : "~25 min";
 }
 const timeTag = (kind) => h("span", { class: "btn-time" }, actionTime(kind));
@@ -196,7 +199,7 @@ function openActionsHelp() {
     h("div", { class: "gl-head" }, h("h2", { id: "actions-help-title" }, "What each does"),
       h("button", { class: "icon-btn", title: "Close", "aria-label": "Close", onclick: () => dlg.close() }, icon("close"))),
     h("h3", {}, "On a job"),
-    h("dl", {}, ...["signal", "full", "resume"].map((k) => row(ACTIONS[k].name, `${actionTime(k)} · ${ACTIONS[k].calls}`, ACTIONS[k].what))),
+    h("dl", {}, ...["signal", "full", "upload", "resume"].map((k) => row(ACTIONS[k].name, `${actionTime(k)} · ${ACTIONS[k].calls}`, ACTIONS[k].what))),
     h("p", { class: "muted" }, "Most roles only need a signal score. Run a full score on the ones worth a closer look, and make a résumé for the ones you'll apply to."),
     h("h3", {}, "Searches (Filters tab)"),
     h("dl", {},
@@ -922,7 +925,10 @@ function applyScoring(sc) {
   if (finished) {            // some jobs left the queue: fetch their scores
     const done = changed.filter((id) => !S.scoring.has(id));
     done.forEach((id) => S.details.delete(id));
-    loadJobs().then(() => { if (done.includes(S.selected) && S.byId.get(S.selected)?.local) loadDetail(S.selected); });
+    loadJobs().then(() => {
+      if (!done.includes(S.selected)) return;
+      if (S.byId.get(S.selected)?.local) loadDetail(S.selected); else renderDetail();
+    });
   }
   clearTimeout(applyScoring._t);
   if (S.scoring.size) applyScoring._t = setTimeout(loadSummary, 1500);   // follow the queue closely while it runs
@@ -1760,7 +1766,7 @@ async function renderOutside(j, panel) {
     h("span", {}, o.matched ? "Matched by name: " : "Showing ", h("b", {}, o.source.label)), pick));
   panel.replaceChildren(wrap);
   chatFromServer(j.id, o.resume.chat, o.resume.chat_busy);
-  renderResume({ id: j.id, resume: o.resume }, wrap);
+  renderResume({ id: j.id, resume: o.resume, upload: o.source.key === "upload" }, wrap);
 }
 
 // The posting, read beside its score. JobsPipe stores postings as plain text: blank-line paragraphs,
@@ -2093,7 +2099,9 @@ function renderResume(d, panel, sent = null) {
   const ask = (text) => { if (r.editable === false) return; instr.value = chat.draft = text; instr.focus(); };
   const readOnly = r.editable === false && h("div", { class: "card" }, h("h3", {}, "Chat with Claude isn't available"),
     h("p", { class: "muted" }, "This résumé was saved without its posting and match brief, which Claude needs to check edits against. Use Make résumé in the app to get a copy Claude can edit. You can still change the wording yourself: Edit on page, above the PDF."));
-  editpane.append(readOnly || askCard, proposalBox, metrics, ...versionCards(d, r, pdf, ask));
+  const scoreCard = d.upload && cur?.ats == null && !cur?.rating && uploadScoreCard(d.id, r.editable === false);
+  editpane.append(...[scoreCard && r.editable === false ? scoreCard : readOnly || askCard, proposalBox,
+    scoreCard && r.editable !== false && scoreCard, metrics, ...versionCards(d, r, pdf, ask)].filter(Boolean));
   const grid = h("div", { class: "resume" }, pdfpane);
   grid.append(splitHandle(grid), editpane);
   panel.append(grid);
@@ -2323,6 +2331,19 @@ async function openPageEditor(d, pane) {
       refresh();
     }
   });
+}
+
+// A résumé uploaded for a role the app didn't tailor has nothing to be scored on until the role's posting is
+// broken down into requirements (its full score); Score résumé does that, then rates the upload on every one.
+function uploadScoreCard(id, noChat) {
+  const busy = S.scoring.get(id);
+  return h("div", { class: "card upload-score" }, h("h3", {}, busy ? "Scoring your résumé" : "Not scored yet"),
+    h("p", { class: "muted" }, busy
+      ? `Breaking the posting into requirements (its full score, reused if it has one), then rating your résumé on each. ${busy.state === "queued" ? "Waiting its turn." : `It takes ${actionTime("upload")}.`}`
+      : `Your résumé gets a résumé score, ATS and keywords, and the format check, once the posting is broken down into requirements and your résumé is rated on each.${noChat ? " That also turns on the chat." : ""}`),
+    scoreError(id),
+    !busy && h("button", { class: "primary", title: ACTIONS.upload.what, onclick: () => scoreJobs([id], "upload") },
+      ACTIONS.upload.name, timeTag("upload")));
 }
 
 // The résumé's numbers drawn to scale: fit and résumé out of 10, ATS and keywords out of 100.
@@ -3676,8 +3697,10 @@ function jobImportSave(d, body, cols, md, recheck, toggle) {
     catch (e) { formError(body, e.message); save.disabled = false; return; }
     if (record.checked) renderSuggestions({ markdown: md.value, source: d.filename });
     else impDialog.close();
-    toast(res.added_version ? `Saved as v${res.current} of this role's résumé.` : `${d.filename} is now this role's résumé.`);
+    toast((res.added_version ? `Saved as v${res.current} of this role's résumé.` : `${d.filename} is now this role's résumé.`) +
+      (res.unscored ? ` Scoring it against the posting (${actionTime("upload")}).` : ""));
     S.detailTab = "resume"; S.detailTabJob = j.id;
+    if (res.unscored) scoreJobs([j.id], "upload");
     reloadResume(j.id);
     if (res.versions.find((v) => v.n === res.current)?.rating) {   // keywords are in; re-rate skills and experience
       post(`/api/jobs/${encodeURIComponent(j.id)}/resume/rescore`, { n: res.current })
