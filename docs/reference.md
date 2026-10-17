@@ -84,7 +84,7 @@ They run offline: JobsPipe, Notion and Claude are mocked (a stand-in `claude` ex
 
 ## Making a Mac app release (for maintainers)
 
-Published releases are on the public repo's [Releases page](https://github.com/Alexander-C-Carnes/job-search-app/releases).
+Published releases are on the public repo's [Releases page](https://github.com/Alexander-C-Carnes/job-oyster-app/releases).
 
 `mac/build.sh` builds `build/Job Oyster.app` and a DMG on the Mac you run it on: it downloads a standalone Python ([python-build-standalone](https://github.com/astral-sh/python-build-standalone)), installs `requirements.txt` into it (without pytest and sentence-transformers), adds headless Chromium for the PDFs, copies `jobpipe/`, `skill/` and `example-profile/`, and compiles the launcher (`mac/Launcher.swift`), which starts the server and opens the page. The DMG opens on a laid-out window, the app on the left and Applications on the right with an arrow and a line on what to do, drawn by `mac/make_dmg_background.swift` and placed by [dmgbuild](https://github.com/dmgbuild/dmgbuild) from `mac/dmg_settings.py` (no Finder scripting, so it works on GitHub's Macs). With a "Developer ID Application" certificate in your keychain it signs everything; `--notarize` also sends it to Apple, so it opens with no warning (`mac/build.sh --help` lists the options).
 

@@ -6,7 +6,7 @@
 #
 #   mac/sign-release.sh [v0.1.4] [--repo owner/repo] [--no-upload]
 #
-# The tag defaults to the latest release; --repo to $JS_RELEASE_REPO, else Alexander-C-Carnes/job-search-app.
+# The tag defaults to the latest release; --repo to $JS_RELEASE_REPO, else Alexander-C-Carnes/job-oyster-app.
 # The signed DMGs are kept in build/signed/. --no-upload stops there and leaves the release as it is.
 # Once they're up, the release notes lose their Open Anyway step.
 # Needs gh signed in with write access to that repo, a "Developer ID Application" identity in the keychain
@@ -21,7 +21,7 @@
 set -euo pipefail
 
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
-TAG=""; UPLOAD=1; REPO=${JS_RELEASE_REPO:-Alexander-C-Carnes/job-search-app}
+TAG=""; UPLOAD=1; REPO=${JS_RELEASE_REPO:-Alexander-C-Carnes/job-oyster-app}
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO=$2; shift 2 ;;
@@ -51,7 +51,7 @@ else
   say "Notary auth: keychain profile ${NOTARY_PROFILE:-jobsearch-notary}"
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/job-search-sign.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/job-oyster-sign.XXXXXX")
 cleanup() {
   for m in "$WORK"/mnt-*; do hdiutil detach -quiet "$m" 2>/dev/null || true; done
   rm -rf "$WORK"

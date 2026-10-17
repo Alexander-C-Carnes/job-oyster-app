@@ -29,7 +29,7 @@ from .startups import role_fits
 from .store import safe_id
 
 API = "https://himalayas.app/jobs/api/search"
-UA = "jobpipe (personal job search; https://github.com/Alexander-C-Carnes/job-search-app)"
+UA = "jobpipe (personal job search; https://github.com/Alexander-C-Carnes/job-oyster-app)"
 PAGE_SIZE = 20               # the API's page size
 WORLDWIDE = "*"              # the scope for jobs open to anyone, anywhere
 

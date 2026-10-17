@@ -455,7 +455,7 @@ class OpenAICompatRunner(_RetryingRunner):
                                f"or in {config.PROFILE / '.env'}. Get one at {p.signup}.")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         if provider == "openrouter":
-            headers.update({"X-Title": "Job Oyster", "HTTP-Referer": "https://github.com/Alexander-C-Carnes/job-search-app"})
+            headers.update({"X-Title": "Job Oyster", "HTTP-Referer": "https://github.com/Alexander-C-Carnes/job-oyster-app"})
         self.client = client or httpx.AsyncClient(headers=headers, timeout=timeout_s)
         if client is not None:
             self.client.headers.update(headers)

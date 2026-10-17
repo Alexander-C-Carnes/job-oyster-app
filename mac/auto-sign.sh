@@ -17,7 +17,7 @@
 set -uo pipefail
 
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
-REPO=${JS_RELEASE_REPO:-Alexander-C-Carnes/job-search-app}
+REPO=${JS_RELEASE_REPO:-Alexander-C-Carnes/job-oyster-app}
 LABEL=io.github.job-search.auto-sign
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/Job Oyster"; LOG="$LOG_DIR/auto-sign.log"

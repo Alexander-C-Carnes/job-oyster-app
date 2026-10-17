@@ -2,9 +2,9 @@
 
 **A job-hunting assistant that runs on your Mac.** It finds new job postings, tells you how well each one fits your experience, writes a tailored résumé for the good ones, and keeps track of every application.
 
-[![Latest release](https://img.shields.io/github/v/release/Alexander-C-Carnes/job-search-app?label=latest%20release)](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Alexander-C-Carnes/job-oyster-app?label=latest%20release)](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest)
 
-**Download for Mac:** [Apple silicon (M1 or later)](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-arm64.dmg) · [Intel](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-x86_64.dmg) · [What's new](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest) · [All releases](https://github.com/Alexander-C-Carnes/job-search-app/releases)
+**Download for Mac:** [Apple silicon (M1 or later)](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest/download/Job-Oyster-arm64.dmg) · [Intel](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest/download/Job-Oyster-x86_64.dmg) · [What's new](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest) · [All releases](https://github.com/Alexander-C-Carnes/job-oyster-app/releases)
 
 ![The Tracker tab, with made-up jobs](docs/images/tracker.png)
 
@@ -23,12 +23,12 @@
 
 | Your Mac | Download |
 |---|---|
-| Apple silicon (M1 or later) | [Job-Oyster-arm64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-arm64.dmg) |
-| Intel | [Job-Oyster-x86_64.dmg](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest/download/Job-Oyster-x86_64.dmg) |
+| Apple silicon (M1 or later) | [Job-Oyster-arm64.dmg](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest/download/Job-Oyster-arm64.dmg) |
+| Intel | [Job-Oyster-x86_64.dmg](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest/download/Job-Oyster-x86_64.dmg) |
 
 Not sure which you have? Apple menu → **About This Mac** → **Chip** (Apple M-something means Apple silicon).
 
-These links always get the newest version. To read what changed, see the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Every earlier version, with its notes and DMGs, is on the [Releases page](https://github.com/Alexander-C-Carnes/job-search-app/releases). A new release goes out once a day when something has changed.
+These links always get the newest version. To read what changed, see the [latest release](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest). Every earlier version, with its notes and DMGs, is on the [Releases page](https://github.com/Alexander-C-Carnes/job-oyster-app/releases). A new release goes out once a day when something has changed.
 
 ### 2. Install it
 
@@ -93,7 +93,7 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 
 **Does it work on Windows or Linux?** The download is for macOS. You can [run it from the code](docs/setup-from-code.md) on Linux, but that isn't tested.
 
-**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Oyster** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest). Your files aren't affected.
+**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Oyster** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest). Your files aren't affected.
 
 **Wasn't this called Job Search?** Yes, until v0.1.9. It's the same app. The first time you open Job Oyster it offers to move the old Job Search app to the Trash, and it moves your profile folder from `~/JobSearch` to `~/JobOyster` (the old path keeps working). From the code, `oyster` replaces the `jobsearch` command, which still works.
 

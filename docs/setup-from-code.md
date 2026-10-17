@@ -1,6 +1,6 @@
 # Run it from the code
 
-Most people should [download the Mac app](https://github.com/Alexander-C-Carnes/job-search-app/releases/latest) instead ([install steps](../README.md#get-started)). These steps are for running it from a clone of the repo, on a Mac (Linux may work). Steps 3 and 4 are the real work: the pipeline is only as good as the evidence you give it.
+Most people should [download the Mac app](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest) instead ([install steps](../README.md#get-started)). These steps are for running it from a clone of the repo, on a Mac (Linux may work). Steps 3 and 4 are the real work: the pipeline is only as good as the evidence you give it.
 
 ## 1. What you need
 
@@ -12,7 +12,7 @@ Most people should [download the Mac app](https://github.com/Alexander-C-Carnes/
 ## 2. Get the code and start the app
 
 ```bash
-git clone https://github.com/Alexander-C-Carnes/job-search-app.git job-search && cd job-search
+git clone https://github.com/Alexander-C-Carnes/job-oyster-app.git job-oyster && cd job-oyster
 ./oyster install                  # once: puts `oyster` on your PATH
 oyster run                        # first time: builds .venv, installs packages and the PDF browser, opens the app
 ```

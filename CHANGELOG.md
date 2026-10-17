@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-16
 
+### Project
+- The project is now at github.com/Alexander-C-Carnes/job-oyster-app
+
 ### Résumés
 - PDF file names can use the date and the version
 - Clearer note when the evidence models aren't used
