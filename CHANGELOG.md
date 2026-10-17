@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-17
+
+### Running from code
+- `oyster start` runs the app in the background
+- The app can keep itself up to date
+
 ## 2026-10-16
 
 ### Project

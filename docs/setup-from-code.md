@@ -128,6 +128,8 @@ They run offline (JobsPipe, Notion and Claude are mocked), so they're safe to ru
 
 `oyster update` pulls the latest code and reinstalls packages if `requirements.txt` changed; `oyster go` does that and restarts the app. Your profile folder isn't in the repo, so updates never conflict with your files.
 
+**Or let it update itself.** Add `OYSTER_FOLLOW_MAIN=1` to `~/JobOyster/.env` and restart the app once. From then on, while the app runs, it looks for new commits on `main` every five minutes. When there are some and no run is going, it pulls them (`oyster update`) and restarts in the same window. It leaves the checkout alone when it's on another branch, has changes you haven't committed, or has commits of its own.
+
 **Back up your profile folder.** It's the only copy of your evidence and tracker. Keep it in a synced folder (set `JOBPIPE_HOME`), or make it a private git repo of its own: `cd ~/JobOyster && git init`.
 
 **From a checkout made before profile folders,** where your files were in the repo: the first start after updating copies them (`searches.yaml`, `.env`, `skill/references/`, `resume-runs/`, `data/`, `outputs/`) into `~/JobOyster` and points the stored paths at the new folders. It leaves the originals; delete them from the repo once everything looks right. To run it yourself: `.venv/bin/python -m jobpipe.legacy /path/to/old/checkout`.

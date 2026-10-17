@@ -39,6 +39,9 @@ concurrency:
 
 jobs:
   version:
+    # Releases come from the public copy (…-app), where Actions are free; the private repo it's copied from has no
+    # minutes for them, so there every run would fail.
+    if: endsWith(github.repository, '-app')
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}

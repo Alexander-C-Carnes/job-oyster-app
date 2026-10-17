@@ -21,6 +21,7 @@ The Mac app needs none of this: open it from Applications, and quit it with ⌘Q
 ```bash
 ./oyster install      # once: makes `oyster` work from any folder
 oyster run            # start the app and open it (if it's already running, just open it)
+oyster start          # start it in the background instead, apart from any window (log: ~/Library/Logs/Job Oyster/app.log)
 oyster update         # get the latest code and packages
 oyster go             # update, then run (restarting the app if it's running on an older version)
 oyster restart        # stop the app and start it again, e.g. after merging a change

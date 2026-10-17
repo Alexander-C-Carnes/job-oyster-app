@@ -2,6 +2,7 @@
 # oyster: run and update Job Oyster, the web app.
 #
 #   oyster run       start the app and open it (if it's already running, just open it)
+#   oyster start     start it in the background instead, apart from any window (log: ~/Library/Logs/Job Oyster/app.log)
 #   oyster update    get the latest code and packages
 #   oyster go        update, then run (restarting the app if it's running)
 #   oyster restart   stop the app and start it again, to pick up code changes
@@ -117,6 +118,32 @@ cmd_run() {
   exec .venv/bin/python -m jobpipe serve --port "$PORT" "$@"
 }
 
+cmd_start() {  # like run, but in a session of its own: closing the window or tab it came from doesn't stop it
+  if running; then
+    say "The app is already running: $(app_url)"
+    return
+  fi
+  setup
+  local log="$HOME/Library/Logs/Job Oyster/app.log"
+  [ -d "$HOME/Library" ] || log="$DATA/app.log"
+  mkdir -p "$(dirname "$log")"
+  printf '\n== %s oyster start\n' "$(date '+%Y-%m-%d %H:%M:%S')" >> "$log"
+  PYTHONUNBUFFERED=1 nohup /usr/bin/perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' .venv/bin/python -m jobpipe serve --port "$PORT" --no-open "$@" \
+    >> "$log" 2>&1 < /dev/null &
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+    running && break
+    sleep 1
+  done
+  if running; then
+    say "Started in the background: $(app_url)"
+    say "Its log: $log. To stop it: kill \$(lsof -ti tcp:$PORT -sTCP:LISTEN)"
+  else
+    say "The app didn't start. The end of $log says why:"
+    tail -n 15 "$log"
+    exit 1
+  fi
+}
+
 cmd_update() {
   local before after branch
   branch=$(git rev-parse --abbrev-ref HEAD)
@@ -194,7 +221,7 @@ cmd_install() {
 }
 
 usage() {
-  sed -n '2,12p' "$REPO/oyster" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$REPO/oyster" | sed 's/^# \{0,1\}//'
 }
 
 # --force (restart and go): stop the app even if a run is going. The rest go to `jobpipe serve`.
@@ -209,6 +236,7 @@ set -- ${args[@]+"${args[@]}"}
 
 case "$cmd" in
   run) cmd_run "$@" ;;
+  start) cmd_start "$@" ;;
   update) cmd_update ;;
   go) cmd_go "$@" ;;
   restart) cmd_restart "$@" ;;

@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import config
 from ..config import Config
 from .. import formats, jd, own_formats, record_import, regions, render, resume_import
+from . import follow
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -2240,15 +2241,29 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
                     print(f"  Refresh startup sources started on its own (run {run.id}); it runs every "
                           f"{cfg.startups.auto_refresh_hours:g} hours while the app is open.")
         threading.Thread(target=keep_fresh, daemon=True).start()
-    run_server(app, port)
+    follower = None
+    if follow.enabled() and "OYSTER_APP_VERSION" not in os.environ and (config.ROOT / ".git").exists():
+        def busy() -> bool:
+            going = runs.going()
+            return bool(going["running"] or going["waiting"])
+        def restart() -> None:
+            app.state.server.should_exit = True
+        follower = follow.Follower(config.ROOT, busy, restart)
+        follower.start()
+        print("  Following main (OYSTER_FOLLOW_MAIN): new commits on origin/main get pulled, and the app restarts\n"
+              "  on them by itself whenever no run is going.\n")
+    quitting = run_server(app, port)
+    if follower and follower.restarting and not quitting:
+        follow.exec_again()
 
 
-def run_server(app: FastAPI, port: int) -> None:
-    """Serve until stopped. Quitting stops the runs; a restart leaves them going (app_server says which is which)."""
+def run_server(app: FastAPI, port: int) -> bool:
+    """Serve until stopped. Quitting stops the runs; a restart leaves them going (app_server says which is which).
+    True when it was quitting."""
     import uvicorn
 
     runs = app.state.runs
-    server = app_server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"), runs)
+    server = app.state.server = app_server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"), runs)
     signal.signal(signal.SIGHUP, server.hang_up)
     try:
         server.run()
@@ -2259,6 +2274,7 @@ def run_server(app: FastAPI, port: int) -> None:
             n = runs.stop_all()
             if n:
                 print(f"  Stopped {n} run{'s' if n != 1 else ''}.", flush=True)
+    return server.quitting
 
 
 def at_terminal() -> bool:
