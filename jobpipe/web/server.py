@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import config
 from ..config import Config
 from .. import formats, jd, own_formats, record_import, regions, render, resume_import
+from .. import hiringcafe as hc
 from . import about, follow
 from ..postings import PostingKeeper
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
@@ -172,8 +173,9 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                runs: Optional[RunManager] = None, allowed_hosts: Optional[set[str]] = None,
                searches_path: Optional[Path] = None,
                resume_root: Optional[Path] = None, impact_path: Optional[Path] = None,
-               prep_path: Optional[Path] = None) -> FastAPI:
+               prep_path: Optional[Path] = None, hiringcafe: Optional[hc.HiringCafe] = None) -> FastAPI:
     store = store or Store()
+    hiringcafe = hiringcafe or hc.HiringCafe()      # reads a share link when a search is added
     searches_path = searches_path or config.searches_path()
     impact_path = impact_path or config.REFERENCES / "impact-record.md"
     prep_path = prep_path or store.root / "interview-prep.md"   # personal notes, in the profile's data/
@@ -1138,8 +1140,12 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.get("/api/searches")
     def get_searches():
         _, searches, defaults = searches_file.load(searches_path)
+        checks = store.hiringcafe_checks()
+        cafe = [{"id": s["id"], "name": s["name"], "link": s.get("link") or "", "paused": bool(s.get("paused")),
+                 "facts": hc.describe(s["search_state"]), "check": checks.get(s["id"])}
+                for s in searches_file.load_hiringcafe(searches_path)]
         return {"searches": searches, "defaults": defaults, "regions": regions.choices(),
-                "himalayas": config.load(searches_path).himalayas}
+                "himalayas": config.load(searches_path).himalayas, "hiringcafe": cafe}
 
     def save_searches(searches: list[dict]):
         try:
@@ -1163,7 +1169,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def add_search(body: dict):
         """Add one search. Without an id, one is made from the name."""
         _, existing, _ = searches_file.load(searches_path)
-        ids = {s["id"] for s in existing}
+        ids = {s["id"] for s in existing} | {s["id"] for s in searches_file.load_hiringcafe(searches_path)}
         raw = dict(body)
         if not str(raw.get("id") or "").strip():
             raw["id"] = searches_file.unique_id(str(raw.get("name") or ""), ids)
@@ -1186,6 +1192,62 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if not any(s["id"] == sid for s in existing):
             raise HTTPException(404, "Unknown filter")
         return save_searches([s for s in existing if s["id"] != sid])
+
+    # HiringCafe searches: added from a link, then named, paused or deleted here. Every run checks the ones not paused.
+    def save_hiringcafe(searches: list[dict]):
+        try:
+            searches_file.save_hiringcafe(searches_path, searches)
+        except searches_file.SearchError as e:
+            raise HTTPException(400, str(e)) from None
+        cfg.hiringcafe = config.load(searches_path).hiringcafe
+        return get_searches()
+
+    def hiringcafe_search(sid: str) -> tuple[list[dict], dict]:
+        existing = searches_file.load_hiringcafe(searches_path)
+        s = next((s for s in existing if s["id"] == sid), None)
+        if s is None:
+            raise HTTPException(404, "Unknown HiringCafe search")
+        return existing, s
+
+    @app.post("/api/hiringcafe")
+    async def add_hiringcafe(body: dict):
+        """Add a HiringCafe search from its link; a share link is read once, for the search it names."""
+        link = str(body.get("link") or "").strip()
+        try:
+            state = await asyncio.to_thread(hiringcafe.resolve, link)
+        except hc.LinkError as e:
+            raise HTTPException(400, str(e)) from None
+        except hc.Unreadable as e:
+            raise HTTPException(502, f"Couldn't read that link from HiringCafe: {e}. Try again, or paste the address "
+                                     "of the search page (it has ?searchState= in it).") from None
+        existing = searches_file.load_hiringcafe(searches_path)
+        same = next((s for s in existing if s["search_state"] == state), None)
+        if same:
+            raise HTTPException(400, f"You already have this search: “{same['name']}”.")
+        name = str(body.get("name") or "").strip() or (hc.describe(state).split(" · ")[0].strip('"') or "HiringCafe search")
+        _, filters, _ = searches_file.load(searches_path)
+        sid = searches_file.unique_id("hc-" + name, {s["id"] for s in [*filters, *existing]})
+        try:
+            new = searches_file.clean_hiringcafe({"id": sid, "name": name, "link": link, "search_state": state})
+        except searches_file.SearchError as e:
+            raise HTTPException(400, str(e)) from None
+        return {**save_hiringcafe([*existing, new]), "id": sid}
+
+    @app.put("/api/hiringcafe/{sid}")
+    def update_hiringcafe(sid: str, body: dict):
+        """Rename a HiringCafe search, or pause or resume it (`name`, `paused`)."""
+        existing, s = hiringcafe_search(sid)
+        new = {**s, **{k: body[k] for k in ("name", "paused") if k in body}}
+        try:
+            new = searches_file.clean_hiringcafe(new)
+        except searches_file.SearchError as e:
+            raise HTTPException(400, str(e)) from None
+        return save_hiringcafe([new if x["id"] == sid else x for x in existing])
+
+    @app.delete("/api/hiringcafe/{sid}")
+    def delete_hiringcafe(sid: str):
+        existing, _ = hiringcafe_search(sid)
+        return save_hiringcafe([x for x in existing if x["id"] != sid])
 
     @app.get("/api/searches/requests")
     def search_requests():
@@ -1277,6 +1339,15 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         key, busy = "search", "A search is already going. Start this one when it finishes (or stop it in Runs)."
         if kind == "preflight":
             args, label = ["preflight", *flags], "Check filters (≤1 credit each)"
+        elif kind == "hiringcafe":
+            # Check these HiringCafe searches now (free), and give their new jobs a signal score.
+            names = {s.id: s.name for s in config.load(searches_path).hiringcafe}
+            picked = [s for s in ids if s in names]
+            if not picked:
+                raise HTTPException(400, "Unknown HiringCafe search")
+            args = ["run", "--no-tailor", *[x for s in picked for x in ("--hiringcafe", s)]]
+            what = ", ".join(names[s] for s in picked)
+            label = f"HiringCafe: {what if len(what) <= 70 else what[:67] + '…'} + signal score"
         elif kind == "run":
             args = ["run", *flags]
             if body.get("no_tailor"):

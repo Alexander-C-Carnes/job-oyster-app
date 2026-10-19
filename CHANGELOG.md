@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-17
 
+### Finding jobs
+- HiringCafe searches, checked on every run
+
 ### Adding a job
 - Links the app can't read say why
 

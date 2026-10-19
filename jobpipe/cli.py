@@ -64,7 +64,24 @@ def _searches(cfg, args):
                              days=args.days, limit=args.limit, country=args.country, defaults=base)]
     if getattr(args, "search", None):
         return [cfg.search(s) for s in args.search]
+    if getattr(args, "hiringcafe", None):     # only those HiringCafe searches
+        return []
     return cfg.searches
+
+
+def _hiringcafe(cfg, args):
+    """The HiringCafe searches a run checks: the ones named, else every one not paused (none for a one-off search)."""
+    if getattr(args, "search_json", None) or getattr(args, "title", None):
+        return []
+    if getattr(args, "hiringcafe", None):
+        return [cfg.hiringcafe_search(s) for s in args.hiringcafe]
+    return [s for s in cfg.hiringcafe if not s.paused]
+
+
+def _add_hiringcafe_flag(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--hiringcafe", action="append", metavar="ID",
+                   help="check only this HiringCafe search from searches.yaml (repeatable); by default a run checks "
+                        "every one not paused")
 
 
 def _add_query_flags(p: argparse.ArgumentParser) -> None:
@@ -113,7 +130,7 @@ def cmd_preflight(cfg, args):
 def cmd_search(cfg, args):
     from .pipeline import Pipeline
     p = Pipeline(cfg, use_notion=False, runner=_NoLLM())
-    cands, skipped = p.search(_searches(cfg, args))
+    cands, skipped = p.search(_searches(cfg, args), _hiringcafe(cfg, args))
     for c in cands:
         print(f"{c.id}  {c.meta.title} @ {c.meta.company} | {c.meta.location} {work_mode(c.job)} | "
               f"{c.meta.salary} | {c.meta.url}" + (f"  [{', '.join(c.flags)}]" if c.flags else ""))
@@ -125,7 +142,8 @@ def cmd_search(cfg, args):
 def cmd_run(cfg, args):
     from .pipeline import Pipeline
     p = Pipeline(cfg, use_notion=not args.no_notion, fetch_pages=not args.no_fetch)
-    asyncio.run(p.run(_searches(cfg, args), top=args.top, tailor=not args.no_tailor, retriage=args.retriage))
+    asyncio.run(p.run(_searches(cfg, args), top=args.top, tailor=not args.no_tailor, retriage=args.retriage,
+                      hiringcafe=_hiringcafe(cfg, args)))
     _usage(p.runner)
 
 
@@ -297,10 +315,13 @@ def main(argv=None) -> None:
                             ("search", cmd_search, True)):
         p = sub.add_parser(name)
         _add_query_flags(p)
+        if name == "search":
+            _add_hiringcafe_flag(p)
         p.set_defaults(fn=fn)
 
     p = sub.add_parser("run")
     _add_query_flags(p)
+    _add_hiringcafe_flag(p)
     p.add_argument("--top", type=int, help="how many résumés to make (default: pipeline.tailor_top)")
     p.add_argument("--no-tailor", action="store_true", help="signal score only, no résumés")
     p.add_argument("--no-notion", action="store_true")
@@ -354,8 +375,8 @@ def main(argv=None) -> None:
     args = ap.parse_args(argv)
     if args.cmd == "tailor" and not (args.job_id or args.jd_file):
         ap.error("tailor needs a JOB_ID or --jd-file")
-    if args.cmd in ("preflight", "search", "run"):
-        _need_jobspipe_key()
+    if args.cmd in ("preflight", "search", "run") and not (getattr(args, "hiringcafe", None) and not args.search):
+        _need_jobspipe_key()            # a check of HiringCafe searches alone needs no JobsPipe key
     cfg = config.load(args.config)
     args.fn(cfg, args)
 

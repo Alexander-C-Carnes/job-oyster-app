@@ -368,6 +368,9 @@ html[data-theme="sorbet"] .page-head h1, html[data-theme="sorbet"] .page h1 { fo
 html[data-theme="sorbet"] .scard { border-left-width: 1px; }
 html[data-theme="sorbet"] .scard.picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 html[data-theme="sorbet"] .run-bar { background: var(--paper); border-top: 1px solid var(--line); }
+html[data-theme="sorbet"] .section-head h2 { font-size: 18px; }
+html[data-theme="sorbet"] .scard.paused { border-style: dashed; background: var(--paper); }
+html[data-theme="sorbet"] .scard .hc-check.bad { color: #8A3B12; }
 html[data-theme="sorbet"] .runs li.selected, html[data-theme="sorbet"] .doc-outline button:hover { background: var(--sel); border-left-color: var(--accent); }
 html[data-theme="sorbet"] .runs .st.running { color: var(--link); }
 html[data-theme="sorbet"] .doc-head { background: var(--paper); }

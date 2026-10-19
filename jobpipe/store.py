@@ -75,6 +75,7 @@ class Store:
         self.jobs_dir = self.root / "jobs"
         self.state_path = self.root / "state.json"
         self.credits_path = self.root / "credits.json"
+        self.checks_path = self.root / "hiringcafe.json"
 
     @contextmanager
     def _locked(self):
@@ -182,6 +183,17 @@ class Store:
             if moved:
                 self._save_state(state)
         return moved
+
+    # ---- HiringCafe searches' checks -----------------------------------------
+    def hiringcafe_checks(self) -> dict:
+        """Each HiringCafe search's last check: {id: {at, found, new} or {at, error}}."""
+        return _read(self.checks_path, {})
+
+    def record_hiringcafe_check(self, search_id: str, **fields: Any) -> None:
+        with self._locked():
+            checks = self.hiringcafe_checks()
+            checks[search_id] = {"at": now_iso(), **fields}
+            _write(self.checks_path, checks)
 
     # ---- credits ----------------------------------------------------------
     def credits(self) -> dict:

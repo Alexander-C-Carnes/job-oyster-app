@@ -1,0 +1,29 @@
+{
+ "jobTitleQuery": "\"Technical Program Manager\"",
+ "workplaceTypes": [
+  "Remote",
+  "Hybrid"
+ ],
+ "commitmentTypes": [
+  "Full Time"
+ ],
+ "dateFetchedPastNDays": 14,
+ "locations": [
+  {
+   "formatted_address": "United States",
+   "types": [
+    "country"
+   ],
+   "id": "user_country",
+   "address_components": [
+    {
+     "long_name": "United States",
+     "short_name": "US",
+     "types": [
+      "country"
+     ]
+    }
+   ]
+  }
+ ]
+}

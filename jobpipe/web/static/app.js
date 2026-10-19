@@ -2809,6 +2809,7 @@ function applySearches(d) {
   S.defaults = d.defaults;
   S.regions = d.regions || [];
   S.himalayas = !!d.himalayas;
+  S.hiringcafe = d.hiringcafe || [];
   const ids = S.searches.map((s) => s.id);
   S.picked = new Set(S.picked ? ids.filter((id) => S.picked.has(id) || id === d.id) : ids);
   renderSearches();
@@ -2883,8 +2884,12 @@ function renderSearches() {
   const picked = S.searches.filter((s) => S.picked.has(s.id));
   const cap = S.summary?.credits.per_run;
   const max = picked.reduce((n, s) => n + (s.limit ?? df.limit ?? 10), 0);
+  const cafe = S.hiringcafe.filter((s) => !s.paused).length;
   $("#run-summary").replaceChildren(h("b", {}, `${picked.length} of ${S.searches.length}`), " selected · at most ",
-    h("b", {}, plural(cap != null ? Math.min(max, cap) : max, "credit")), cap != null && max > cap ? ` (run cap ${cap})` : "");
+    h("b", {}, plural(cap != null ? Math.min(max, cap) : max, "credit")), cap != null && max > cap ? ` (run cap ${cap})` : "",
+    cafe ? ` · + ${plural(cafe, "HiringCafe search")} (free)` : "");
+  $("#hiringcafe").replaceChildren(...S.hiringcafe.map(cafeCard),
+    ...(S.hiringcafe.length ? [] : [h("div", { class: "notice" }, "No HiringCafe searches yet. Add one from its share link to check it on every run.")]));
 }
 // The exact JSON a filter sends to JobsPipe, shown on its card. Showing it sends nothing.
 const shownRequests = new Set();
@@ -2929,6 +2934,75 @@ function searchCard(s) {
       h("button", { class: "ghost small", onclick: () => openSearch({ ...s, name: `${s.name || s.id} (copy)` }, "new") }, "Duplicate"),
       remove));
 }
+
+// ---- HiringCafe searches: added from a link (the app keeps the search's filters), checked on every run, free ----
+const fmtWhen = (v) => new Date(v).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+function cafeCheck(c) {
+  if (!c) return h("div", { class: "hc-check muted" }, "Not checked yet: the next run checks it.");
+  if (c.error) return h("div", { class: "hc-check bad" }, `Last checked ${fmtWhen(c.at)}: ${c.error}`);
+  return h("div", { class: "hc-check muted" }, `Last checked ${fmtWhen(c.at)} · `, h("b", {}, plural(c.new || 0, "new job")),
+    ` of ${c.found || 0} found`);
+}
+function cafeCard(s) {
+  const found = S.jobs.filter((j) => j.searches.includes(s.id)).length;
+  const change = async (body, done) => {
+    try { applySearches(await put(`/api/hiringcafe/${s.id}`, body)); toast(done); }
+    catch (e) { toast(e.message, true); }
+  };
+  const remove = h("button", { class: "ghost small danger" }, "Delete");
+  remove.addEventListener("click", async () => {
+    if (!remove.dataset.armed) {       // first click arms the button, the second deletes
+      remove.dataset.armed = "1"; remove.textContent = "Confirm delete";
+      setTimeout(() => { delete remove.dataset.armed; remove.textContent = "Delete"; }, 3000);
+      return;
+    }
+    try { applySearches(await api(`/api/hiringcafe/${s.id}`, { method: "DELETE" })); toast(`Deleted “${s.name}”.`); }
+    catch (e) { toast(e.message, true); }
+  });
+  return h("div", { class: "scard" + (s.paused ? " paused" : "") },
+    h("div", { class: "hc-top" }, h("span", { class: "nm" }, s.name), s.paused ? h("span", { class: "tag" }, "Paused") : null,
+      h("span", { class: "grow" }), extLink(s.link, "Open on HiringCafe")),
+    h("div", { class: "facts" }, s.facts),
+    cafeCheck(s.check),
+    h("footer", {},
+      h("span", { class: "muted", title: `Its id in searches.yaml: ${s.id}` }, `${plural(found, "role")} found so far`),
+      h("button", { class: "ghost small", title: "Check it now and give its new jobs a signal score",
+                    onclick: () => startRun({ kind: "hiringcafe", search_ids: [s.id] }) }, "Check now"),
+      h("button", { class: "ghost small", onclick: () => openCafe(s) }, "Rename"),
+      h("button", { class: "ghost small", title: s.paused ? "Check it on every run again" : "Skip it on runs until you resume it",
+                    onclick: () => change({ paused: !s.paused }, s.paused ? `Resumed “${s.name}”.` : `Paused “${s.name}”.`) },
+        s.paused ? "Resume" : "Pause"),
+      remove));
+}
+const cafeDialog = $("#hc-dialog"), cafeForm = $("#hc-form");
+function openCafe(s) {
+  cafeDialog._edit = s ? s.id : null;
+  cafeForm.reset();
+  formError(cafeForm);
+  $("h2", cafeForm).textContent = s ? "Rename HiringCafe search" : "Add a HiringCafe search";
+  $$(".hc-link", cafeForm).forEach((el) => el.classList.toggle("hidden", !!s));
+  cafeForm.elements.namedItem("link").required = !s;
+  cafeForm.elements.namedItem("name").value = s ? s.name : "";
+  $("button.primary", cafeForm).textContent = s ? "Save name" : "Add search";
+  cafeDialog.showModal();
+  cafeForm.elements.namedItem(s ? "name" : "link").focus();
+}
+$("#add-hiringcafe").addEventListener("click", () => openCafe(null));
+$("[data-act=cancel]", cafeForm).addEventListener("click", () => cafeDialog.close());
+cafeForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const id = cafeDialog._edit, name = cafeForm.elements.namedItem("name").value.trim();
+  const button = $("button.primary", cafeForm);
+  formError(cafeForm);
+  button.disabled = true;
+  try {
+    if (id) applySearches(await put(`/api/hiringcafe/${id}`, { name }));
+    else applySearches(await post("/api/hiringcafe", { link: cafeForm.elements.namedItem("link").value.trim(), name }));
+    cafeDialog.close();
+    toast(id ? "Name saved." : "HiringCafe search added. Every run checks it; Check now runs it once.");
+  } catch (err) { formError(cafeForm, err.message); }
+  finally { button.disabled = false; }
+});
 
 const searchDialog = $("#search-dialog"), searchForm = $("#search-form");
 const sField = (name) => searchForm.elements.namedItem(name);

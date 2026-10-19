@@ -205,3 +205,16 @@ searches:
     titles: ["Engineering Manager", "Manager, Engineering", "Manager, Software Engineering"]
     work_arrangement: ["hybrid"]
     locations: ["Portland"]
+
+# HiringCafe searches (hiringcafe.com), checked on every run beside the filters above, free. Add one on the Searches
+# tab from its share link (hiringcafe.com/s/…) or the address of its search page: the app keeps the link and the
+# search's every filter (search_state, HiringCafe's ?searchState=), so a run doesn't need the link. Each job's posting
+# is the employer's own page, so one JobsPipe also found is one job. `paused: true` skips it until you resume it.
+# For example (made up):
+#   - id: hc-sre-remote
+#     name: SRE, remote US
+#     link: https://hiringcafe.com/s/Ab12Cd34
+#     search_state: {jobTitleQuery: '"Site Reliability Engineer"', workplaceTypes: [Remote], dateFetchedPastNDays: 7,
+#       locations: [{formatted_address: United States, types: [country], id: user_country,
+#         address_components: [{long_name: United States, short_name: US, types: [country]}]}]}
+hiringcafe: []

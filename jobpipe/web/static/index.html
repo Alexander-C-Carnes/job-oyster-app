@@ -179,6 +179,15 @@
           <button id="add-search" class="primary">New filter</button>
         </div>
         <div id="searches"></div>
+        <div class="section-head">
+          <div>
+            <h2>HiringCafe searches</h2>
+            <p class="muted">Checked on every run, free. Each job links to the employer's own posting, so one JobsPipe
+              also found stays one job.</p>
+          </div>
+          <button id="add-hiringcafe" class="ghost">Add HiringCafe search</button>
+        </div>
+        <div id="hiringcafe"></div>
         <div class="run-bar">
           <span id="run-summary"></span>
           <span class="grow"></span>
@@ -569,6 +578,22 @@
           <input type="checkbox" name="once_score" checked> Signal score what it finds</label>
         <button type="button" data-act="once" class="ghost" title="Run this filter now, as it is, without saving it">Search once</button>
         <button class="primary">Save filter</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="hc-dialog">
+    <form id="hc-form">
+      <h2></h2>
+      <label class="hc-link">Link <span class="hint">the search's share link (hiringcafe.com/s/…) or its page's address</span>
+        <input name="link" autocomplete="off" placeholder="https://hiringcafe.com/s/…"></label>
+      <label>Name <input name="name" autocomplete="off" placeholder="Site reliability engineer, remote US"></label>
+      <p class="hint hc-link">The link is read once: the app keeps the search's filters, so runs don't need the link.</p>
+      <p class="form-error hidden"></p>
+      <div class="actions">
+        <button type="button" data-act="cancel" class="ghost">Cancel</button>
+        <span class="grow"></span>
+        <button class="primary"></button>
       </div>
     </form>
   </dialog>

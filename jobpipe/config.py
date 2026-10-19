@@ -5,6 +5,7 @@ their profile folder, outside the repo: ~/JobOyster, or $JOBPIPE_HOME. A new pro
 copy of example-profile/ (ensure_profile)."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -296,6 +297,17 @@ class Search:
 
 
 @dataclass
+class HiringCafeSearch:
+    """One of searches.yaml's `hiringcafe:` searches, checked on every run (hiringcafe.py). `link` is the one it was
+    added from; `search_state` is its every filter, as HiringCafe's ?searchState= has them."""
+    id: str
+    name: str
+    link: str = ""
+    search_state: dict[str, Any] = field(default_factory=dict)
+    paused: bool = False
+
+
+@dataclass
 class ModelCfg:
     model: str = "claude-opus-5-5"
     effort: str = "medium"
@@ -338,6 +350,7 @@ class EvidenceCfg:
 @dataclass
 class Config:
     searches: list[Search]
+    hiringcafe: list[HiringCafeSearch] = field(default_factory=list)   # checked on every run, unless paused
     defaults: dict[str, Any] = field(default_factory=dict)     # searches.yaml's defaults, for one-off searches
     max_credits_per_run: int = 40
     allowance_amount: int = 1000
@@ -386,6 +399,13 @@ class Config:
             return self.startups.roles_track_min_fit
         return self.notion_log_triaged_min_fit
 
+    def hiringcafe_search(self, search_id: str) -> HiringCafeSearch:
+        for s in self.hiringcafe:
+            if s.id == search_id:
+                return s
+        raise KeyError(f"No HiringCafe search with id {search_id!r} in searches.yaml "
+                       f"(have: {', '.join(s.id for s in self.hiringcafe) or 'none'})")
+
     def search(self, search_id: str) -> Search:
         for s in self.searches:
             if s.id == search_id:
@@ -418,6 +438,20 @@ def _search(raw: dict, defaults: dict) -> Search:
         limit=int(merged.get("limit", 10)),
         api_filters=dict(merged.get("api_filters") or {}),
     )
+
+
+def _hiringcafe(raw: dict) -> HiringCafeSearch:
+    state = raw.get("search_state") or {}
+    if isinstance(state, str):          # pasted as the JSON HiringCafe's links carry
+        try:
+            state = json.loads(state)
+        except ValueError:
+            state = None
+    if not isinstance(state, dict) or not raw.get("id"):
+        raise ValueError(f"searches.yaml, hiringcafe search {raw.get('id')!r}: needs an id and a search_state "
+                         "(add it from its link on the Searches tab)")
+    return HiringCafeSearch(id=str(raw["id"]), name=str(raw.get("name") or raw["id"]), link=str(raw.get("link") or ""),
+                            search_state=dict(state), paused=bool(raw.get("paused")))
 
 
 LIVE_SCORE_MODEL = "claude-sonnet-5-5"
@@ -479,6 +513,7 @@ def load(path: Optional[Path] = None) -> Config:
         auto_refresh_hours=float(su.get("auto_refresh_hours", 24) or 0))
     return Config(
         searches=[_search(s, defaults) for s in raw.get("searches") or []],
+        hiringcafe=[_hiringcafe(dict(h)) for h in raw.get("hiringcafe") or []],
         defaults=dict(defaults),
         max_credits_per_run=int(budget.get("max_credits_per_run", 40)),
         allowance_amount=int(allowance.get("amount", 1000)),

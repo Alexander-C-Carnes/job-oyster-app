@@ -679,7 +679,15 @@ button.ref-chip:hover { border-color: var(--link); }
 .page.narrow textarea { margin-top: 12px; }
 .page.narrow .markdown { margin-top: 18px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; }
-#searches { margin-bottom: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 12px; }
+#searches, #hiringcafe { margin-bottom: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 12px; }
+.section-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 6px 0 10px; }
+.section-head h2 { font-size: 16px; margin: 0 0 2px; }
+.scard.paused { border-style: dashed; }
+.scard.paused :is(.nm, .facts) { color: var(--muted); }
+.scard .hc-check { font-size: 12px; }
+.scard .hc-top { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.scard .hc-top .nm { font-size: 14px; }
+.scard .hc-check.bad { color: var(--warn); }
 .scard { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .scard.picked { border-left-color: var(--ink); }
 .scard .check { align-items: flex-start; }

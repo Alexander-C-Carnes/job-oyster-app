@@ -6,10 +6,11 @@ import os
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from . import config
-from .config import Config, Search
+from .config import Config, HiringCafeSearch, Search
+from .hiringcafe import HiringCafe, Unreadable, links, posting_index
 from .himalayas import Himalayas
 from .jd import build_jd, posting_url
 from .jobs_api import BudgetExhausted, JobsClient, post_filter, salary_text, work_mode
@@ -167,12 +168,13 @@ class Pipeline:
     def __init__(self, cfg: Config, *, store: Optional[Store] = None, jobs: Optional[JobsClient] = None,
                  runner: Optional[Runner] = None, tracker: Optional[NotionTracker | LocalTracker] = None,
                  use_notion: bool = True, log: Callable[[str], None] = print, fetch_pages: bool = True,
-                 himalayas: Optional[Himalayas] = None):
+                 himalayas: Optional[Himalayas] = None, hiringcafe: Optional[HiringCafe] = None):
         self.cfg = cfg
         self.log = log
         self.store = store or Store()
         self.jobs = jobs or JobsClient(cfg, self.store)
         self.himalayas = himalayas or (Himalayas(log=log) if cfg.himalayas else None)
+        self.hiringcafe = hiringcafe        # made when a run has HiringCafe searches to check
         self.runner = runner or make_runner(cfg)
         if isinstance(tracker, NotionTracker):      # a bare Notion client: give it the local tracker in front
             tracker = LocalTracker(self.store.root / "tracker.db", notion=tracker)
@@ -183,7 +185,7 @@ class Pipeline:
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- steps ---------------------------------------------------------------
-    def search(self, searches: list[Search]) -> tuple[list[Candidate], list[str]]:
+    def search(self, searches: list[Search], hiringcafe: Sequence[HiringCafeSearch] = ()) -> tuple[list[Candidate], list[str]]:
         cands: dict[str, Candidate] = {}
         skipped: list[str] = []
         out_of_credits = False
@@ -210,6 +212,12 @@ class Pipeline:
                     skipped.append(f"{job.get('job_title')} @ {job.get('company')}: {', '.join(flags)}")
                 elif jid not in cands:
                     cands[jid] = Candidate(job, s.id, flags)
+        # After JobsPipe and Himalayas, so a posting they found this run is the job HiringCafe's result joins.
+        for job, s in self._hiringcafe(hiringcafe):
+            if job.get("closed_at"):
+                skipped.append(f"{job.get('job_title')} @ {job.get('company')}: posting closed")
+            elif str(job["id"]) not in cands:
+                cands[str(job["id"])] = Candidate(job, s.id)
         return list(cands.values()), skipped
 
     def _himalayas(self, s: Search) -> list[dict]:
@@ -225,6 +233,37 @@ class Pipeline:
         if jobs or not self.himalayas.limited:
             self.log(f"{s.id}: {len(jobs)} job(s) on Himalayas (free)")
         return jobs
+
+    def _hiringcafe(self, searches: Sequence[HiringCafeSearch]) -> list[tuple[dict, HiringCafeSearch]]:
+        """Each HiringCafe search's jobs (free). A result at a posting already stored, from any source, is that job,
+        as it's stored: it only gains this search. Each check is recorded with how many jobs were new."""
+        if not searches:
+            return []
+        self.hiringcafe = self.hiringcafe or HiringCafe(log=self.log)
+        known = posting_index(self.store)
+        out = []
+        for s in searches:
+            try:
+                found = self.hiringcafe.search(s)
+            except Unreadable as e:
+                self.log(f"{s.id}: HiringCafe search not read: {e}")
+                self.store.record_hiringcafe_check(s.id, error=str(e))
+                continue
+            new = 0
+            for job in found:
+                jid = next((known[k] for k in sorted(links(job)) if k in known), None)
+                stored = self.store.job(jid) if jid else {}
+                if stored:
+                    job = stored
+                else:
+                    new += 1
+                self.store.save_job(job, s.id)
+                for k in links(job):
+                    known.setdefault(k, str(job["id"]))
+                out.append((job, s))
+            self.store.record_hiringcafe_check(s.id, found=len(found), new=new)
+            self.log(f"{s.id}: {len(found)} job(s) on HiringCafe (free), {new} new")
+        return out
 
     def drop_known(self, cands: list[Candidate], retriage: bool) -> tuple[list[Candidate], list[str]]:
         state = self.store.state()
@@ -320,8 +359,8 @@ class Pipeline:
 
     # ---- entry points ----------------------------------------------------------
     async def run(self, searches: list[Search], *, top: Optional[int] = None, tailor: bool = True,
-                  retriage: bool = False) -> Path:
-        cands, skipped = self.search(searches)
+                  retriage: bool = False, hiringcafe: Sequence[HiringCafeSearch] = ()) -> Path:
+        cands, skipped = self.search(searches, hiringcafe)
         cands, more = self.drop_known(cands, retriage)
         skipped += more
         await self.triage(cands)

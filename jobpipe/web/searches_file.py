@@ -1,6 +1,7 @@
 """Read and write the saved searches in searches.yaml, keeping its comments."""
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Optional
@@ -125,6 +126,74 @@ def save(path: Path, searches: list[dict]) -> None:
             for k in list(prev.keys()):
                 if k not in FIELDS:
                     m[k] = prev[k]
+        seq.append(m)
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        _yaml().dump(doc, f)
+    tmp.replace(path)
+
+
+# ---- HiringCafe searches (searches.yaml's `hiringcafe:` list, on the Searches tab) ------------------
+def _plain(v: Any) -> Any:
+    """ruamel's maps, lists and scalars as plain JSON values."""
+    return json.loads(json.dumps(v, default=str))
+
+
+def load_hiringcafe(path: Path) -> list[dict]:
+    return [_plain(dict(s)) for s in _yaml().load(path.read_text()).get("hiringcafe") or []]
+
+
+def clean_hiringcafe(raw: dict) -> dict:
+    """Validate one HiringCafe search (id, name, link, search_state, paused)."""
+    sid = str(raw.get("id", "")).strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", sid):
+        raise SearchError("id: lowercase letters, numbers and hyphens (e.g. hc-tam-remote)")
+    name = re.sub(r"\s+", " ", str(raw.get("name") or "")).strip()[:80]
+    if not name:
+        raise SearchError("Give the search a name.")
+    link = str(raw.get("link") or "").strip()
+    if link and not re.fullmatch(r"https://(www\.)?(hiringcafe\.com|hiring\.cafe)/\S*", link):
+        raise SearchError("The link must be a hiringcafe.com or hiring.cafe address.")
+    state = raw.get("search_state")
+    if not isinstance(state, dict):
+        raise SearchError("search_state: the search's filters, as HiringCafe's link carries them")
+    return {"id": sid, "name": name, "link": link, "paused": raw.get("paused") is True, "search_state": state}
+
+
+def _one_line(v: Any) -> Any:
+    """A value written on one line, as the JSON it came from reads (searchState runs to dozens of keys)."""
+    if isinstance(v, dict):
+        m = CommentedMap((k, _one_line(x)) for k, x in v.items())
+        m.fa.set_flow_style()
+        return m
+    if isinstance(v, list):
+        s = CommentedSeq(_one_line(x) for x in v)
+        s.fa.set_flow_style()
+        return s
+    return v
+
+
+def save_hiringcafe(path: Path, searches: list[dict]) -> None:
+    """Write the `hiringcafe:` list, keeping the file's comments (adding the list at the end if needed)."""
+    ids = [s["id"] for s in searches]
+    if len(ids) != len(set(ids)):
+        raise SearchError("search ids must be unique")
+    doc = _yaml().load(path.read_text())
+    seq = doc.get("hiringcafe")
+    if not isinstance(seq, CommentedSeq):
+        seq = CommentedSeq()
+        doc["hiringcafe"] = seq
+        doc.yaml_set_comment_before_after_key("hiringcafe", before="\nHiringCafe searches (Searches tab), checked on "
+                                              "every run, free. search_state is the search's every filter.")
+    seq.clear()
+    seq.fa.set_block_style()
+    for s in searches:
+        m = CommentedMap(id=s["id"], name=s["name"])
+        if s.get("link"):
+            m["link"] = s["link"]
+        if s.get("paused"):
+            m["paused"] = True
+        m["search_state"] = _one_line(s["search_state"])
         seq.append(m)
     tmp = path.with_suffix(".yaml.tmp")
     with tmp.open("w") as f:
