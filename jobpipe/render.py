@@ -120,8 +120,13 @@ def contact_html(s):
 
 
 # Sections whose `**Company** | Title` lines are job rows. Plain EXPERIENCE is from résumés tailored
-# before the heading became PROFESSIONAL EXPERIENCE.
+# before the heading became PROFESSIONAL EXPERIENCE; any other "... EXPERIENCE" heading (a pinned
+# FOUNDER EXPERIENCE, say: jobpipe/pinned.py) has job rows too.
 ROLE_SECTIONS = ("PROFESSIONAL EXPERIENCE", "EXPERIENCE", "ADDITIONAL EXPERIENCE")
+
+
+def role_section(section: str) -> bool:
+    return section in ROLE_SECTIONS or section.endswith(" EXPERIENCE")
 
 
 # The page editor (option `editable`): every piece of text the candidate can change is wrapped in a
@@ -224,14 +229,14 @@ def render(md, editable=False, fmt=None, title=None):
                 body.append('<div class="rule-heavy pre-skills"></div>')
                 cls = "skills"
             head = f'<h2 class="{cls}">{inline(section if fmt.heading_case == "upper" else title_case(section))}</h2>'
-            if section in ROLE_SECTIONS:
+            if role_section(section):
                 # emitted inside the first entry's block so it can't be orphaned at a page end
                 pending_head = head
             else:
                 body.append(head)
             continue
         m = re.match(r"^\*\*(.+?)\*\*\s*\|\s*(.+)$", ln)
-        if m and section in ROLE_SECTIONS:
+        if m and role_section(section):
             close_job()
             rule = roles_in_section > 0 or section == "ADDITIONAL EXPERIENCE"
             roles_in_section += 1

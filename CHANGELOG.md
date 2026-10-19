@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-19
+
+### Résumés
+- A pinned section in every résumé
+
 ## 2026-10-17
 
 ### Finding jobs

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import config, evidence, formats, render
+from . import config, evidence, formats, pinned, render
 from .config import Config
 from .llm import AgentCall, AgentError, Runner, brief, candidate_materials, warm, write_files
 
@@ -554,7 +554,8 @@ class Tailor:
         a = await self.analyze(meta, jd_md, run_dir)
         warnings = list(a.warnings)
         fmt = self.fmt = formats.get(config.candidate().resume_format)
-        limits = formats.length_rules(fmt)
+        pin = pinned.text()                 # the profile's word-for-word section, added after every agent step
+        limits = formats.length_rules(fmt) + pinned.note(pin)
         (run_dir / "resume-format.txt").write_text(fmt.id + "\n")     # the résumé workspace draws its PDFs in it
         base_sources = [config.IMPACT_SOURCE, *config.candidate().resumes]
         objectives, title, match_md = a.objectives, a.exact_title, a.match_md
@@ -617,7 +618,7 @@ class Tailor:
         merged = await self.runner.run(AgentCall(label="merge", model=W, instructions=merge_instr, documents=mdocs,
                                                  expect=["resume-final.md", "trace-final.md", "merge-notes.md"],
                                                  run_dir=run_dir))
-        final_md = merged.files["resume-final.md"]
+        final_md = pinned.strip(merged.files["resume-final.md"], pin)
 
         code, out = run_script("check_resume.py", "resume-final.md", "--title", title,
                                "--trace", "trace-final.md", cwd=run_dir)
@@ -630,7 +631,7 @@ class Tailor:
                 expect=["resume-final.md", "trace-final.md"],
                 tail="check_resume.py failed on your merge:\n" + out
                      + "\nFix only these failures, changing nothing else.", run_dir=run_dir))
-            final_md = fix.files["resume-final.md"]
+            final_md = pinned.strip(fix.files["resume-final.md"], pin)
             code, out = run_script("check_resume.py", "resume-final.md", "--title", title,
                                    "--trace", "trace-final.md", cwd=run_dir)
             if code != 0:
@@ -638,7 +639,7 @@ class Tailor:
         (run_dir / "checks-final.md").write_text(out + "\n")
         final_md = await self._honesty(final_md, title, jd_md, match_md, index, run_dir, warnings)
 
-        rate_final = lambda md: self.rate_final(md, jd_md, ratings, run_dir, warnings)
+        rate_final = lambda md: self.rate_final(pinned.apply(md, pin), jd_md, ratings, run_dir, warnings)
         ratings_final = await rate_final(final_md)
         md_card = scorecard(ratings_final, keywords, {"Tailored resume": final_md})["Tailored resume"]
         below = (md_card["total"] or 0) < best_total
@@ -667,7 +668,7 @@ class Tailor:
                 tail="\n\n".join(asks) + "\n\nWork them into existing bullets rather than adding bullets; the "
                      "length limit still holds.",
                 run_dir=run_dir))
-            final_md = fix.files["resume-final.md"]
+            final_md = pinned.strip(fix.files["resume-final.md"], pin)
             final_md = await self._honesty(final_md, title, jd_md, match_md, index, run_dir, warnings)
             ratings_final = await rate_final(final_md)
             code, out = run_script("check_resume.py", "resume-final.md", "--title", title,
@@ -675,7 +676,7 @@ class Tailor:
             (run_dir / "checks-final.md").write_text(out + "\n")
             if code != 0:
                 warnings.append("keyword-restored resume fails check_resume.py; see checks-final.md")
-        (run_dir / "resume-final.md").write_text(final_md, encoding="utf-8")
+        (run_dir / "resume-final.md").write_text(pinned.apply(final_md, pin), encoding="utf-8")
 
         # Stage 5 ------------------------------------------------------------
         self.log("  Stage 5: PDF")
@@ -683,13 +684,13 @@ class Tailor:
         pdf = self.out_dir / pdf_name
         pdf_text, pages = "", 0
         try:
-            pages, pdf_text = await asyncio.to_thread(render.render_pdf, final_md, pdf, run_dir / "resume-final.html", fmt,
+            pages, pdf_text = await asyncio.to_thread(render.render_pdf, pinned.apply(final_md, pin), pdf, run_dir / "resume-final.html", fmt,
                                                       config.candidate().resume_title(title, meta.company))
             trimmed = False
             for _ in range(2):                  # over the page limit: cut it back (deleting only), then render again
                 if pages <= fmt.max_pages:
                     break
-                words = len(re.findall(r"\b\w+\b", final_md))
+                words = len(re.findall(r"\b\w+\b", pinned.apply(final_md, pin)))
                 self.log(f"  Stage 5: {pages} pages ({words} words); trimming to {fmt.pages_word}")
                 trace = run_dir / "trace-final.md"
                 trim = await self.runner.run(AgentCall(
@@ -700,8 +701,8 @@ class Tailor:
                                "resume-final.md (current)": final_md,
                                "trace-final.md (current)": trace.read_text() if trace.exists() else ""},
                     expect=["resume-final.md", "trace-final.md"], run_dir=run_dir))
-                final_md, trimmed = trim.files["resume-final.md"], True
-                pages, pdf_text = await asyncio.to_thread(render.render_pdf, final_md, pdf, run_dir / "resume-final.html", fmt,
+                final_md, trimmed = pinned.strip(trim.files["resume-final.md"], pin), True
+                pages, pdf_text = await asyncio.to_thread(render.render_pdf, pinned.apply(final_md, pin), pdf, run_dir / "resume-final.html", fmt,
                                                       config.candidate().resume_title(title, meta.company))
             if trimmed:
                 (run_dir / "resume-final.md").write_text(final_md, encoding="utf-8")
@@ -711,6 +712,7 @@ class Tailor:
                 (run_dir / "checks-final.md").write_text(out + "\n")
                 if code != 0:
                     warnings.append("trimmed resume fails check_resume.py; see checks-final.md")
+                (run_dir / "resume-final.md").write_text(pinned.apply(final_md, pin), encoding="utf-8")
                 ratings_final = await rate_final(final_md)      # the content changed: rate it again
             (run_dir / "resume-final.pdf.txt").write_text(pdf_text, encoding="utf-8")
             if pages != fmt.max_pages:
@@ -721,7 +723,7 @@ class Tailor:
             warnings.append(f"PDF render failed: {e}")
             pdf = None
         texts = variant_texts()
-        texts["Tailored resume"] = pdf_text or final_md
+        texts["Tailored resume"] = pdf_text or pinned.apply(final_md, pin)
         final_card = scorecard(ratings_final, keywords, texts)
         (run_dir / "scorecard-final.md").write_text(
             "Scorecard (Tailored resume keywords measured on the PDF text):\n\n" + scorecard_table(final_card))
@@ -748,7 +750,7 @@ class Tailor:
             expect=["report.md", "notion-summary.txt"], run_dir=run_dir))
         report = self.out_dir / f"report-{_file_part(meta.company)}-{_file_part(title)}.md"
         report.write_text(rep.files["report.md"], encoding="utf-8")
-        (self.out_dir / f"resume-{_file_part(meta.company)}-{_file_part(title)}.md").write_text(final_md, encoding="utf-8")
+        (self.out_dir / f"resume-{_file_part(meta.company)}-{_file_part(title)}.md").write_text(pinned.apply(final_md, pin), encoding="utf-8")
 
         scores = ratings_final.get("scores") or []
         return TailorResult(
