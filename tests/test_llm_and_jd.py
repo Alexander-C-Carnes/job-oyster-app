@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -101,6 +102,19 @@ def test_read_posting_from_a_company_page_on_an_ashby_board():
     # without the board page, the employer is the half of the page title that is the site's own name
     d = read_posting(f"https://melodia.example/careers/{uid}", _pages(routes))
     assert (d["job_title"], d["company"]) == ("Staff TPM", "Melodia") and "release train" in d["description"]
+
+
+def test_read_posting_from_comeet():
+    # comeet.com/jobs/...: the page is an Angular template, the posting is in its POSITION_DATA script
+    page = (Path(__file__).parent / "fixtures" / "comeet" / "position.html").read_text()
+    url = "https://www.comeet.com/jobs/cyera/17.008/careers/8E.056"
+    d = read_posting(url, _pages({url: httpx.Response(200, text=page)}))
+    assert (d["job_title"], d["company"], d["location"], d["remote"]) == (
+        "Senior Customer Success Engineer - Southeast", "Cyera", "Southeast (US)", True)
+    assert d["description"].startswith("WHO WE ARE") and "THE OPPORTUNITY" in d["description"]
+    # without the data, the template's placeholders aren't taken for the posting
+    d = read_posting(url, _pages({url: httpx.Response(200, text=page.replace("POSITION_DATA", "OTHER"))}))
+    assert d["description"] == ""
 
 
 def test_read_posting_from_greenhouse_and_linkedin():
