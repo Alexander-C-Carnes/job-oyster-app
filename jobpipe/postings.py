@@ -59,6 +59,10 @@ def is_closed(job: dict, client: httpx.Client) -> Optional[bool]:
         if m:
             r = client.get(f"https://api.{m.group(1) or ''}lever.co/v0/postings/{m.group(2)}/{m.group(3)}")
             return True if r.status_code == 404 else False if r.status_code == 200 else None
+        m = re.search(r"apply\.workable\.com/([^/?#]+)/j/([A-Za-z0-9]+)", url)
+        if m:   # the page of a closed job redirects to the company's job list, so ask the API
+            r = client.get(f"https://apply.workable.com/api/v2/accounts/{m.group(1)}/jobs/{m.group(2)}")
+            return True if r.status_code == 404 else False if r.status_code == 200 else None
         m = re.search(r"jobs\.ashbyhq\.com/([^/?#]+)/([0-9a-f-]{36})", url)
         if m:
             r = client.get(f"https://api.ashbyhq.com/posting-api/job-board/{m.group(1)}")
@@ -132,10 +136,24 @@ def has_posting(job: dict) -> bool:
     return len(text) >= (MIN_PASTED_CHARS if trusted else MIN_DESCRIPTION_CHARS)
 
 
-def fetch_posting(store: Any, jid: str, read: Optional[Callable[[str], dict]] = None) -> str:
+CLOSED_MESSAGE = "This posting has closed: the employer no longer lists it. It's tagged Closed."
+
+
+def mark_if_closed(store: Any, jid: str, client: Optional[httpx.Client] = None) -> bool:
+    """For a stored job whose posting couldn't be read: True, and the job tagged closed_at, if it has closed."""
+    job = store.job(jid)
+    c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
+    if not job or not is_closed(job, c):
+        return False
+    store.update(jid, posting_checked=now_iso(), closed_at=now_iso())
+    return True
+
+
+def fetch_posting(store: Any, jid: str, read: Optional[Callable[[str], dict]] = None,
+                  client: Optional[httpx.Client] = None) -> str:
     """Read a stored job's posting from its link, as Add job does, and keep it when it holds more than the job
     has (marked read from the link, so a later search or refresh doesn't replace it). Returns "" when the job
-    has its posting now, else why it couldn't be read."""
+    has its posting now, else why it couldn't be read (a posting found closed is tagged so)."""
     job = store.job(jid)
     url = posting_url(job) if job else ""
     if not url:
@@ -149,6 +167,8 @@ def fetch_posting(store: Any, jid: str, read: Optional[Callable[[str], dict]] = 
         if found.get("browser_check"):
             return (f"{found['browser_check']} only shows its pages to a person's browser, so the app can't read "
                     "that link. Paste the description from the posting's page.")
+        if mark_if_closed(store, jid, client):
+            return CLOSED_MESSAGE
         return ("Couldn't read the posting from its link: it may have closed, or the site may need a browser. "
                 "Paste the description from its page.")
     if len(text) > len((job.get("description") or "").strip()):

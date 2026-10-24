@@ -37,7 +37,7 @@ from .. import formats, jd, onboarding, own_formats, pinned, record_import, regi
 from .. import hiringcafe as hc
 from . import about, follow
 from .flow import application_flow
-from ..postings import PostingKeeper, fetch_posting, has_posting
+from ..postings import CLOSED_MESSAGE, PostingKeeper, fetch_posting, has_posting, mark_if_closed
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
 from ..llm import BACKEND_LABELS, CLAUDE_MODELS, PROVIDERS, AgentError, OpenAICompatRunner, Runner
@@ -689,6 +689,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         job = store.job(jid) or {"id": jid, "job_title": row["title"], "company": row["company"], "url": row["url"]}
         jd_md, usable = await asyncio.to_thread(build_jd, job)
         if not usable:
+            if store.job(jid) and await asyncio.to_thread(mark_if_closed, store, jid):
+                raise HTTPException(422, CLOSED_MESSAGE)
             raise HTTPException(422, "There's no posting text to score. Its page couldn't be read: the posting may "
                                      "have closed, or the site may need a browser. Use Paste the description… "
                                      "with the full text from the posting.")
