@@ -212,12 +212,13 @@ def cmd_startups(cfg, args):
                               searches=cfg.searches, jobs_store=Store(), tracked=_tracked())
         print(f"Startups: {new} new, {upd} seen again; {len(store.read())} stored in {store.path}")
         if cfg.startups.roles_signal_score and cfg.startups.roles_score_per_refresh:
-            asyncio.run(su.score_startup_roles(cfg, Store(), limit=cfg.startups.roles_score_per_refresh, log=print))
+            asyncio.run(su.score_startup_roles(cfg, Store(), limit=cfg.startups.roles_score_per_refresh, log=print,
+                                               tracked=_tracked()))
     elif args.what == "scan":
         su.store_known_roles(store, cfg.searches, Store(), log=print, exclude=exclude)
         su.scan_boards(store, cfg.searches, Store(), limit=args.limit, log=print, exclude=exclude)
     elif args.what == "score":
-        n = asyncio.run(su.score_startup_roles(cfg, Store(), limit=args.limit, log=print))
+        n = asyncio.run(su.score_startup_roles(cfg, Store(), limit=args.limit, log=print, tracked=_tracked()))
         print(f"Scored {n} startup role(s)")
     elif args.what == "track":
         floor = args.min_fit if args.min_fit is not None else cfg.track_min_fit("startup-")

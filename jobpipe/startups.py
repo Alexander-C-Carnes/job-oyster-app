@@ -1290,12 +1290,15 @@ def unscored_startup_roles(jobs_store: Any) -> list[str]:
 
 
 async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log: Callable[[str], None] = print,
-                              runner: Any = None, tracker: Any = None) -> int:
+                              runner: Any = None, tracker: Any = None, tracked: Optional[dict[str, str]] = None,
+                              client: Optional[httpx.Client] = None) -> int:
     """Signal-score up to `limit` unscored startup roles (one short Claude call each, three at a time), so Find jobs
-    can be filtered by fit, and put the ones scoring cfg.track_min_fit or more in the tracker. `cfg` is the full
-    Config. Returns how many were scored."""
+    can be filtered by fit, and put the ones scoring cfg.track_min_fit or more in the tracker. A role with no posting
+    text whose posting has closed is tagged Closed, and dismissed unless it's in `tracked` (stored job id -> tracker
+    status), as check-postings does. `cfg` is the full Config. Returns how many were scored."""
     from .jd import build_jd
     from .pipeline import make_runner
+    from .postings import mark_if_closed
     from .triage import Triage, triage_many
     ids = unscored_startup_roles(jobs_store)[:limit]
     if not ids:
@@ -1306,6 +1309,10 @@ async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log
         jd_md, usable = build_jd(jobs_store.job(jid))
         if usable:
             todo[jid] = jd_md
+        elif mark_if_closed(jobs_store, jid, client):
+            if jid not in (tracked or {}):
+                jobs_store.update(jid, dismissed=True)
+            log(f"  {jid}: posting has closed")
         else:
             log(f"  {jid}: no posting text to score")
     log(f"Startup roles: scoring {len(todo)} against the impact record")
