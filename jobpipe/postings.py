@@ -132,6 +132,30 @@ def has_posting(job: dict) -> bool:
     return len(text) >= (MIN_PASTED_CHARS if trusted else MIN_DESCRIPTION_CHARS)
 
 
+def fetch_posting(store: Any, jid: str, read: Optional[Callable[[str], dict]] = None) -> str:
+    """Read a stored job's posting from its link, as Add job does, and keep it when it holds more than the job
+    has (marked read from the link, so a later search or refresh doesn't replace it). Returns "" when the job
+    has its posting now, else why it couldn't be read."""
+    job = store.job(jid)
+    url = posting_url(job) if job else ""
+    if not url:
+        return "This job has no link to read its posting from. Paste the description from its page."
+    try:
+        found = (read or jd.read_posting)(url)
+    except Exception:  # noqa: BLE001 - a page that can't be read is reported, not raised
+        found = {}
+    text = (found.get("description") or "").strip()
+    if len(text) < MIN_PASTED_CHARS:
+        if found.get("browser_check"):
+            return (f"{found['browser_check']} only shows its pages to a person's browser, so the app can't read "
+                    "that link. Paste the description from the posting's page.")
+        return ("Couldn't read the posting from its link: it may have closed, or the site may need a browser. "
+                "Paste the description from its page.")
+    if len(text) > len((job.get("description") or "").strip()):
+        store.paste_description(jid, text, read=True)
+    return ""
+
+
 def keep_applied(store: Any, tracker: Any, *, skip: Callable[[str], bool] = lambda row_id: False,
                  read: Optional[Callable[[str], dict]] = None, log: Callable[[str], None] = lambda s: None) -> dict:
     """Save the posting text of every tracked job in an applied stage that doesn't have it yet, read from the

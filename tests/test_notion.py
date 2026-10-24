@@ -19,6 +19,14 @@ def entry(**kw):
     return TrackerEntry(**{**base, **kw})
 
 
+def test_database_url_comes_from_the_data_sources_parent_and_is_asked_once():
+    fake = FakeNotion()
+    t = tracker(fake)
+    assert t.database_url() == "https://www.notion.so/1a2b3c4d111122223333444455556666"
+    assert t.database_url() == t.database_url()
+    assert [p for m, p, _ in fake.requests if m == "GET"] == ["/v1/data_sources/ds1"]
+
+
 def test_creates_row_with_tracker_properties():
     fake = FakeNotion()
     action, url = tracker(fake).upsert(entry())

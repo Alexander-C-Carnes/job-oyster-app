@@ -42,8 +42,8 @@ All of this happens inside the app.
 
 1. **Connect an AI.** Click the round person button at the top right to open **Profile**, then go to **AI**. If you have a Claude Pro or Max plan, click **Sign in to Claude…** and nothing costs extra. (If it says Claude Code isn't installed, install the [Claude app](https://claude.ai/download) first.) You can also [use ChatGPT, Gemini, Kimi or a free local model](docs/choosing-an-ai.md), and switch between them.
 2. **Say who you are.** On the same **Profile** tab, fill in your name and contact line, and add your résumé with **Add a résumé** (a PDF, Word file or text).
-3. **Write your impact record.** This is the step that matters most. In the **Impact record** tab, replace Jordan's with your own: every role or big project, what you did, and what changed because of it, with numbers wherever you have them. The app can only use what's written here. [Here's what makes a good one.](docs/your-evidence.md)
-4. **Start finding jobs.** Get a [JobsPipe](https://jobspipe.dev) key (the free plan gives you 1,000 jobs to start), paste it under **Profile → Other keys**, and set up your searches in the **Filters** tab. Even without a key you can add jobs by pasting their link, and browse the **Startups** tab.
+3. **Write your impact record.** This is the step that matters most. In the **Impact record** (under **Profile**, the round button at the top right), replace Jordan's with your own: every role or big project, what you did, and what changed because of it, with numbers wherever you have them. The app can only use what's written here. [Here's what makes a good one.](docs/your-evidence.md)
+4. **Start finding jobs.** Get a [JobsPipe](https://jobspipe.dev) key (the free plan gives you 1,000 jobs to start), paste it under **Profile → Other keys**, and set up your searches in the **Filters** tab. Even without a key you can add jobs by pasting their link, and browse the **Search Startups** tab.
 
 Then pick a job and try the three actions:
 
@@ -53,13 +53,13 @@ Then pick a job and try the three actions:
 | **Full score** | Every requirement checked against your record, with a heat map and gaps to fill | a few minutes |
 | **Make résumé** | A tailored, checked résumé PDF and a fit report | ~25 minutes |
 
-The fit report ends with questions about anything you haven't shown yet. Answer them with **Add a confirmed fact** in the **Impact record** tab, and the next résumé can use what you said.
+The fit report ends with questions about anything you haven't shown yet. Answer them with **Add a confirmed fact** in the **Impact record** (under **Profile**), and the next résumé can use what you said.
 
 ## What it costs
 
 - **The app:** free and open source. If it helps your search, you can [buy me a coffee](#buy-me-a-coffee).
 - **The AI:** nothing extra with a Claude Pro or Max plan; the work counts toward your plan's usage. With other providers you pay per use, and a model running on your Mac is free.
-- **Finding jobs:** JobsPipe charges one credit per job it finds. The free plan gives you 1,000 credits once, every search has a limit so you don't burn through them, and you never pay twice for the same job in a month. Adding jobs by link and the Startups tab are free.
+- **Finding jobs:** JobsPipe charges one credit per job it finds. The free plan gives you 1,000 credits once, every search has a limit so you don't burn through them, and you never pay twice for the same job in a month. Adding jobs by link and Search Startups are free.
 - **Notion:** optional.
 
 ## Your data stays yours

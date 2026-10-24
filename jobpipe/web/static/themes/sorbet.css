@@ -62,6 +62,14 @@ html[data-theme="sorbet"] button.primary, html[data-theme="sorbet"] button.ghost
 html[data-theme="sorbet"] button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 html[data-theme="sorbet"] button.primary:hover:not(:disabled) { opacity: 1; background: #3D2A57; border-color: #3D2A57; }
 html[data-theme="sorbet"] button.ghost:hover:not(:disabled) { background: var(--sel); border-color: var(--ink); }
+/* the Tracker's "Open in Notion" link: a pill like Sync beside it, no underline */
+html[data-theme="sorbet"] .btn-link { border-radius: 999px; padding: 7px 14px; border: 2px solid var(--edge); background: var(--panel);
+  color: var(--ink); font: 700 13px var(--display); text-decoration: none; transition: transform 620ms var(--open), background-color .15s ease, border-color .15s ease; }
+html[data-theme="sorbet"] .btn-link:hover { background: var(--sel); border-color: var(--ink); text-decoration: none; }
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme="sorbet"] .btn-link:hover { transform: translateY(-1px) scale(1.04); }
+  html[data-theme="sorbet"] .btn-link:active { transform: scale(.94); transition: transform 90ms ease-out; }
+}
 /* gooey movement: buttons and chips lift on the look's spring and squish when pressed, then bounce back */
 html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip) { transition: transform 620ms var(--open), background-color .15s ease, border-color .15s ease, color .15s ease; }
 @media (prefers-reduced-motion: no-preference) {
@@ -279,6 +287,7 @@ html[data-theme="sorbet"] .posting-pane { border-right-color: var(--line); }
 html[data-theme="sorbet"] .posting-body { font-size: 14.5px; }
 html[data-theme="sorbet"] .card, html[data-theme="sorbet"] .notice, html[data-theme="sorbet"] .pcard, html[data-theme="sorbet"] .scard, html[data-theme="sorbet"] .look-option { border-radius: 18px; }
 html[data-theme="sorbet"] .notice { background: var(--panel-2); border: 2px dashed var(--edge); }
+html[data-theme="sorbet"] .needs-posting { border: 2px dashed #FF9F1C; border-radius: 14px; background: color-mix(in srgb, #FF9F1C 10%, var(--panel)); }
 html[data-theme="sorbet"] .card.is-good { border-top: 4px solid var(--st-applied); }
 html[data-theme="sorbet"] .card.is-warn { border-top: 4px solid #FF9F1C; }
 html[data-theme="sorbet"] .band { font-family: var(--display); font-weight: 600; }
@@ -566,3 +575,8 @@ html[data-theme="sorbet"] .about-links a:hover { text-decoration: none; backgrou
 html[data-theme="sorbet"] .about-claude { padding: 10px 14px; border-radius: 16px; background: color-mix(in srgb, var(--st-done) 11%, white); }
 html[data-theme="sorbet"] .about-claude b { font: 600 14.5px var(--display); }
 @media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] .about-links a, html[data-theme="sorbet"] .about-links a:hover { transition: none; transform: none; } }
+
+/* Profile › Pinned résumé section */
+html[data-theme="sorbet"] .pin-sheet { border: 0; border-radius: 18px; box-shadow: inset 0 0 0 2px var(--line); }
+html[data-theme="sorbet"] .pin-empty { border: 2px dashed var(--edge); border-radius: 18px; background: var(--paper); }
+html[data-theme="sorbet"] .pin-text { border-radius: 14px; }

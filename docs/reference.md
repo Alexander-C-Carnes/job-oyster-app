@@ -13,9 +13,9 @@ python -m jobpipe tailor --jd-file posting.txt --job-title "Staff TPM" --company
 python -m jobpipe search --title "Director of Engineering" --hybrid --location "Portland" --limit 5
 python -m jobpipe jobs                         # stored jobs with signal scores
 python -m jobpipe startups refresh             # funding news + YC directory + VC boards -> data/startups.json, then their
-                                               # careers boards: roles matching your filters land in Find jobs (free)
+                                               # careers boards: roles matching your filters land in Search Jobs (free)
 python -m jobpipe startups scan --limit 100    # just the careers boards
-python -m jobpipe startups score --limit 30    # signal-score startup roles in Find jobs (one Claude call each)
+python -m jobpipe startups score --limit 30    # signal-score startup roles in Search Jobs (one Claude call each)
 python -m jobpipe startups track --min-fit 7   # add the scored startup roles at 7+ to the tracker
 python -m jobpipe check-postings               # move roles whose posting has closed to Dismissed (tracked: tag Closed)
 python -m jobpipe startups list --stage "Series B" --days 30
@@ -50,7 +50,7 @@ Add a search by copying a block. Anything the file doesn't model can go under `a
 
 ## Startup sources
 
-What the Startups tab reads, and what was looked at and left out (checked October 2026). Everything used is free and needs no key, except the round lookups.
+What the Search Startups tab reads, and what was looked at and left out (checked October 2026). Everything used is free and needs no key, except the round lookups.
 
 | Source | Gives | How |
 |---|---|---|

@@ -148,11 +148,18 @@ EDIT_CSS = SHEET_CSS + """
                    font: 400 8pt -apple-system, Helvetica, sans-serif; color: #888; }
 """
 
+# Option `mark`: lines picked out on the page (the Profile's pinned-section preview).
+MARK_CSS = """
+mark.pin { background: #fff1a8; color: inherit; box-shadow: 0 0 0 2px #fff1a8; border-radius: 1px; }
+h2.pin { background: #fff1a8; box-shadow: 0 0 0 2px #fff1a8; }
+"""
 
-def render(md, editable=False, fmt=None, title=None):
+
+def render(md, editable=False, fmt=None, title=None, mark=()):
     """The résumé as an HTML page in format `fmt` (an id or a Format; the default when None). With
     `editable`, every piece of text is a click-to-edit span for the page editor. `title` is the page's
-    title, and so the PDF's, which browsers save it under (default "<Name> Resume")."""
+    title, and so the PDF's, which browsers save it under (default "<Name> Resume"). The text of the
+    markdown lines in `mark` (0-based numbers) is highlighted."""
     fmt = fmt if isinstance(fmt, formats.Format) else formats.get(fmt)
     lines = md.splitlines()
     i = 0
@@ -161,6 +168,8 @@ def render(md, editable=False, fmt=None, title=None):
     at = {}
 
     def ed(text_html, line, field):
+        if line in mark:
+            text_html = f'<mark class="pin">{text_html}</mark>'
         if not editable:
             return text_html
         return f'<span data-ed="{line}:{field}" contenteditable="plaintext-only" spellcheck="true">{text_html}</span>'
@@ -228,6 +237,8 @@ def render(md, editable=False, fmt=None, title=None):
             if section == "CORE SKILLS":
                 body.append('<div class="rule-heavy pre-skills"></div>')
                 cls = "skills"
+            if i - 1 in mark:
+                cls = (cls + " pin").strip()
             head = f'<h2 class="{cls}">{inline(section if fmt.heading_case == "upper" else title_case(section))}</h2>'
             if role_section(section):
                 # emitted inside the first entry's block so it can't be orphaned at a page end
@@ -304,7 +315,7 @@ def render(md, editable=False, fmt=None, title=None):
     page = (f"@page {{ margin: {fmt.margin_in}in; }}\n"
             f":root {{ --margin: {fmt.margin_in}in; --accent: {fmt.accent or '#000000'}; }}\n")
     return (f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
-            f"<style>{CSS}{page}{fmt.css}{EDIT_CSS if editable else ''}</style></head><body>{''.join(body)}</body></html>")
+            f"<style>{CSS}{page}{fmt.css}{EDIT_CSS if editable else ''}{MARK_CSS if mark else ''}</style></head><body>{''.join(body)}</body></html>")
 
 
 SMALL_WORDS = {"and", "of", "the", "for", "in", "on", "to", "a", "an", "&"}

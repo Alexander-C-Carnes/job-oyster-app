@@ -90,7 +90,7 @@ def ensure_profile(log=print) -> bool:
         shutil.copy(ROOT / ".env.example", PROFILE / ".env")
         os.chmod(PROFILE / ".env", 0o600)
     log(f"Made your profile folder at {PROFILE}, starting from a made-up candidate.\n"
-        f"Put yourself in it on the app's Profile and Impact record tabs (see README: Get started).")
+        f"Put yourself in it on the app's Profile page and its Impact record (see README: Get started).")
     return True
 
 IMPACT_SOURCE = "Impact record"

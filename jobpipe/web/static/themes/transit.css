@@ -455,3 +455,7 @@ html[data-theme="transit"] .wysiwyg .ProseMirror h1, html[data-theme="transit"] 
 /* Ghosted: the note on a role moved there on its own, as a service notice */
 html[data-theme="transit"] .ghosted-note { border-left: 6px solid var(--st-ghosted); border-radius: 0 var(--radius) var(--radius) 0; background: var(--tint); color: var(--ink); }
 html[data-theme="transit"] .ghosted-note b { font-family: var(--display); font-weight: 700; font-size: 14px; }
+
+/* Profile › Pinned résumé section */
+html[data-theme="transit"] .pin-sheet { border: 1.5px solid var(--line); border-radius: 4px; }
+html[data-theme="transit"] .pin-empty { border: 1.5px dashed var(--line); border-radius: 4px; }

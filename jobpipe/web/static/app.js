@@ -150,11 +150,15 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
             })) };
 
 // ---- tabs --------------------------------------------------------------------------------
-$$(".topbar [data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+// The impact record lives under Profile: the round Profile button stays lit on it, and the strip under the bar switches the two.
+const PROFILE_TABS = ["profile", "impact"];
+$$(".topbar [data-tab], #profile-nav [data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 function showTab(name) {
   if (S.tab in DOCS && name !== S.tab) DOCS[S.tab].save();
   S.tab = name;
-  $$(".topbar [data-tab]").forEach((b) => { b.classList.toggle("active", b.dataset.tab === name); b.setAttribute("aria-selected", String(b.dataset.tab === name)); });
+  const lit = (b) => b.dataset.tab === name || (b.id === "profile-btn" && PROFILE_TABS.includes(name));
+  $$(".topbar [data-tab], #profile-nav [data-tab]").forEach((b) => { b.classList.toggle("active", lit(b)); b.setAttribute("aria-selected", String(lit(b))); });
+  $("#profile-nav").classList.toggle("hidden", !PROFILE_TABS.includes(name));
   const panel = name in SCOPES ? "jobs" : name;
   $$(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${panel}`));
   if (name in SCOPES) setScope(name);
@@ -189,7 +193,12 @@ function actionTime(kind) {
   return d ? mins(d.make_resume_s) : "~25 min";
 }
 const timeTag = (kind) => h("span", { class: "btn-time" }, actionTime(kind));
-const makeResumeButton = (j, cls = "primary", label = ACTIONS.resume.name) => h("button", { class: cls, title: ACTIONS.resume.what,
+// A job with no posting text (a startup board's role often comes without it) can't be scored or given a résumé:
+// Run full score and Make résumé are off until the posting is fetched from its link or pasted.
+const NO_POSTING = "Needs the posting text first: use Fetch posting, or paste the description from its page.";
+const noPosting = (j) => !!(j?.local && j.no_posting);
+const makeResumeButton = (j, cls = "primary", label = ACTIONS.resume.name) => h("button", { class: cls,
+  title: noPosting(j) ? NO_POSTING : ACTIONS.resume.what, disabled: noPosting(j),
   onclick: () => startRun({ kind: "tailor", job_id: j.id }) }, label, timeTag("resume"));
 const helpLink = (label = "What each does") => h("button", { class: "link-btn help-link", type: "button", onclick: openActionsHelp }, icon("info"), label);
 // The glossary: what each action does, how long it takes, and what the scores mean.
@@ -205,7 +214,7 @@ function openActionsHelp() {
     h("h3", {}, "Searches (Filters tab)"),
     h("dl", {},
       row("Check filters", "≤1 credit per filter", "Asks JobsPipe how many jobs each filter matches, with a one-job request. Nothing is stored or scored."),
-      row("Search + signal score", "credits, then one call per new job", "Runs your filters, stores the new jobs in Find jobs and gives each a signal score."),
+      row("Search + signal score", "credits, then one call per new job", "Runs your filters, stores the new jobs in Search Jobs and gives each a signal score."),
       row("Search + make résumés for top N", "as above, then Make résumé N times", `The same, then Make résumé for the N best new jobs with a signal score of 7 or more.`),
       row("Search once", "credits", "In the New/Edit filter dialog: runs what's in the dialog without saving it.")),
     h("h3", {}, "Scores"),
@@ -214,8 +223,8 @@ function openActionsHelp() {
       row("Full score", "1–10", "The same question, answered requirement by requirement. It replaces the signal score once a job has one."),
       row("Résumé", "1–10", "How well the résumé you made covers the posting. Every edit is rated again."),
       row("ATS", "%", "How much of the posting's skills, experience and keywords an applicant tracking system would find in the résumé.")),
-    h("h3", {}, "Runs"),
-    h("p", {}, "The Runs tab lists searches and Make résumé, with each one's log. A signal or full score shows on the job instead. Runs carry on when the app restarts (oyster restart); quitting the app stops them, and it asks first."),
+    h("h3", {}, "Logs"),
+    h("p", {}, "The Logs tab lists searches and Make résumé, with each one's log. A signal or full score shows on the job instead. Runs carry on when the app restarts (oyster restart); quitting the app stops them, and it asks first."),
     h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close")));
   dlg.showModal();
 }
@@ -383,6 +392,7 @@ function applyJobs(data) {
   S.jobs.forEach(indexJob);
   S.notion = data.notion; S.syncing = data.syncing; S.notionError = data.notion_error; S.notionSynced = data.notion_synced;
   S.pending = data.pending || 0;
+  renderNotionLink();
   renderJobs();
   const cur = S.byId.get(S.selected);
   if (S.selected && !cur) { S.selected = null; renderDetail(); }
@@ -411,6 +421,18 @@ function announceGhosted() {
   toast(`Moved to Ghosted after ${ghostDays()} days with no change: ${names}. Heard back? Pick its status.`);
 }
 const ghostDays = () => S.summary?.ghost_after_days || 60;
+// "Open in Notion" beside Sync: only on the Tracker, and only once Notion is set up and has said where the database is.
+async function renderNotionLink() {
+  const a = $("#open-notion");
+  if (S.notion && S.notionUrl === undefined) {
+    S.notionUrl = null;                       // asked once; a failed ask is tried again on the next load of the page
+    try { S.notionUrl = (await api("/api/notion/link")).url || null; } catch { /* no link until it answers */ }
+    if (!S.notionUrl) S.notionUrl = undefined;
+  }
+  const url = S.notion && safeHref(S.notionUrl);
+  if (url) a.href = url;
+  a.classList.toggle("hidden", !url || S.scope !== "tracker");
+}
 function renderSync() {
   const el = $("#sync-state");
   // While Notion isn't answering, ask again every minute so the list recovers without a click.
@@ -445,7 +467,7 @@ const FACETS = {
   company: { label: "Company", key: (j) => (j.funding ? "startup" : "corp"),
              values: () => ["startup", "corp"],
              name: (v) => (v === "startup" ? "Startup" : "Corporation"),
-             title: (v) => (v === "startup" ? "Roles at a startup whose funding round is known (see the Startups tab)"
+             title: (v) => (v === "startup" ? "Roles at a startup whose funding round is known (see Search Startups)"
                                             : "Roles at companies that aren't startups with a known round") },
   region: { label: "Region", keys: (j) => (j.regions?.length ? j.regions : ["none"]),
             values: (keys) => REGION_ORDER.filter((v) => keys.includes(v)),
@@ -537,6 +559,7 @@ function setScope(scope) {
                            ["#find-seg", "find"], ["#run-searches", "find"]]) $(sel).classList.toggle("hidden", scope !== on);
   $("#job-filter").placeholder = scope === "find" ? "Search new roles, companies, locations" : "Search tracked roles, companies, locations";
   applyLayout();
+  renderNotionLink();
   renderJobs();
   // Keep this list's own selection if it's still shown; otherwise open its first role.
   const keep = S.visible.find((j) => j.id === S.sel[scope]);
@@ -957,7 +980,7 @@ async function makeResumes(jobs) {
     const going = r.runs.filter((x) => x.status !== "queued").length;
     toast(!r.runs.length ? "Nothing to start: those résumés are already being made."
       : `Making ${plural(r.runs.length, "résumé")}: ${going} started${r.runs.length > going ? `, ${r.runs.length - going} waiting their turn` : ""}.` +
-        (r.skipped.length ? ` Skipped ${r.skipped.length} (${[...new Set(r.skipped.map((x) => x.reason))].join(", ")}).` : "") + " Follow them in Runs.");
+        (r.skipped.length ? ` Skipped ${r.skipped.length} (${[...new Set(r.skipped.map((x) => x.reason))].join(", ")}).` : "") + " Follow them in Logs.");
     loadSummary();
     loadJobs();     // each goes In progress as it's queued
   } catch (e) { toast(e.message, true); }
@@ -1017,8 +1040,8 @@ function emptyState() {
   return S.scope === "find"
     ? h("div", { class: "list-empty" }, "No new roles here. Search with your filters, or add a job you found yourself.",
         h("button", { class: "primary", onclick: () => showTab("searches") }, "Go to Filters"))
-    : h("div", { class: "list-empty" }, "Nothing tracked yet. Track roles from Find jobs.",
-        h("button", { class: "ghost", onclick: () => showTab("find") }, "Go to Find jobs"));
+    : h("div", { class: "list-empty" }, "Nothing tracked yet. Track roles from Search Jobs.",
+        h("button", { class: "ghost", onclick: () => showTab("find") }, "Go to Search Jobs"));
 }
 function starButton(j, label = false) {
   return h("button", { class: "star" + (label ? " labeled" : ""), "aria-pressed": String(j.starred),
@@ -1406,6 +1429,8 @@ async function loadDetail(id) {
     const old = S.details.get(id);
     S.details.set(id, { d, sig });
     if (S.selected === id && (!old || old.sig !== sig)) renderDetail();
+    const j = S.byId.get(id);
+    if (!d.description.trim() && j?.url && !FETCHING.has(id)) fetchPosting(j, true);   // once, when it first opens
   } catch (e) {
     if (S.selected !== id || S.details.has(id)) return;
     // Server down: keep "Loading…", the banner says why, and the panel loads once it's back.
@@ -1506,7 +1531,7 @@ function detailHead(j) {
         h("div", { class: "sub" }, fundingTag(j), [j.company, j.location, known(j.mode), known(j.pay)].filter(Boolean).join(" · "),
           j.funding && h("span", { class: "funding-note" }, " · ", j.funding.line,
             j.funding.url && [" ", h("a", { href: safeHref(j.funding.url), target: "_blank", rel: "noopener", title: j.funding.headline }, "news ↗")],
-            " · ", h("button", { class: "link-btn", onclick: () => openStartup(j.funding.startup_id, j.company) }, "Startups tab")))),
+            " · ", h("button", { class: "link-btn", onclick: () => openStartup(j.funding.startup_id, j.company) }, "Search Startups")))),
       h("div", { class: "dhead-actions" },
         starButton(j, true),
         // Full score first, then Make résumé, which reuses it.
@@ -1517,6 +1542,7 @@ function detailHead(j) {
         h("button", { class: "icon-btn fold-btn", title: "Fold this header to one line", "aria-label": "Fold the header",
           "aria-expanded": "true", onclick: () => setFold("head", true) }, icon("up")),
         h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")))),
+    noPosting(j) && postingNeeded(j),
     h("div", { class: "bar" },
       statusControl(j),
       refToggle(j),
@@ -1575,7 +1601,9 @@ function renderDetail() { keepRefFocus(drawDetail); }
 function scoreButton(id, kind, scored, primary = false) {
   const busy = S.scoring.get(id);
   const label = kind === "full" ? (scored ? "Run full score again" : "Run full score") : scored ? "Signal score again" : "Signal score";
-  return h("button", { class: primary || !(scored || kind === "full") ? "primary" : "ghost", disabled: !!busy, title: ACTIONS[kind].what,
+  const blocked = kind === "full" && noPosting(S.byId.get(id));
+  return h("button", { class: primary || !(scored || kind === "full") ? "primary" : "ghost", disabled: !!busy || blocked,
+    title: blocked ? NO_POSTING : ACTIONS[kind].what,
     onclick: () => scoreJobs([id], kind) },
     busy?.kind === kind ? [spinner(), busy.state === "queued" ? " Waiting its turn…" : ` Scoring… ${actionTime(kind)}`] : [label, timeTag(kind)]);
 }
@@ -1645,9 +1673,9 @@ function drawDetail() {
 function emptyTab(j, d, tab) {
   const tailor = makeResumeButton(j);
   const what = {
-    resume: ["No résumé made yet", `${ACTIONS.resume.what} It takes ${actionTime("resume")}; you can follow its log in Runs.`],
+    resume: ["No résumé made yet", `${ACTIONS.resume.what} It takes ${actionTime("resume")}; you can follow its log in Logs.`],
     report: ["No fit report yet",
-      "Make résumé writes the fit report: the scores, the ATS scorecard, the gaps, and at the end, the follow-up questions to answer. Add your answers as confirmed facts in the Impact record tab, then make the résumé again."],
+      "Make résumé writes the fit report: the scores, the ATS scorecard, the gaps, and at the end, the follow-up questions to answer. Add your answers as confirmed facts in the Impact record (under Profile), then make the résumé again."],
     heatmap: ["No heat map yet",
       `The heat map rates every requirement in the posting against your impact record and each résumé. A full score makes one in ${actionTime("full")} without writing a résumé; Make résumé makes one too.`],
   }[tab];
@@ -1776,7 +1804,7 @@ const BULLET = /^\s*(?:[-*•·–]|\d+[.)])\s+/;
 function postingBody(text) {
   const lines = (text || "").split("\n").map((l) => l.trim());
   const box = h("div", { class: "posting-body" });
-  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Paste the description from its page to score it and make its résumé.")); return box; }
+  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Use Fetch posting above, or paste the description from its page, to score it and make its résumé.")); return box; }
   const next = (i) => lines.slice(i + 1).find(Boolean) || "";
   let list = null;
   lines.forEach((line, i) => {
@@ -1806,6 +1834,37 @@ function postingMeta(j, d) {
     !d.description_pasted && d.posting_kept && h("span", { title: "Kept because you applied: it stays here after the posting comes down." }, "Saved when you applied ", fmtDate(d.posting_kept)),
     h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
       d.description_pasted ? "Replace the pasted text…" : "Paste the description…"));
+}
+
+// Read a job's posting from its link, as Add job does: on its own once, when a job without its text first opens,
+// and again from Fetch posting. FETCHING: job id -> "busy", or why its link couldn't be read.
+const FETCHING = new Map();
+async function fetchPosting(j, auto = false) {
+  if (FETCHING.get(j.id) === "busy") return;
+  FETCHING.set(j.id, "busy");
+  if (S.selected === j.id) renderDetailHead();
+  try {
+    await post(`/api/jobs/${encodeURIComponent(j.id)}/fetch-posting`, {});
+    FETCHING.set(j.id, "");
+    S.details.delete(j.id);
+    await loadJobs();
+    if (S.selected === j.id) { renderDetail(); loadDetail(j.id); }
+    if (!auto) toast("Posting added from its link.");
+  } catch (e) {
+    FETCHING.set(j.id, e.message);
+    if (S.selected === j.id) renderDetailHead();
+  }
+}
+// Under the job's header while it has no posting text: why Run full score and Make résumé are off, and the two ways on.
+function postingNeeded(j) {
+  const st = FETCHING.get(j.id);
+  if (st === "busy") return h("div", { class: "needs-posting", role: "status" }, spinner(), h("span", {}, "Reading the posting from its link…"));
+  return h("div", { class: "needs-posting", role: "status" },
+    h("div", { class: "needs-why" }, h("p", {}, h("b", {}, "No posting text yet,"), " so Run full score and Make résumé are off."),
+      st && h("p", { class: "form-error" }, st)),
+    h("div", { class: "actions-inline" },
+      j.url && h("button", { class: "primary small", onclick: () => fetchPosting(j) }, "Fetch posting"),
+      h("button", { class: "ghost small", onclick: () => openDescribe(j) }, "Paste the description…")));
 }
 
 // The posting text pasted onto a role, for one whose stored text is missing, cut short or wrong.
@@ -3202,7 +3261,7 @@ function renderRunResults(r) {
   box.replaceChildren(
     h("h3", {}, `Results: ${plural(res.length, "job")}`),
     h("p", { class: "muted" }, tailored
-      ? "Open a job's Fit report: its follow-up questions are at the end. Add your answers as confirmed facts in the Impact record tab, then make the résumé again if they change what it can claim."
+      ? "Open a job's Fit report: its follow-up questions are at the end. Add your answers as confirmed facts in the Impact record (under Profile), then make the résumé again if they change what it can claim."
       : "Open a job to see its score, matches and likely gaps beside the posting."),
     h("ul", {}, ...res.map((x) => h("li", {},
       h("span", { class: `fit ${fitClass(x.impact_score ?? x.fit)}` }, x.impact_score ?? x.fit ?? "–"),
@@ -3273,14 +3332,14 @@ function renderStartupState() {
   const el = $("#startup-state");
   const going = (S.summary?.active_runs || []).find(isStartupRefresh);
   $("#startup-refresh").disabled = !!going;
-  if (going) el.replaceChildren(spinner(), " Reading the sources… ", h("button", { class: "link-btn", onclick: () => { showTab("runs"); selectRun(going.id); } }, "follow it in Runs"));
+  if (going) el.replaceChildren(spinner(), " Reading the sources… ", h("button", { class: "link-btn", onclick: () => { showTab("runs"); selectRun(going.id); } }, "follow it in Logs"));
   else if (SU.refreshed) {
     const hours = S.summary?.startups?.auto_refresh_hours;
     const inFind = S.jobs.filter((j) => j.searches?.includes("startups")).length;
     el.replaceChildren(`Sources and boards read ${new Date(SU.refreshed).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
       + (hours ? `, again every ${hours}h on its own` : "") + " · ",
       h("button", { class: "link-btn", title: "Roles matching your filters are added there on each refresh, with the round.",
-        onclick: () => { showTab("find"); S.flags.clear(); clearFacets(); S.facets.company.add("startup"); renderJobs(); } }, `${plural(inFind, "startup role")} in Find jobs`));
+        onclick: () => { showTab("find"); S.flags.clear(); clearFacets(); S.facets.company.add("startup"); renderJobs(); } }, `${plural(inFind, "startup role")} in Search Jobs`));
   } else el.textContent = "";
 }
 function renderStartups() {
@@ -3298,7 +3357,7 @@ function renderStartups() {
   $("#startup-count").textContent = plural(list.length, "startup");
   $("#startups").replaceChildren(...list.map(startupRow), ...(list.length ? [] : [h("div", { class: "list-empty" },
     !SU.loaded ? [spinner(), " Loading…"] : SU.list.length ? (SU.view === "hiring" && !filtersOnStartups()
-        ? "No startup has an open role matching your filters yet. Each refresh reads their careers boards, newest raise first, and matching roles land in Find jobs."
+        ? "No startup has an open role matching your filters yet. Each refresh reads their careers boards, newest raise first, and matching roles land in Search Jobs."
         : "No startups match.")
       : ["No startups yet. Refresh sources reads the funding news, the YC directory and VC boards (free), then the startups' careers boards for roles matching your filters.",
          h("button", { class: "primary", onclick: refreshStartups }, "Refresh sources")])]));
@@ -3322,7 +3381,7 @@ function startupRow(s) {
           h("span", { class: "tag round-tag", "data-round": s.stage, title: s.line }, s.round ? (s.round.name || s.stage) : s.stage_round || (s.batch ? `YC ${s.batch}` : "Round unknown"),
             s.round?.amount && h("b", {}, ` ${s.round.amount}`), s.round?.date && h("b", {}, ` · ${fmtDate(s.round.date + "T12:00")}`)),
           s.batch && (s.round || s.stage_round) && h("span", { class: "tag" }, `YC ${s.batch}`),
-          s.exited && h("span", { class: "tag", title: "A VC board still lists it, but it was acquired or went public, so its roles aren't added to Find jobs on their own" }, s.exited === "public" ? "Public" : "Acquired"),
+          s.exited && h("span", { class: "tag", title: "A VC board still lists it, but it was acquired or went public, so its roles aren't added to Search Jobs on their own" }, s.exited === "public" ? "Public" : "Acquired"),
           s.hiring && h("span", { class: "tag" }, "Hiring"),
           rolesTag(s),
           s.tracked && h("span", { class: "tag stage-tag", "data-stage": "Not started" }, "Tracked"))),
@@ -3386,7 +3445,7 @@ async function addRole(s, role, btn) {
     const { id, existing } = await post(`/api/startups/${encodeURIComponent(s.id)}/roles/add`, { url: role.url });
     role.job_id = id;
     await loadJobs();
-    toast(existing ? "That role is already in your jobs." : `Added to Find jobs: ${role.title}.`);
+    toast(existing ? "That role is already in your jobs." : `Added to Search Jobs: ${role.title}.`);
     renderStartupDetail();
   } catch (e) { toast(e.message, true); btn.disabled = false; }
 }
@@ -3411,7 +3470,7 @@ function renderStartupDetail() {
         h("h2", {}, s.name),
         h("div", { class: "sub" }, [s.hq, s.team_size && `${s.team_size} people`, ...(s.industries || []).slice(0, 3)].filter(Boolean).join(" · "))),
       h("div", { class: "dhead-actions" },
-        btn("Check its board now", "roles", readRoles, "ghost", "Reads the company's own careers board (Greenhouse, Lever or Ashby) right now. Each refresh does this on its own, and matching roles go to Find jobs."),
+        btn("Check its board now", "roles", readRoles, "ghost", "Reads the company's own careers board (Greenhouse, Lever or Ashby) right now. Each refresh does this on its own, and matching roles go to Search Jobs."),
         btn(s.tracked ? "Tracked" : "Track company", "track", trackStartup, "ghost", "Adds an \"Open roles\" card for this company to your tracker, with its round, while you watch for the right role."))),
     h("div", { class: "bar" },
       h("span", { class: "tag round-tag", "data-round": s.stage }, roundText),
@@ -3437,19 +3496,19 @@ function rolesCard(s, busy) {
   if (!s.roles) {
     card.append(h("p", { class: "muted" }, busy === "roles" ? [spinner(), " Reading its careers board…"]
       : ["Its board hasn't been read yet. Each refresh reads the startups' boards on its own, newest raise first, and roles matching your filters (",
-         SU.phrases.join(", ") || "none saved", ") go to Find jobs. ", h("button", { class: "link-btn", onclick: () => readRoles(s) }, "Check its board now"), "."]));
+         SU.phrases.join(", ") || "none saved", ") go to Search Jobs. ", h("button", { class: "link-btn", onclick: () => readRoles(s) }, "Check its board now"), "."]));
     return card;
   }
   const jobs = s.roles.jobs, match = jobs.filter((j) => j.match), rest = jobs.filter((j) => !j.match);
-  if (s.exited) card.append(h("p", { class: "muted" }, `It was ${s.exited === "public" ? "taken public" : "acquired"}, so it isn't a startup any more: its matching roles are shown here but not added to Find jobs on their own. Add one if you want it.`));
+  if (s.exited) card.append(h("p", { class: "muted" }, `It was ${s.exited === "public" ? "taken public" : "acquired"}, so it isn't a startup any more: its matching roles are shown here but not added to Search Jobs on their own. Add one if you want it.`));
   if (!s.board) card.append(h("p", { class: "muted" }, s.roles.from_vc_board ? "Listed by a VC portfolio board; the company's own board wasn't found." : "No Greenhouse, Lever or Ashby board was found on its website.",
-    s.careers_url ? [" Its careers page: ", extLink(s.careers_url, host(s.careers_url))] : "", s.exited ? "" : " A role it lists that matches your filters is in Find jobs already; another one can be ",
+    s.careers_url ? [" Its careers page: ", extLink(s.careers_url, host(s.careers_url))] : "", s.exited ? "" : " A role it lists that matches your filters is in Search Jobs already; another one can be ",
     s.exited ? "" : h("button", { class: "link-btn", onclick: () => { addDialog.showModal(); addField("company").value = s.name; addField("url").focus(); } }, "added by its link"), s.exited ? "" : "."));
   else card.append(h("p", { class: "muted" }, `${plural(jobs.length, "open role")} on `, extLink(s.board.url, s.board.kind.replace(/^./, (c) => c.toUpperCase())),
-    s.roles.checked ? ` · read ${fmtDate(s.roles.checked)}` : "", match.length ? ` · ${match.length} match your filters (title and place) and are in Find jobs` : jobs.length ? " · none match your filters' titles and places" : ""));
+    s.roles.checked ? ` · read ${fmtDate(s.roles.checked)}` : "", match.length ? ` · ${match.length} match your filters (title and place) and are in Search Jobs` : jobs.length ? " · none match your filters' titles and places" : ""));
   const roleLi = (j) => {
-    const added = j.job_id && h("button", { class: "ghost small", title: "Added on its own, because it matches your filters", onclick: () => openJob(j.job_id, "posting") }, j.status ? `Tracked · ${j.status}` : "In Find jobs");
-    const addBtn = h("button", { class: j.match ? "primary small" : "ghost small", title: "Stores the posting here, with the round, so you can score it or make its résumé" }, "Add to Find jobs");
+    const added = j.job_id && h("button", { class: "ghost small", title: "Added on its own, because it matches your filters", onclick: () => openJob(j.job_id, "posting") }, j.status ? `Tracked · ${j.status}` : "In Search Jobs");
+    const addBtn = h("button", { class: j.match ? "primary small" : "ghost small", title: "Stores the posting here, with the round, so you can score it or make its résumé" }, "Add to Search Jobs");
     addBtn.addEventListener("click", () => addRole(s, j, addBtn));
     return h("li", { class: j.match ? "match" : "" },
       h("div", { class: "what" }, h("div", { class: "t" }, j.title), h("div", { class: "s" }, [j.location, j.remote && "Remote", j.pay, j.posted && `Posted ${fmtDate(j.posted + "T12:00")}`].filter(Boolean).join(" · "))),
@@ -3516,6 +3575,7 @@ function profileState() {
 const profileDirty = () => !!P.data && JSON.stringify(profileState()) !== P.base;
 
 async function loadProfile() {
+  if (PIN.saved == null || $("#pin-text").value.trim() === PIN.saved.trim()) loadPinned();   // not over unsaved edits
   if (!P.data || !profileDirty()) {
     try { applyProfile(await api("/api/profile")); } catch (e) { toast(e.message, true); }
   }
@@ -3576,7 +3636,7 @@ function profileChanged() {
   $("#profile-discard").disabled = !dirty;
   $("#profile-state").textContent = dirty ? "Unsaved changes" : P.data?.saved ? "Saved in searches.yaml" : "";
 }
-pForm.addEventListener("input", (e) => { if (!e.target.closest(".rfile")) profileChanged(); });
+pForm.addEventListener("input", (e) => { if (!e.target.closest(".rfile, .pin-card")) profileChanged(); });
 pField("pdf_name").placeholder = PDF_NAME_DEFAULT;
 $$("#pdf-vars .var-chip").forEach((b) => b.addEventListener("click", () => {
   const f = pField("pdf_name"), v = b.dataset.var;
@@ -3889,6 +3949,69 @@ async function showLook(d, box) {
         h("ul", { class: "import-notes" }, ...lk.not_copied.map((n) => h("li", {}, n)))) : null,
       h("p", { class: "muted" }, "You can change any of it afterwards: Profile › Résumé format › Edit.")));
 }
+
+// ---- profile: the pinned section (references/pinned.md, jobpipe/pinned.py), word for word in every résumé.
+// Saved on its own, not with the profile form it sits in; the preview redraws as you type.
+const PIN = { saved: null, text: null, seq: 0 };
+async function loadPinned() {
+  let d;
+  try { d = await api("/api/profile/pinned"); } catch (e) { toast(e.message, true); return; }
+  PIN.saved = PIN.text = d.text;
+  $("#pin-text").value = d.text;
+  $("#pin-file").textContent = d.file;
+  showPinPreview(d);
+  pinChanged();
+}
+function showPinPreview(d) {
+  const sheet = $("#pin-sheet"), empty = $("#pin-empty");
+  $("#pin-words").textContent = d.words ? `About ${plural(d.words, "word")} of the page limit` : "";
+  sheet.hidden = !d.html;
+  empty.hidden = !!d.html;
+  if (d.error) empty.textContent = d.error;
+  else if (!d.html) empty.textContent = "Nothing is pinned, so every résumé is the writers' work alone.";
+  if (d.html && sheet.srcdoc !== d.html) sheet.srcdoc = d.html;
+}
+// The sheet is a letter-size page: shrink it to the frame and bring the highlighted part into view.
+$("#pin-sheet").addEventListener("load", () => {
+  const doc = $("#pin-sheet").contentDocument;
+  if (!doc?.body) return;
+  doc.documentElement.style.zoom = Math.min(1, $("#pin-sheet").clientWidth / (doc.body.offsetWidth + 48));
+  const pin = doc.querySelector(".pin");     // scrolls the frame only: scrollIntoView would move the Profile too
+  if (pin) doc.scrollingElement.scrollTop = pin.getBoundingClientRect().top + doc.scrollingElement.scrollTop - 24;
+});
+function pinChanged() {
+  const dirty = PIN.saved != null && $("#pin-text").value.trim() !== PIN.saved.trim();
+  $("#pin-save").disabled = !dirty;
+  $("#pin-discard").disabled = !dirty;
+  $("#pin-state").textContent = dirty ? "Unsaved changes" : "";
+}
+$("#pin-text").addEventListener("input", () => {
+  PIN.text = $("#pin-text").value;
+  pinChanged();
+  clearTimeout(PIN.timer);
+  PIN.timer = setTimeout(async () => {
+    const seq = ++PIN.seq;
+    try {
+      const d = await post("/api/profile/pinned/preview", { text: PIN.text });
+      if (seq === PIN.seq) showPinPreview(d);
+    } catch (e) { toast(e.message, true); }
+  }, 400);
+});
+$("#pin-discard").addEventListener("click", loadPinned);
+$("#pin-save").addEventListener("click", async () => {
+  const btn = $("#pin-save");
+  btn.disabled = true;
+  try {
+    const d = await put("/api/profile/pinned", { text: $("#pin-text").value });
+    PIN.saved = PIN.text = d.text;
+    $("#pin-text").value = d.text;
+    PIN.seq++;
+    showPinPreview(d);
+    pinChanged();
+    $("#pin-state").textContent = d.text ? "✓ saved" : "✓ nothing pinned";
+    toast(d.text ? "Saved. Every résumé made from now on has this section, word for word." : "Nothing is pinned now.");
+  } catch (e) { toast(e.message, true); pinChanged(); }
+});
 
 // ---- résumé format: the Profile's one default (jobpipe/formats.py). Choosing one can redraw every résumé
 // already made; one that would go over the new format's page limit keeps its format until it's trimmed.

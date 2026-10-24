@@ -487,3 +487,9 @@ def test_scored_startup_roles_go_to_the_tracker(tmp_dirs):
     assert su.track_scored_roles(cfg, jobs, tracker=tracker, log=print) == 0
     assert {r["job_id"] for r in tracker.rows()} == {"startup-x-role-0", "startup-x-role-1"}
     assert su.track_scored_roles(cfg, jobs, min_fit=6, tracker=tracker, log=print) == 1
+    # a role whose board gave no posting text gets it from its link as it's tracked
+    jobs.save_job({"id": "startup-z-bare-1", "job_title": "Bare", "company": "Z", "url": "https://z/1", "description": ""}, "startups")
+    jobs.update("startup-z-bare-1", triage={"fit_score": 9})
+    text = "Run Z's launch programs end to end. " * 12
+    assert su.track_scored_roles(cfg, jobs, tracker=tracker, log=print, read=lambda url: {"description": text}) == 1
+    assert jobs.job("startup-z-bare-1")["description"] == text.strip()

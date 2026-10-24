@@ -451,3 +451,7 @@ html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible,
 /* Ghosted: the note on a role moved there on its own */
 html[data-theme="bauhaus"] .ghosted-note { border-left: 8px solid var(--st-ghosted); border-radius: 0; background: var(--grey-soft); color: var(--black); }
 html[data-theme="bauhaus"] .ghosted-note b { color: var(--black); font-weight: 700; }
+
+/* Profile › Pinned résumé section */
+html[data-theme="bauhaus"] .pin-sheet { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] .pin-empty { border: var(--rule); border-radius: 0; background: var(--white); }

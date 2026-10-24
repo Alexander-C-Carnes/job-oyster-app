@@ -6,13 +6,13 @@
   tailor JOB_ID        Make résumé for one stored job (or --jd-file for a pasted posting)
   jobs                 List stored jobs and their signal scores
   startups refresh     Read the funding feeds, the YC directory and VC boards into data/startups.json, then the
-                       startups' careers boards: roles matching your filters land in Find jobs (free)
+                       startups' careers boards: roles matching your filters land in Search Jobs (free)
   startups scan        Just the careers boards (--limit N startups, newest raise first)
-  startups score       Signal-score the startup roles in Find jobs against the impact record (--limit N)
+  startups score       Signal-score the startup roles in Search Jobs against the impact record (--limit N)
   startups list        Stored startups, newest raise first (--stage "Series B", --hiring, --days N)
   startups roles ID    A startup's open roles from its careers board; --add stores the matching ones as jobs
   startups enrich ID   Look up a startup's latest round (needs FUNDABLE_API_KEY or PDL_API_KEY)
-  check-postings       Re-check that roles are still open; closed ones in Find jobs go to Dismissed, tracked ones are tagged Closed
+  check-postings       Re-check that roles are still open; closed ones in Search Jobs go to Dismissed, tracked ones are tagged Closed
   credits              JobsPipe credit ledger
   serve                Local web app (job board, searches, runs, résumé review and edits)
   show-request         Print the request body each saved search would send (free)
@@ -265,7 +265,7 @@ def cmd_startups(cfg, args):
                 if j["match"]:
                     st.save_job(su.role_as_job(s, j), "startups")
                     n += 1
-            print(f"Added {n} matching role(s) to Find jobs.")
+            print(f"Added {n} matching role(s) to Search Jobs.")
 
 
 def _tracked() -> dict[str, str]:
@@ -347,7 +347,7 @@ def main(argv=None) -> None:
     sub.add_parser("jobs").set_defaults(fn=cmd_jobs)
     sub.add_parser("credits").set_defaults(fn=cmd_credits)
 
-    p = sub.add_parser("check-postings", help="move roles in Find jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
+    p = sub.add_parser("check-postings", help="move roles in Search Jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
     p.add_argument("--limit", type=int, default=200)
     p.set_defaults(fn=cmd_check_postings)
 
@@ -357,7 +357,7 @@ def main(argv=None) -> None:
     q.add_argument("--days", type=int, help="how recent a raise counts (default: startups.days in searches.yaml)")
     q = sp.add_parser("scan", help="read startups' careers boards; roles matching your filters go to Find jobs")
     q.add_argument("--limit", type=int, default=300, help="how many startups (newest raise first)")
-    q = sp.add_parser("score", help="signal-score startup roles in Find jobs against the impact record")
+    q = sp.add_parser("score", help="signal-score startup roles in Search Jobs against the impact record")
     q.add_argument("--limit", type=int, default=30, help="at most this many (one Claude call each)")
     q = sp.add_parser("track", help="add the scored startup roles in Find jobs at or above a fit score to the tracker")
     q.add_argument("--min-fit", type=int, help="default: startups.roles.track_min_fit in searches.yaml")

@@ -23,18 +23,16 @@
   <header class="topbar">
     <div class="brand"><svg class="brand-mark" viewBox="0 0 1024 1024" aria-hidden="true"><rect class="bm-tile" x="100" y="100" width="824" height="824" rx="185"/><path class="bm-shell" d="M250 560 Q520 830 800 560 Z"/><g class="bm-lid"><path class="bm-shell" d="M250 536 Q520 266 800 536 Z" transform="rotate(-24 250 548)"/></g><circle class="bm-pearl" cx="600" cy="510" r="60"/></svg>Job Oyster</div>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-tab="find">Find jobs <span class="count" id="count-find"></span></button>
-      <span class="tab-sep" aria-hidden="true"></span>
       <button role="tab" data-tab="tracker" class="active">Tracker <span class="count" id="count-tracker"></span></button>
-      <button role="tab" data-tab="startups">Startups <span class="count" id="count-startups"></span></button>
       <span class="tab-sep" aria-hidden="true"></span>
+      <button role="tab" data-tab="find">Search Jobs <span class="count" id="count-find"></span></button>
+      <button role="tab" data-tab="startups">Search Startups <span class="count" id="count-startups"></span></button>
       <button role="tab" data-tab="searches">Filters</button>
-      <button role="tab" data-tab="runs">Runs</button>
       <span class="tab-sep" aria-hidden="true"></span>
-      <button role="tab" data-tab="impact">Impact record <span class="dirty-dot hidden" id="impact-dirty" title="Unsaved changes"></span></button>
       <button role="tab" data-tab="prep">Interview prep <span class="dirty-dot hidden" id="prep-dirty" title="Unsaved changes"></span></button>
-      <span class="tab-sep" aria-hidden="true"></span>
       <button role="tab" data-tab="dashboard">Dashboard</button>
+      <span class="tab-sep" aria-hidden="true"></span>
+      <button role="tab" data-tab="runs" class="tab-minor" title="What the searches, scores and résumé runs printed">Logs</button>
     </nav>
     <div class="meta">
       <button id="run-indicator" class="pill live hidden"></button>
@@ -55,6 +53,13 @@
   <div id="toast" class="toast hidden" role="status"></div>
 
   <main>
+    <!-- Profile's two pages: who you are, and the evidence every score and résumé is built from -->
+    <nav id="profile-nav" class="subnav hidden" aria-label="Profile">
+      <div class="seg" role="tablist">
+        <button role="tab" data-tab="profile">Profile</button>
+        <button role="tab" data-tab="impact">Impact record <span class="dirty-dot hidden" id="impact-dirty" title="Unsaved changes"></span></button>
+      </div>
+    </nav>
     <!-- Jobs -->
     <section id="tab-jobs" class="tab-panel active">
       <div class="jobs-tools">
@@ -70,6 +75,7 @@
           </div>
           <span id="sync-state" class="sync-state"></span>
           <button id="refresh-jobs" class="ghost" title="Send changes to Notion and fetch Notion's now">Sync</button>
+          <a id="open-notion" class="btn-link hidden" href="#" target="_blank" rel="noopener noreferrer" title="Open the tracker database in Notion">Open in Notion ↗</a>
           <button id="run-searches" class="ghost hidden">Run filters…</button>
           <button id="paste-job" class="primary">Add a job…</button>
           <button id="fold-filters" class="icon-btn fold-btn" type="button" title="Fold the filters into one line (⌘\ folds everything)" aria-label="Fold the filters" aria-expanded="true"><span class="ico" data-icon="up"></span></button>
@@ -142,7 +148,7 @@
             <input id="startup-filter" type="search" placeholder="Search startups, what they do, where they are" autocomplete="off">
           </label>
           <div class="seg" id="startup-views" role="group" aria-label="Which startups"></div>
-          <button id="startup-refresh" class="ghost" title="Read the funding news, the YC directory and the VC boards again, then the startups' careers boards: roles matching your filters land in Find jobs (free, a few minutes)">Refresh sources</button>
+          <button id="startup-refresh" class="ghost" title="Read the funding news, the YC directory and the VC boards again, then the startups' careers boards: roles matching your filters land in Search Jobs (free, a few minutes)">Refresh sources</button>
           <button id="startup-add" class="primary">Add a startup…</button>
         </div>
         <div class="tools-row">
@@ -193,7 +199,7 @@
           <span class="grow"></span>
           <button type="button" class="link-btn help-link" data-help>What each does</button>
           <button data-run="preflight" class="ghost" title="Asks JobsPipe how many jobs each filter matches, with a one-job request (at most 1 credit each). Nothing is stored or scored.">Check filters</button>
-          <button data-run="triage" class="ghost" title="Runs your filters, stores the new jobs in Find jobs and gives each a signal score (one Claude call per job)">Search + signal score</button>
+          <button data-run="triage" class="ghost" title="Runs your filters, stores the new jobs in Search Jobs and gives each a signal score (one Claude call per job)">Search + signal score</button>
           <button data-run="full" class="primary" title="The same, then Make résumé for the best new jobs with a signal score of 7 or more (about 25 minutes each)">Search + make résumés for top</button>
           <label class="inline"><span class="sr-only">How many résumés to make</span><input id="run-top" type="number" min="0" max="10" value="3"></label>
         </div>
@@ -303,7 +309,7 @@
           <div>
             <h1>Profile</h1>
             <p class="muted">Who the résumés are for. Every score, résumé and check uses this. Your evidence is in the
-              <button type="button" id="profile-impact-link" class="link-btn inline-link">Impact record</button> tab (<span id="profile-impact"></span>).</p>
+              <button type="button" id="profile-impact-link" class="link-btn inline-link">Impact record</button>, next to this page (<span id="profile-impact"></span>).</p>
           </div>
         </div>
 
@@ -371,6 +377,24 @@
               <button type="button" id="resume-add" class="ghost">Add a résumé…</button>
               <input type="file" id="resume-upload" accept=".pdf,.docx,.md,.markdown,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain" hidden>
               <span class="hint">A PDF or Word file, saved from the program you wrote it in (not a scan), or Markdown or text. You check what the app read before it's saved in <code>references/</code>.</span>
+            </div>
+          </section>
+          <section class="pcard pin-card" id="pin-card">
+            <h2>Pinned résumé section</h2>
+            <p class="muted">Goes word for word into every résumé the app makes, right after Professional experience: the writers leave room for it, and no AI step rewrites or cuts it.</p>
+            <label for="pin-text">Markdown <span class="hint">saved in <code id="pin-file">references/pinned.md</code>. A <code>## </code> heading makes it its own section; without one, its rows join the end of Professional experience. Empty pins nothing.</span></label>
+            <textarea id="pin-text" class="pin-text" rows="9" spellcheck="true" placeholder="## FOUNDER EXPERIENCE&#10;&#10;**Your Company** | Founder&#10;*Jan 2024–Present*&#10;&#10;- What you built, and what came of it."></textarea>
+            <div class="pin-preview">
+              <span class="hint">How it looks in a résumé <span id="pin-where" class="muted">(your fallback résumé, in your format, the pinned part highlighted)</span></span>
+              <iframe id="pin-sheet" class="pin-sheet" sandbox="allow-same-origin" title="Your fallback résumé with the pinned section in it" hidden></iframe>
+              <p id="pin-empty" class="pin-empty muted">Nothing is pinned, so every résumé is the writers' work alone.</p>
+            </div>
+            <div class="pin-foot">
+              <span id="pin-words" class="hint"></span>
+              <span class="grow"></span>
+              <span id="pin-state" class="muted"></span>
+              <button type="button" id="pin-discard" class="ghost small" disabled>Discard</button>
+              <button type="button" id="pin-save" class="primary small" disabled>Save pinned section</button>
             </div>
           </section>
           <section class="pcard">
@@ -495,7 +519,7 @@
         <button type="button" data-act="cancel" class="ghost">Cancel</button>
         <span class="grow"></span>
         <button type="button" class="link-btn help-link" data-help>What each does</button>
-        <button value="score" class="ghost" title="Adds it to Find jobs, then a signal score: one quick Claude call on how well your impact record fits the posting">Add + signal score</button>
+        <button value="score" class="ghost" title="Adds it to Search Jobs, then a signal score: one quick Claude call on how well your impact record fits the posting">Add + signal score</button>
         <button value="tailor" class="primary" title="Adds it, then Make résumé: the full score, three drafts, the best merged and checked, a PDF and a fit report (about 25 minutes)">Add + make résumé</button>
       </div>
     </form>

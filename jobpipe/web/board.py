@@ -240,6 +240,7 @@ class JobBoard:
                 "location": job.get("location") or "", "mode": "Remote" if remote else "Hybrid" if mode == "Remote" else mode,
                 "remote": remote, "pay": salary_text(job), "pay_usd": hi or lo or None,   # the number the list sorts by
                 "url": posting_url(job), "posted": job.get("date_posted") or "",
+                "no_posting": not (job.get("description") or "").strip(),   # Run full score and Make résumé wait for it
                 "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
                 "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else ""),
                 "regions": regions.areas([*(job.get("country_codes") or []), job.get("country_code") or ""],
@@ -269,7 +270,7 @@ class JobBoard:
                 "id": jid, "title": job["title"] or st.get("exact_title") or "", "company": job["company"],
                 "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"], "pay_usd": job["pay_usd"],
                 "url": job["url"], "source": job.get("source", ""), "funding": self._funding(job),
-                "regions": job["regions"], "place": job.get("place", ""),
+                "regions": job["regions"], "place": job.get("place", ""), "no_posting": job.get("no_posting", False),
                 "fit": tri.get("fit_score") if tri else None, "one_line": tri.get("one_line", ""),
                 "searches": st.get("searches", []), "tailored": bool(st.get("run_dir")),
                 "impact_score": st.get("impact_score"), "resume_score": st.get("resume_score"),

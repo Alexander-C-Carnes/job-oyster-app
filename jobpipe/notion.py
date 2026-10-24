@@ -64,6 +64,7 @@ class NotionTracker:
         self.headers = {"Authorization": f"Bearer {token}", "Notion-Version": VERSION,
                         "Content-Type": "application/json"}
         self.backoff = (0.6, 1.8)   # waits before the second and third try of a failed request
+        self._db_url = ""
 
     def _req(self, method: str, path: str, json: Optional[dict] = None) -> dict:
         # Notion's 5xx and 429 answers are usually brief, so reads and status updates are tried again.
@@ -86,6 +87,16 @@ class NotionTracker:
         raise RuntimeError(f"Notion {method} {path} -> {r.status_code}: {said}")
 
     # ---- lookups -----------------------------------------------------------
+    def database_url(self) -> str:
+        """Where the tracker database opens in Notion. searches.yaml holds the data source's id; the database
+        that contains it is its parent, which Notion only says when asked (once; a failure isn't kept)."""
+        if not self._db_url:
+            parent = self._req("GET", f"/data_sources/{self.ds}").get("parent") or {}
+            db = parent.get("database_id") if parent.get("type") == "database_id" else ""
+            if db:
+                self._db_url = "https://www.notion.so/" + db.replace("-", "")
+        return self._db_url
+
     def find(self, url: str) -> Optional[dict]:
         """The tracker row for this posting, matching Job URL without query strings."""
         core = canonical_url(url)

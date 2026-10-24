@@ -1104,7 +1104,7 @@ def store_known_roles(store: StartupStore, searches: list, jobs_store: Any, *, l
         if added:
             total += len(added)
             log(f"  {s['name']} ({funding_line(funding_block(s)) or 'round unknown'}): added {', '.join(added)}")
-    log(f"Open roles already known: {total} new in Find jobs")
+    log(f"Open roles already known: {total} new in Search Jobs")
     return total
 
 
@@ -1155,7 +1155,7 @@ def scan_boards(store: StartupStore, searches: list, jobs_store: Any, *, limit: 
             if added:
                 log(f"  {s['name']} ({funding_line(funding_block(s)) or 'round unknown'}): added {', '.join(added)}")
     log(f"Open roles: {counts['boards']} boards read of {counts['startups']} startups, {counts['roles']} roles, "
-        f"{counts['matching']} match your filters, {counts['added']} new in Find jobs")
+        f"{counts['matching']} match your filters, {counts['added']} new in Search Jobs")
     return counts
 
 
@@ -1325,11 +1325,15 @@ async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log
 
 
 def track_scored_roles(cfg: Any, jobs_store: Any, ids: Optional[list[str]] = None, *, min_fit: Optional[int] = None,
-                       tracker: Any = None, log: Callable[[str], None] = print) -> int:
+                       tracker: Any = None, log: Callable[[str], None] = print,
+                       read: Optional[Callable[[str], dict]] = None) -> int:
     """Put the scored startup roles (`ids`, or every one in Find jobs) at or above `min_fit` (default
     cfg.track_min_fit) in the tracker as Not started, as a pipeline run does for its jobs. Dismissed, tailored and
-    already-tracked roles are left alone. Notion gets them in one sync at the end. Returns how many were added."""
+    already-tracked roles are left alone. A role whose board gave no posting text gets it from its link (`read`,
+    default jd.read_posting). Notion gets them in one sync at the end. Returns how many were added."""
     from .pipeline import Candidate, make_tracker, tracker_entry
+    from .jd import posting_url
+    from .postings import fetch_posting, has_posting
     from .triage import Triage
     state = jobs_store.state()
     ids = [jid for jid in (ids if ids is not None else state) if jid.startswith("startup-")]
@@ -1354,6 +1358,8 @@ def track_scored_roles(cfg: Any, jobs_store: Any, ids: Optional[list[str]] = Non
         if tracker.track(e, job_id=jid) == "created":
             n += 1
             log(f"  Tracker: added {e.title} @ {e.company} ({tri.fit_score}/10)")
+            if not has_posting(jobs_store.job(jid)) and fetch_posting(jobs_store, jid, read):
+                log(f"    couldn't read its posting from {posting_url(jobs_store.job(jid))}")
     if n:
         log(f"Startup roles: {n} scoring {floor}+ added to the tracker")
         try:

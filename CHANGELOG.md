@@ -2,6 +2,20 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-24
+
+### Profile
+- See and edit the pinned résumé section
+
+### Tracker
+- An Open in Notion link beside Sync
+
+### App
+- The top tabs in a clearer order
+
+### Startups
+- Startup roles get their posting text from its link
+
 ## 2026-10-19
 
 ### Résumés

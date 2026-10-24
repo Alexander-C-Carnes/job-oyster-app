@@ -33,10 +33,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, own_formats, record_import, regions, render, resume_import
+from .. import formats, jd, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from . import about, follow
-from ..postings import PostingKeeper
+from ..postings import PostingKeeper, fetch_posting, has_posting
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
 from ..llm import BACKEND_LABELS, CLAUDE_MODELS, PROVIDERS, AgentError, OpenAICompatRunner, Runner
@@ -468,6 +468,17 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             return Response(status_code=304, headers={"ETag": etag})
         return Response(body, media_type="application/json", headers={"ETag": etag})
 
+    @app.get("/api/notion/link")
+    def notion_link():
+        """The Tracker's "Open in Notion" link: the database's address, or "" when Notion isn't set up here
+        (or doesn't say)."""
+        if local.notion is None:
+            return {"url": ""}
+        try:
+            return {"url": local.notion.database_url()}
+        except Exception:  # noqa: BLE001 - Notion unreachable: no link now, asked again on the next load
+            return {"url": ""}
+
     @app.post("/api/tracker/{row_id}/status")
     @app.post("/api/notion/{row_id}/status")     # the path from when the tracker lived only in Notion
     def set_status(row_id: str, body: dict):
@@ -543,6 +554,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         action = local.track(entry, job_id=jid)
         store.update(jid, dismissed=False)
         sync.kick()
+        if not has_posting(store.job(jid)):     # a startup board's role often comes without its text
+            threading.Thread(target=fetch_posting, args=(store, jid), daemon=True).start()
         return {"action": action}
 
     @app.post("/api/jobs/{jid}/dismiss")
@@ -692,6 +705,17 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             store.save_job({"id": jid, "job_title": row["title"], "company": row["company"], "url": row["url"]}, "manual")
             local.link_job(row["tracker_id"], jid)
         store.paste_description(jid, text)
+        return {"id": jid}
+
+    @app.post("/api/jobs/{jid}/fetch-posting")
+    async def fetch_job_posting(jid: str):
+        """Read a stored job's posting from its link, as Add job does, for one that came without its text
+        (a startup board's role). The job view asks once when it first opens such a job; Fetch posting asks again."""
+        if not store.job(jid):
+            raise HTTPException(404, "Unknown job")
+        why = await asyncio.to_thread(fetch_posting, store, jid)
+        if why:
+            raise HTTPException(422, why)
         return {"id": jid}
 
     async def signal_score(jid: str) -> dict:
@@ -1946,6 +1970,43 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 except Exception:  # noqa: BLE001 - not in the markdown shape: use the example
                     break
         return (config.EXAMPLE_PROFILE / "references" / "resume-platform.md").read_text()
+
+    # ---- the pinned section: references/pinned.md, word for word in every résumé (jobpipe/pinned.py) ----
+    def pinned_preview(text: str) -> dict:
+        """The block's words, and the fallback résumé drawn with it in place, its lines highlighted."""
+        block = text.strip()
+        out = {"words": len(re.findall(r"\b\w+\b", block)), "html": None, "error": None}
+        if not block:
+            return out
+        md = pinned.apply(preview_md(), block)
+        start = md[:md.index(block)].count("\n")
+        try:
+            out["html"] = render.render(md, fmt=default_format(), mark=set(range(start, start + block.count("\n") + 1))
+                                        ).replace("</style>", render.SHEET_CSS + "</style>")
+        except Exception as e:  # noqa: BLE001 - not drawable: say why beside the editor
+            out["error"] = f"The preview can't draw this: {e}"
+        return out
+
+    @app.get("/api/profile/pinned")
+    def get_pinned():
+        return {"text": pinned.text(), "file": f"references/{pinned.FILE}", **pinned_preview(pinned.text())}
+
+    # Saved even mid-run: a run reads the pinned section once, when it starts.
+    @app.put("/api/profile/pinned")
+    def put_pinned(body: dict):
+        """{"text": markdown}. Empty text removes the file, so nothing is pinned."""
+        text, path = str(body.get("text") or "").strip(), pinned.path()
+        if text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+        return get_pinned()
+
+    @app.post("/api/profile/pinned/preview")
+    def preview_pinned(body: dict):
+        """The preview of text not saved yet, as the editor changes it."""
+        return pinned_preview(str(body.get("text") or ""))
 
     preview_lock = threading.Lock()
 

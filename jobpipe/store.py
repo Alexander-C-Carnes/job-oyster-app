@@ -125,13 +125,13 @@ class Store:
     def job(self, jid: str) -> dict:
         return _read(self.jobs_dir / f"{jid}.json", None) or {}
 
-    def paste_description(self, jid: str, text: str) -> None:
-        """Keep the posting text you pasted for a stored job; scoring and tailoring read it first.
-        The text it replaces is kept beside it."""
+    def paste_description(self, jid: str, text: str, read: bool = False) -> None:
+        """Keep the posting text you pasted for a stored job (`read`: the app read it from the job's link, as
+        Add job does); scoring and tailoring read it first. The text it replaces is kept beside it."""
         job = self.job(jid)
         if not job.get("description_pasted"):
             job["description_before_paste"] = job.get("description") or ""
-        job.update(description=text, description_pasted=now_iso(), description_read=False)
+        job.update(description=text, description_pasted=now_iso(), description_read=read)
         _write(self.jobs_dir / f"{jid}.json", job)
 
     def keep_posting(self, jid: str, text: str) -> None:

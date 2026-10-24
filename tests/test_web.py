@@ -148,6 +148,15 @@ def test_each_role_carries_its_pay_as_a_number_to_sort_by(env):
     assert by_id["notion-p9"]["pay_usd"] is None
 
 
+def test_notion_link_is_the_database_and_empty_when_notion_is_not_set_up(env, tmp_path):
+    c = env["client"]
+    assert c.get("/api/notion/link", headers=H).json() == {"url": "https://www.notion.so/1a2b3c4d111122223333444455556666"}
+    off = TestClient(create_app(env["cfg"], token=TOKEN, store=Store(), tracker=None, runner_factory=lambda cfg: env["runner"],
+                                runs=env["runs"], allowed_hosts={"testserver"}, searches_path=env["searches"],
+                                resume_root=tmp_path / "repo", impact_path=env["impact"]))
+    assert off.get("/api/notion/link", headers=H).json() == {"url": ""}
+
+
 def test_job_board_merges_local_jobs_and_notion(env):
     jobs = env["client"].get("/api/jobs", headers=H).json()["jobs"]
     by_id = {j["id"]: j for j in jobs}
@@ -1618,6 +1627,41 @@ def test_profile_resume_upload(env):
     assert c.post("/api/profile/resumes", headers=H, json={"filename": "cv.pdf", "markdown": "x"}).status_code == 400
 
 
+def test_profile_pinned_section_edit_and_preview(env):
+    c, path = env["client"], config.REFERENCES / "pinned.md"
+    assert c.get("/api/profile/pinned").status_code == 401
+    d = c.get("/api/profile/pinned", headers=H).json()
+    assert d["text"] == "" and d["file"] == "references/pinned.md" and d["html"] is None and d["words"] == 0
+
+    block = "## FOUNDER EXPERIENCE\n\n**Side Co** | Founder\n*Jan 2024–Present*\n\n- Built and launched Side Co."
+    p = c.post("/api/profile/pinned/preview", headers=H, json={"text": block}).json()
+    assert not path.exists()                                          # a preview saves nothing
+    assert p["words"] == 13 and p["error"] is None
+    assert '<h2 class="pin">FOUNDER EXPERIENCE</h2>' in p["html"] and '<mark class="pin">Side Co</mark>' in p["html"]
+    assert '<mark class="pin">Built and launched Side Co.</mark>' in p["html"]
+    assert p["html"].count('class="pin"') == 5                        # the heading, company, role, dates, bullet
+    assert "Jordan Rivera" in p["html"] and "8.5in" in p["html"]       # in the fallback résumé, on a sheet
+
+    d = c.put("/api/profile/pinned", headers=H, json={"text": "  " + block + "\n\n"}).json()
+    assert path.read_text() == block + "\n" and d["text"] == block and d["html"] == p["html"]
+    assert c.get("/api/profile/pinned", headers=H).json()["text"] == block
+
+    rows = "**Side Co** | Founder\n*2024*"                           # no heading: the end of Professional experience
+    html = c.post("/api/profile/pinned/preview", headers=H, json={"text": rows}).json()["html"]
+    assert html.count('class="pin"') == 3 and '<h2 class="pin">' not in html
+
+    d = c.put("/api/profile/pinned", headers=H, json={"text": " \n"}).json()
+    assert not path.exists() and d["text"] == "" and d["html"] is None   # empty pins nothing
+
+
+def test_every_look_styles_the_pinned_section():
+    from pathlib import Path
+    themes = Path(__file__).resolve().parent.parent / "jobpipe" / "web" / "static" / "themes"
+    for look in ("sorbet", "transit", "bauhaus", "arcade"):
+        css = (themes / f"{look}.css").read_text()
+        assert f'html[data-theme="{look}"] .pin-sheet' in css and f'html[data-theme="{look}"] .pin-empty' in css
+
+
 def test_impact_record_edit_and_save(env):
     c, path = env["client"], env["impact"]
     assert c.get("/api/impact-record").status_code == 401
@@ -2247,3 +2291,35 @@ def test_suggestions_from_a_resume_and_adding_them_to_the_impact_record(env):
     saved = c.post("/api/impact-record/suggestions", headers=H, json={"file": "resume-platform.md"}).json()
     assert saved["source"] == "resume-platform.md" and saved["roles"]
     assert c.post("/api/impact-record/suggestions", headers=H, json={"file": "../searches.yaml"}).status_code == 400
+
+
+def test_a_startup_role_without_its_text_fetches_it_from_its_link(env, monkeypatch):
+    import time
+    import jobpipe.jd
+    c = env["client"]
+    Store().save_job({"id": "startup-acme-pm", "job_title": "PM", "company": "Acme", "url": "https://jobs.acme.example/1",
+                      "description": ""}, "startups")
+    rows = lambda: {j["id"]: j for j in c.get("/api/jobs", headers=H).json()["jobs"]}
+    assert rows()["startup-acme-pm"]["no_posting"] is True and rows()["j1"]["no_posting"] is False
+    # Fetch posting: a page that can't be read says why, and nothing is stored
+    monkeypatch.setattr(jobpipe.jd, "read_posting", lambda url, client=None: {"url": url, "description": ""})
+    r = c.post("/api/jobs/startup-acme-pm/fetch-posting", headers=H)
+    assert r.status_code == 422 and "Paste the description" in r.json()["detail"]
+    assert rows()["startup-acme-pm"]["no_posting"] is True
+    assert c.post("/api/jobs/nope/fetch-posting", headers=H).status_code == 404
+    # one that can be read is kept, as Add job keeps it: read from its link
+    text = "Own Acme's platform roadmap with engineering and design. " * 8
+    monkeypatch.setattr(jobpipe.jd, "read_posting", lambda url, client=None: {"url": url, "description": text})
+    assert c.post("/api/jobs/startup-acme-pm/fetch-posting", headers=H).status_code == 200
+    assert rows()["startup-acme-pm"]["no_posting"] is False
+    d = c.get("/api/jobs/startup-acme-pm", headers=H).json()
+    assert d["description"] == text.strip() and d["description_read"] is True
+    # tracking a role without its text reads it in the background
+    Store().save_job({"id": "startup-acme-ops", "job_title": "Ops", "company": "Acme", "url": "https://jobs.acme.example/2",
+                      "description": ""}, "startups")
+    assert c.post("/api/jobs/startup-acme-ops/track", headers=H).json()["action"] == "created"
+    for _ in range(50):
+        if Store().job("startup-acme-ops").get("description"):
+            break
+        time.sleep(0.05)
+    assert Store().job("startup-acme-ops")["description"] == text.strip()

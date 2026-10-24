@@ -192,6 +192,9 @@ class FakeNotion:
                 "_create": body}
             self.rows[pid] = row
             return httpx.Response(200, json=row)
+        if request.method == "GET" and path.startswith("/v1/data_sources/"):    # the data source: its database is the parent
+            return httpx.Response(200, json={"id": path.rsplit("/", 1)[-1], "parent": {
+                "type": "database_id", "database_id": "1a2b3c4d-1111-2222-3333-444455556666"}})
         pid = path.rsplit("/", 1)[-1]
         row = self.rows[pid]
         if request.method == "PATCH":

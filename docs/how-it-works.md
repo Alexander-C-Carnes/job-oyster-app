@@ -44,7 +44,7 @@ Your profile folder (`~/JobOyster`, or `$JOBPIPE_HOME`), which never goes in git
 |---|---|
 | `searches.yaml` | Who you are (`candidate:`), saved searches, credit budget, Notion IDs, and which Claude model each stage uses |
 | `.env` | Your API keys |
-| `references/` | Your impact record (with your confirmed facts at the end) and your résumés (`resume-*.md`). An optional `pinned.md` is résumé markdown added word for word to every résumé the app makes, right after PROFESSIONAL EXPERIENCE: a `## FOUNDER EXPERIENCE` section of your own projects, say, or rows with no heading to end PROFESSIONAL EXPERIENCE. The writers leave room for it, and no later step rewrites or trims it |
+| `references/` | Your impact record (with your confirmed facts at the end) and your résumés (`resume-*.md`). An optional `pinned.md` is résumé markdown added word for word to every résumé the app makes, right after PROFESSIONAL EXPERIENCE: a `## FOUNDER EXPERIENCE` section of your own projects, say, or rows with no heading to end PROFESSIONAL EXPERIENCE. The writers leave room for it, and no later step rewrites or trims it. Edit it in **Profile › Pinned résumé section** |
 | `data/` | Stored jobs, the tracker database, credit ledger, startups (`startups.json`), interview prep notes, web-app token |
 | `outputs/<date>/` | Résumé PDFs, reports, heat maps, apply checklists and each run's working files |
 | `resume-runs/` | Runs of the `resume-job-fit` skill done in Claude chats; the web app can show these résumés too |

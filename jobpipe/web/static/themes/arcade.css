@@ -469,3 +469,7 @@ html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, 
 /* Ghosted: the note on a role moved there on its own, in a pixel frame */
 html[data-theme="arcade"] .ghosted-note { border: var(--px) solid var(--ink); border-left-width: 8px; border-left-color: var(--st-ghosted); border-radius: 0; background: var(--panel); color: var(--ink); }
 html[data-theme="arcade"] .ghosted-note b { color: var(--ink); font-weight: 700; }
+
+/* Profile › Pinned résumé section */
+html[data-theme="arcade"] .pin-sheet { border: 2px solid var(--line); border-radius: 0; }
+html[data-theme="arcade"] .pin-empty { border: 2px dashed var(--line); border-radius: 0; font-size: 14px; }

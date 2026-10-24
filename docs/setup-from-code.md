@@ -61,7 +61,7 @@ The first start copied `.env.example` to `~/JobOyster/.env`. Fill in:
 |---|---|
 | `JOBSPIPE_API_KEY` | The jobspipe.dev dashboard. It starts with `jp_live_` |
 | `NOTION_TOKEN` | Optional. notion.so/profile/integrations → **New integration** (internal) → copy the secret. Then connect it to your tracker database: open the database → `…` → **Connections** → add the integration |
-| `FUNDABLE_API_KEY`, `THEIRSTACK_API_KEY`, `PDL_API_KEY` | Optional, for the Startups tab's **Look up the round**. Any one is enough. [Fundable](https://www.tryfundable.ai): 200 free lookups, then $20/month. [TheirStack](https://theirstack.com): 50 free company lookups a month. [People Data Labs](https://www.peopledatalabs.com): 100 free a month |
+| `FUNDABLE_API_KEY`, `THEIRSTACK_API_KEY`, `PDL_API_KEY` | Optional, for the Search Startups tab's **Look up the round**. Any one is enough. [Fundable](https://www.tryfundable.ai): 200 free lookups, then $20/month. [TheirStack](https://theirstack.com): 50 free company lookups a month. [People Data Labs](https://www.peopledatalabs.com): 100 free a month |
 
 Leave `ANTHROPIC_API_KEY` empty unless you switch to the API backend; if it's set, the default backend removes it from Claude Code's environment anyway, so your subscription is used.
 
@@ -114,7 +114,7 @@ Start small, and check each step before spending more credits or Claude usage. F
 .venv/bin/python -m jobpipe tailor <job id>       # Make résumé for one job
 ```
 
-Everything here can also be done from the app: run searches in **Filters**, score jobs in **Find jobs**, and watch progress in **Runs**. Read the first fit report closely. Weak scores or thin résumés usually mean the impact record is missing something; add it, or answer the report's questions with **Add a confirmed fact**, and make the résumé again.
+Everything here can also be done from the app: run searches in **Filters**, score jobs in **Search Jobs**, and watch progress in **Logs**. Read the first fit report closely. Weak scores or thin résumés usually mean the impact record is missing something; add it, or answer the report's questions with **Add a confirmed fact**, and make the résumé again.
 
 ## 9. Run the tests
 

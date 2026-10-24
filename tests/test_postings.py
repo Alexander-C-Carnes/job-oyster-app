@@ -130,3 +130,29 @@ def test_postings_you_applied_to_are_kept(tmp_dirs):
     keeper.run_once()
     keeper.run_once()
     assert reads == ["https://gone.example/1"]
+
+
+def test_a_job_without_its_text_gets_it_from_its_link(tmp_dirs):
+    store = Store()
+    store.save_job({"id": "startup-acme-pm", "job_title": "PM", "company": "Acme", "url": "https://jobs.acme.example/1",
+                    "description": ""}, "startups")
+    store.save_job({"id": "startup-acme-nolink", "job_title": "PM", "company": "Acme", "url": "", "description": ""}, "startups")
+    text = "Own Acme's platform roadmap with engineering and design. " * 8
+    calls = []
+    read = lambda url: calls.append(url) or {"url": url, "description": text}
+    assert postings.fetch_posting(store, "startup-acme-pm", read) == "" and calls == ["https://jobs.acme.example/1"]
+    job = store.job("startup-acme-pm")
+    assert job["description"] == text.strip() and job["description_read"] is True and job["description_pasted"]
+    assert postings.has_posting(job)
+    # the startup refresh finding the role again keeps the text read from its link
+    store.save_job({"id": "startup-acme-pm", "job_title": "PM", "company": "Acme", "url": "https://jobs.acme.example/1",
+                    "description": ""}, "startups")
+    assert store.job("startup-acme-pm")["description"] == text.strip()
+    # a page that can't be read, one that wants a browser, and a job with no link say why
+    assert "no link" in postings.fetch_posting(store, "startup-acme-nolink", read)
+    store.save_job({"id": "startup-acme-ops", "job_title": "Ops", "company": "Acme", "url": "https://jobs.acme.example/2"}, "startups")
+    assert "Couldn't read the posting" in postings.fetch_posting(store, "startup-acme-ops", lambda url: {"description": "Apply"})
+    assert "HiringCafe only shows" in postings.fetch_posting(
+        store, "startup-acme-ops", lambda url: {"description": "", "browser_check": "HiringCafe"})
+    assert "Couldn't read" in postings.fetch_posting(store, "startup-acme-ops", lambda url: 1 / 0)
+    assert not store.job("startup-acme-ops").get("description_pasted")
