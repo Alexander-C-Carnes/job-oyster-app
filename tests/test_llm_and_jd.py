@@ -103,6 +103,16 @@ def test_read_posting_from_a_company_page_on_an_ashby_board():
     assert (d["job_title"], d["company"]) == ("Staff TPM", "Melodia") and "release train" in d["description"]
 
 
+def test_read_posting_from_workable():
+    wk = {"title": "Forward Deployed Engineer", "remote": False, "workplace": "remote",
+          "location": {"city": "1-3-1 Azabudai", "region": "Tokyo", "country": "Japan"},
+          "description": BODY, "requirements": "<p>Python</p>", "benefits": "<p>Visa support</p>"}
+    d = read_posting("https://apply.workable.com/sakana-ai/j/9B6A0E82AF/", _pages(
+        {"https://apply.workable.com/api/v2/accounts/sakana-ai/jobs/9B6A0E82AF": httpx.Response(200, json=wk)}))
+    assert (d["job_title"], d["location"], d["remote"]) == ("Forward Deployed Engineer", "Tokyo, Japan", True)
+    assert "release train" in d["description"] and "Visa support" in d["description"]
+
+
 def test_read_posting_from_greenhouse_and_linkedin():
     gh = {"title": "Staff TPM", "company_name": "Acme", "location": {"name": "Remote, US"}, "content": BODY}
     d = read_posting("https://job-boards.greenhouse.io/acme/jobs/123?gh_src=x", _pages(

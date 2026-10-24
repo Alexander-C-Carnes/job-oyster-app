@@ -244,6 +244,15 @@ def _ats_posting(url: str, c: httpx.Client, meta: dict) -> str:
             return html_to_text(d.get("job_description") or "")
     if host.endswith(".icims.com") and re.match(r"/jobs/\d+", p.path):
         return _icims_posting(urlunsplit(p._replace(query="")), c, meta)
+    m = re.match(r"/([^/]+)/j/([A-Za-z0-9]+)", p.path)
+    if m and host == "apply.workable.com":  # a Workable job page is an app shell, its API has the text
+        r = c.get(f"https://apply.workable.com/api/v2/accounts/{m.group(1)}/jobs/{m.group(2)}")
+        if r.status_code == 200:
+            d = r.json()
+            loc = d.get("location") or {}
+            _fill(meta, job_title=d.get("title"), location=", ".join(x for x in (loc.get("region"), loc.get("country")) if x),
+                  remote=True if d.get("remote") or d.get("workplace") == "remote" else None)
+            return html_to_text("\n".join(d.get(k) or "" for k in ("description", "requirements", "benefits")))
     jid = linkedin_job_id(url) if sld == "linkedin" else ""
     if jid:
         return _linkedin_posting(jid, c, meta)
