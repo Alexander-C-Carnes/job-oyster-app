@@ -127,6 +127,9 @@ class FakeWeb:
             return httpx.Response(200, json=GETRO_JOBS if body["page"] == 0 else {"results": {"count": 2, "jobs": []}})
         if host == "acme.com":
             return httpx.Response(200, text='<html><a href="https://boards.greenhouse.io/acme">Careers</a></html>', headers={"content-type": "text/html"})
+        if host == "fort.example":
+            return httpx.Response(200, text='<html><a href="mailto:founders@fort.example?subject=Careers">Careers</a></html>',
+                                  headers={"content-type": "text/html", "set-cookie": "sid=1"})
         if host == "boards-api.greenhouse.io":
             board = url.split("/boards/")[1].split("/")[0].split("?")[0]
             if url.rstrip("/").endswith(f"/boards/{board}"):
@@ -340,6 +343,12 @@ def test_a_guessed_board_must_be_the_companys_own(client, web):
     web.greenhouse_jobs["agency"]["jobs"] = [{"id": i, "title": "Role", "absolute_url": "", "location": {"name": ""}, "content": ""} for i in range(200)]
     assert su.find_board("", "Agency", client)[0] is None
     assert su.find_board("", "Ro", client)[0] is None     # too short a name to guess with
+
+
+def test_a_mailto_careers_link_is_not_followed(client, web):
+    # fort.cx's careers link is an email address: no board, and no error reading it as a page
+    assert su.find_board("https://fort.example", "Fort", client) == (None, "")
+    assert not any("founders@" in u for u in web.calls)
 
 
 def test_roles_pinned_to_another_region_do_not_answer_a_us_search():

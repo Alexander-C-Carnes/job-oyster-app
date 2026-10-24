@@ -878,8 +878,8 @@ def find_board(website: str, name: str, client: httpx.Client, log: Callable[[str
             return found[0], url if url != site else ""
         if url == site:   # follow the home page's own careers link, if it points elsewhere
             m = re.search(r'href=["\']([^"\']*(?:career|jobs|join-us|work-with-us|openings)[^"\']*)["\']', raw, re.I)
-            if m:
-                link = urljoin(site, html.unescape(m.group(1)))
+            link = urljoin(site, html.unescape(m.group(1))) if m else ""
+            if urlsplit(link).scheme in ("http", "https"):   # not a "mailto:jobs@..." link
                 if link not in seen and _domain(link) and _domain(link) != _domain(site):
                     pages.append(link)
                     for kind, rx in ATS_RE.items():
