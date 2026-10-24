@@ -325,3 +325,37 @@ def test_two_processes_syncing_at_once_make_one_notion_page(tmp_path):
         th.join()
     assert len(fake.rows) == 1
     assert [(r["job_id"], r["notion_page_id"]) for r in app.rows()] == [("j1", "page1")]
+
+
+def test_the_furthest_stage_is_kept_after_a_rejection(tmp_path):
+    t, fake, notion = make(tmp_path, [notion_row(f"p{i}", f"https://x.example/jobs/{i}") for i in range(1, 4)])
+    t.sync()
+    reached = lambda: {r["page_id"]: r["reached"] for r in t.rows()}
+    assert reached() == {"p1": "", "p2": "", "p3": ""}
+    t.set_status("p1", "Applied")
+    t.set_status("p1", "Interviewing")
+    t.set_status("p1", "Denied")
+    t.set_status("p2", "Applied")
+    t.set_status("p2", "Ghosted")
+    t.ghost_stale(1, today=__import__("datetime").date(2100, 1, 1))
+    assert reached() == {"p1": "Interviewing", "p2": "Applied", "p3": ""}
+    t.sync()
+    fake.rows["p3"]["properties"]["Status"]["status"]["name"] = "Offer"          # moved in Notion
+    t.sync()
+    fake.rows["p3"]["properties"]["Status"]["status"]["name"] = "Denied"
+    t.sync()
+    assert reached()["p3"] == "Offer"
+
+
+def test_a_tracker_from_before_reached_is_backfilled(tmp_path):
+    import sqlite3
+    db = tmp_path / "tracker.db"
+    LocalTracker(db)
+    con = sqlite3.connect(db)
+    con.execute("ALTER TABLE tracker DROP COLUMN reached")
+    con.executemany("INSERT INTO tracker(id, status, ghosted_from) VALUES (?, ?, ?)",
+                    [("a", "Interviewing", ""), ("b", "Ghosted", "Interviewing"), ("c", "Denied", ""), ("d", "In progress", "")])
+    con.commit()
+    con.close()
+    t = LocalTracker(db)
+    assert {r["page_id"]: r["reached"] for r in t.rows()} == {"a": "Interviewing", "b": "Interviewing", "c": "Applied", "d": ""}

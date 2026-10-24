@@ -173,6 +173,17 @@ def test_job_board_merges_local_jobs_and_notion(env):
     assert [by_id[k]["remote"] for k in ("j1", "j3", "j4", "notion-p9")] == [True, False, False, False]
 
 
+def test_application_flow_counts_the_tracked_jobs(env):
+    c = env["client"]
+    c.get("/api/jobs?wait=1", headers=H)                                   # the first sync brings Notion's rows in
+    assert c.post("/api/tracker/p1/status", headers=H, json={"status": "Interviewing"}).json() == {"ok": True}
+    assert c.post("/api/tracker/p1/status", headers=H, json={"status": "Denied"}).json() == {"ok": True}
+    f = c.get("/api/flow", headers=H).json()
+    assert (f["applications"], f["interviewed"], f["rejected"], f["no_reply"]) == (2, 1, 1, 1)    # p1, and p9 at Applied
+    assert f["interview_rate"] == 50 and f["heard_back"] == 50 and f["companies_interviewed"] == 1
+    assert f["first_name"] == config.candidate().first_name
+
+
 def test_status_change_is_saved_locally_then_sent_to_notion(env, monkeypatch):
     c, notion = env["client"], env["notion"]
     j1 = lambda q="": {j["id"]: j for j in c.get("/api/jobs" + q, headers=H).json()["jobs"]}["j1"]
@@ -2323,3 +2334,84 @@ def test_a_startup_role_without_its_text_fetches_it_from_its_link(env, monkeypat
             break
         time.sleep(0.05)
     assert Store().job("startup-acme-ops")["description"] == text.strip()
+
+
+class SetupRunner:
+    """The setup interview's AI: two questions, then lines from the answers."""
+    def __init__(self):
+        self.calls = []
+
+    async def run(self, call):
+        self.calls.append(call)
+        if call.label == "setup-interview":
+            n = call.tail.count("You: ")
+            return AgentResult(files={"reply.md": ["How big was the team?", "What changed because of your work?"][n]
+                                      if n < 2 else "DONE"}, summary="")
+        if call.label == "setup-interview-draft":
+            return AgentResult(files={"lines.md": "- Led a team of 8.\n- Saved $400K a year.\n"}, summary="")
+        raise AssertionError(call.label)
+
+
+def test_setup_wizard_first_run_linkedin_import_and_interview(env, tmp_path):
+    from test_onboarding import EXPORT
+    runner = SetupRunner()
+    c = TestClient(create_app(env["cfg"], token=TOKEN, store=env["store"], tracker=None, runner_factory=lambda cfg: runner,
+                              runs=env["runs"], allowed_hosts={"testserver"}, searches_path=env["searches"],
+                              resume_root=tmp_path / "repo", impact_path=env["impact"]))
+    # first use (the example profile): the wizard opens by itself until it's finished or skipped
+    s = c.get("/api/setup", headers=H).json()
+    assert s["show"] and s["state"] == "" and s["linkedin"] is None
+    assert c.put("/api/setup", headers=H, json={"state": "skipped"}).json()["show"] is False
+    assert c.put("/api/setup", headers=H, json={"state": "bogus"}).status_code == 400
+    # the LinkedIn export: read with no AI, kept as an upload the impact-record review reads
+    up = lambda name, data: c.post("/api/setup/linkedin", headers={**H, "X-Filename": name}, content=data)
+    assert up("notes.txt", b"hi").status_code == 400
+    assert "isn't a ZIP" in up("export.zip", b"nope").json()["detail"]
+    d = up("Basic_LinkedInDataExport.zip", EXPORT).json()
+    assert d["kind"] == "LinkedIn data export" and d["lines"] == 2 and d["fields"]["email"] == "sam@example.com"
+    assert [r["company"] for r in d["roles"]] == ["Northwind Cloud", "Litware"] and not runner.calls
+    sugg = c.post("/api/impact-record/suggestions", headers=H, json={"import_id": d["id"]}).json()
+    assert sugg["source"] == "Basic_LinkedInDataExport.zip" and sugg["roles"][0]["company"] == "Northwind Cloud"
+    s = c.get("/api/setup", headers=H).json()
+    assert s["linkedin"]["roles"] == 2
+    roles = {r["key"]: r for r in s["roles"]}
+    assert roles["litware-program-manager"]["source"] == "LinkedIn"
+    assert "31 services" in roles["northwind-cloud-senior-tpm-payments"]["notes"]
+    assert any(r["source"].startswith("resume-") for r in s["roles"])          # your résumés' jobs too
+    # the interview: one question at a time, kept between visits
+    role = {"company": "Litware", "title": "Program Manager", "dates": "Jun 2014–Jun 2015"}
+    assert c.post("/api/setup/interview", headers=H, json={"role": {"company": "Litware"}}).status_code == 400
+    iv = c.post("/api/setup/interview", headers=H, json={"role": role}).json()
+    assert iv["turns"] == [{"q": "How big was the team?", "a": ""}] and not iv["done"] and iv["key"] == "litware-program-manager"
+    assert c.post("/api/setup/interview", headers=H, json={"role": role}).json()["turns"] == iv["turns"]   # no answer: same question
+    iv = c.post("/api/setup/interview", headers=H, json={"role": role, "answer": "Eight people; I led 8."}).json()
+    assert iv["turns"][-1]["q"] == "What changed because of your work?" and len(runner.calls) == 2
+    iv = c.post("/api/setup/interview", headers=H, json={"role": role, "answer": "Onboarding went from 6 weeks to 2."}).json()
+    assert iv["done"] and len(iv["turns"]) == 2
+    assert c.get("/api/setup/interview/litware-program-manager", headers=H).json()["turns"][1]["a"].startswith("Onboarding")
+    assert c.get("/api/setup/interview/..%2Fsetup", headers=H).status_code == 404
+    dr = c.post("/api/setup/interview/litware-program-manager/draft", headers=H).json()
+    assert [(l["text"], l["ok"]) for l in dr["lines"]] == [("Led a team of 8.", True), ("Saved $400K a year.", False)]
+    assert "Eight people" in runner.calls[-1].tail
+    stale = c.post("/api/impact-record/interview-apply", headers=H, json={"key": iv["key"], "lines": ["x"], "version": "old"})
+    assert stale.status_code == 409
+    rec = c.post("/api/impact-record/interview-apply", headers=H,
+                 json={"key": iv["key"], "lines": ["Led a team of 8."], "version": dr["version"]}).json()
+    assert "# From your interviews" in rec["markdown"] and "## Litware, Program Manager (Jun 2014–Jun 2015)" in rec["markdown"]
+    assert rec["markdown"] == env["impact"].read_text()
+    assert {r["key"]: r for r in c.get("/api/setup", headers=H).json()["roles"]}["litware-program-manager"]["added"] == 1
+    again = c.post("/api/setup/interview", headers=H, json={"role": role, "restart": True}).json()
+    assert again["turns"] == [{"q": "How big was the team?", "a": ""}]
+    # finishing early drafts from what's answered
+    fin = c.post("/api/setup/interview", headers=H, json={"role": role, "answer": "Five.", "finish": True}).json()
+    assert fin["done"] and fin["turns"][0]["a"] == "Five."
+    assert c.put("/api/setup", headers=H, json={"state": "done"}).json()["state"] == "done"
+
+
+def test_setup_wizard_stays_shut_for_a_saved_profile(env):
+    c = env["client"]
+    prof = c.get("/api/profile", headers=H).json()
+    assert c.get("/api/setup", headers=H).json()["show"] is True
+    assert c.put("/api/profile", headers=H, json={**prof["candidate"], "name": "Sam Lee"}).json()["example"] is False
+    s = c.get("/api/setup", headers=H).json()
+    assert s["show"] is False and s["state"] == ""             # not finished, but not forced on someone set up already

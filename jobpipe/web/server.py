@@ -33,9 +33,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, own_formats, pinned, record_import, regions, render, resume_import
+from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from . import about, follow
+from .flow import application_flow
 from ..postings import PostingKeeper, fetch_posting, has_posting
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -478,6 +479,12 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             return {"url": local.notion.database_url()}
         except Exception:  # noqa: BLE001 - Notion unreachable: no link now, asked again on the next load
             return {"url": ""}
+
+    @app.get("/api/flow")
+    def flow():
+        """The dashboard's application flow and the share card's numbers, from the tracked jobs."""
+        ghost_check()
+        return application_flow(board.rows(), first_name=config.candidate().first_name)
 
     @app.post("/api/tracker/{row_id}/status")
     @app.post("/api/notion/{row_id}/status")     # the path from when the tracker lived only in Notion
@@ -2343,6 +2350,210 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             raise HTTPException(400, "Those lines are in your impact record already.")
         write_impact(new, current)
         state["runner"] = None  # the cached system prompt includes the record
+        return impact_payload(new)
+
+    # ---- the setup wizard (onboarding.py): first-run state, the LinkedIn import and the job interviews ----------
+    setup_path = store.root / "setup.json"
+    interviews = store.root / "interviews"
+
+    def setup_state() -> dict:
+        try:
+            return json.loads(setup_path.read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def save_setup(**changes) -> dict:
+        d = {**setup_state(), **changes}
+        setup_path.parent.mkdir(parents=True, exist_ok=True)
+        setup_path.write_text(json.dumps(d, indent=1))
+        return d
+
+    def role_key(company: str, title: str) -> str:
+        return slug(f"{company} {title}", max_len=80) or "role"
+
+    def clean_role(r: dict) -> dict:
+        company, title = str(r.get("company") or "").strip()[:120], str(r.get("title") or "").strip()[:120]
+        if not company or not title:
+            raise HTTPException(400, "Name the company and the job title.")
+        return {"company": company, "title": title, "dates": str(r.get("dates") or "").strip()[:60],
+                "notes": str(r.get("notes") or "")[:6000], "key": role_key(company, title)}
+
+    def interview_file(key: str) -> Path:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", key or ""):
+            raise HTTPException(404, "Unknown interview.")
+        return interviews / f"{key}.json"
+
+    def load_interview(key: str) -> Optional[dict]:
+        try:
+            return json.loads(interview_file(key).read_text())
+        except (OSError, ValueError):
+            return None
+
+    def setup_roles() -> list[dict]:
+        """The jobs to interview about: the LinkedIn import's, your résumés', and any interview already started."""
+        out: dict[str, dict] = {}
+
+        def add(r: dict, source: str) -> None:
+            k = role_key(r["company"], r["title"])
+            if r["company"] and r["title"] and k not in out:
+                out[k] = {"key": k, "company": r["company"], "title": r["title"], "dates": r.get("dates", ""),
+                          "notes": r.get("notes", ""), "source": source}
+        for r in setup_state().get("linkedin_roles") or []:
+            add(r, "LinkedIn")
+        for f in sorted(references().glob("resume-*.md")):
+            if searches_file.is_resume_file(f.name):
+                for r in record_import.roles(f.read_text()):
+                    add({"company": r.company, "title": r.title, "dates": r.dates,
+                         "notes": "\n".join(l.text for l in r.lines)}, f.name)
+        for f in sorted(interviews.glob("*.json")) if interviews.exists() else []:
+            iv = load_interview(f.stem)
+            if iv and iv.get("role"):
+                add(iv["role"], "you")
+        for k, r in out.items():
+            iv = load_interview(k) or {}
+            r["answers"] = sum(1 for t in iv.get("turns") or [] if str(t.get("a") or "").strip())
+            r["added"] = int(iv.get("added") or 0)
+        return list(out.values())
+
+    @app.get("/api/setup")
+    def get_setup():
+        """Whether the wizard opens by itself (no profile yet, and it was never finished or skipped), and the jobs
+        it can interview you about."""
+        st = setup_state()
+        fresh = searches_file.load_candidate(searches_path) is None or searches_file.is_example(searches_path)
+        return {"state": st.get("state") or "", "show": not st.get("state") and fresh, "roles": setup_roles(),
+                "linkedin": st.get("linkedin") or None}
+
+    @app.put("/api/setup")
+    def put_setup(body: dict):
+        state_ = str(body.get("state") or "")
+        if state_ not in ("done", "skipped", ""):
+            raise HTTPException(400, "Unknown setup state.")
+        save_setup(state=state_, at=now_iso())
+        return get_setup()
+
+    @app.post("/api/setup/linkedin")
+    async def setup_linkedin(request: Request):
+        """Read a LinkedIn export (raw bytes, its name in X-Filename): the data-export ZIP or the profile's Save to
+        PDF. Kept as an upload (data/imports/<id>/) so the impact-record review can offer its lines; saves nothing
+        else but the jobs it lists, for the interview."""
+        fname = Path(unquote(request.headers.get("x-filename") or "")).name
+        data = await request.body()
+        ext = Path(fname).suffix.lower()
+        meta = {"filename": fname, "notes": [], "ai_notes": [], "heuristic": None}
+        if ext == ".zip":
+            try:
+                prof = onboarding.linkedin_zip(data)
+            except onboarding.ExportError as e:
+                raise HTTPException(400, str(e)) from None
+            text, md, meta["kind"] = onboarding.zip_text(prof), onboarding.markdown(prof), "LinkedIn data export"
+        elif ext == ".pdf":
+            try:
+                src = resume_import.read(fname, data)
+            except resume_import.UploadError as e:
+                raise HTTPException(400, str(e)) from None
+            text, meta["kind"] = src.text, "LinkedIn profile PDF"
+            prof = onboarding.linkedin_pdf(text) if onboarding.looks_like_linkedin(text) else onboarding.Profile()
+            if prof.positions:
+                md = onboarding.markdown(prof)
+            else:                               # not LinkedIn's layout: sorted like any résumé
+                try:
+                    md, meta["ai_notes"] = await resume_import.shape(src, get_runner(), cfg.analysis_model)
+                except Exception as e:  # noqa: BLE001 - no AI, or it failed: a rougher sort
+                    md, meta["heuristic"] = resume_import.heuristic(text), str(e).splitlines()[0][:160] or "no reply"
+                prof = onboarding.Profile(positions=[
+                    onboarding.Position(company=r.company, title=r.title, start=r.dates, lines=[l.text for l in r.lines])
+                    for r in record_import.roles(md)])
+        else:
+            raise HTTPException(400, "Add the PDF of your LinkedIn profile, or the ZIP LinkedIn emails you.")
+        root = store.root / "imports"
+        d = root / secrets.token_hex(8)
+        d.mkdir(parents=True)
+        (d / f"original{ext}").write_bytes(data)
+        (d / "source.txt").write_text(text, encoding="utf-8")
+        (d / "meta.json").write_text(json.dumps(meta))
+        (d / "sorted.md").write_text(md, encoding="utf-8")
+        save_setup(linkedin={"file": fname, "kind": meta["kind"], "roles": len(prof.positions), "at": now_iso()},
+                   linkedin_roles=[{"company": p.company, "title": p.title, "dates": p.dates,
+                                    "notes": "\n".join(p.lines)[:6000]} for p in prof.positions])
+        return {"id": d.name, "filename": fname, "kind": meta["kind"], "fields": prof.fields(), "roles": prof.roles(),
+                "lines": sum(len(p.lines) for p in prof.positions), "heuristic": meta["heuristic"]}
+
+    @app.get("/api/setup/interview/{key}")
+    def get_interview(key: str):
+        iv = load_interview(key)
+        if not iv:
+            raise HTTPException(404, "No interview about that job yet.")
+        return iv
+
+    @app.post("/api/setup/interview")
+    async def interview_turn(body: dict):
+        """One turn of the interview about a job: {"role", "answer"} keeps the answer to the last question and asks
+        the next (none the first time), through your AI's chat model. {"restart": true} starts it over."""
+        role = clean_role(body.get("role") or {})
+        key = role["key"]
+        iv = (None if body.get("restart") else load_interview(key)) or {"role": role, "turns": [], "added": 0}
+        turns = onboarding.turns_from(iv["turns"])
+        answer = str(body.get("answer") or "").strip()[:6000]
+        if answer and turns:
+            turns[-1].a = answer
+        if turns and not turns[-1].a.strip() and not body.get("finish"):
+            return {**iv, "key": key, "done": False}        # still waiting on an answer to the last question
+        cand = config.candidate()
+        try:
+            q = None if body.get("finish") else await onboarding.ask(
+                get_runner(), cfg.chat_model, role, turns, cand.first_name, cand.personalize(onboarding.ASK_BRIEF))
+        except Exception as e:  # noqa: BLE001 - the AI isn't reachable: say why, keep the answer
+            iv["turns"] = onboarding.turns_json(turns)
+            interviews.mkdir(parents=True, exist_ok=True)
+            interview_file(key).write_text(json.dumps(iv, indent=1))
+            raise HTTPException(502, f"Your AI didn't answer: {str(e).splitlines()[0][:200] if str(e) else 'no reply'}") from None
+        if q:
+            turns.append(onboarding.Turn(q=q))
+        iv.update(role={**iv.get("role", {}), **role}, turns=onboarding.turns_json(turns))
+        interviews.mkdir(parents=True, exist_ok=True)
+        interview_file(key).write_text(json.dumps(iv, indent=1))
+        return {**iv, "key": key, "done": q is None}
+
+    @app.post("/api/setup/interview/{key}/draft")
+    async def interview_draft(key: str):
+        """The impact-record lines your answers support, for you to check. Changes nothing."""
+        iv = load_interview(key)
+        if not iv:
+            raise HTTPException(404, "No interview about that job yet.")
+        cand = config.candidate()
+        try:
+            lines = await onboarding.draft(get_runner(), cfg.chat_model, iv["role"], onboarding.turns_from(iv["turns"]),
+                                           cand.first_name, cand.personalize(onboarding.DRAFT_BRIEF))
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"Your AI didn't answer: {str(e).splitlines()[0][:200] if str(e) else 'no reply'}") from None
+        return {"lines": lines, "version": doc_version(read_impact())}
+
+    @app.post("/api/impact-record/interview-apply")
+    def interview_apply(body: dict):
+        """Add the lines you kept from an interview ({"key", "lines"}) to the record's "From your interviews"
+        section, under the job. `version` is the record the app has open; a different one on disk is a 409."""
+        key = str(body.get("key") or "")
+        iv = load_interview(key)
+        if not iv:
+            raise HTTPException(404, "No interview about that job yet.")
+        lines = [str(x)[:600] for x in body.get("lines") or [] if str(x).strip()]
+        if not lines:
+            raise HTTPException(400, "Tick at least one line to add.")
+        current = read_impact()
+        if doc_version(current) != body.get("version"):
+            return JSONResponse({"detail": "The impact record was changed outside this window since you opened it.",
+                                 "current": impact_payload(current)}, status_code=409)
+        role = iv["role"]
+        new = record_import.apply(current, role["company"], role["title"], role.get("dates", ""), lines,
+                                  "the setup interview", date.today(), section=onboarding.INTERVIEW_SECTION,
+                                  intro=onboarding.INTERVIEW_INTRO)
+        if new == current:
+            raise HTTPException(400, "Those lines are in your impact record already.")
+        write_impact(new, current)
+        state["runner"] = None  # the cached system prompt includes the record
+        iv["added"] = int(iv.get("added") or 0) + len(lines)
+        interview_file(key).write_text(json.dumps(iv, indent=1))
         return impact_payload(new)
 
     return app

@@ -352,6 +352,12 @@ class JobBoard:
             self._refresh()
             return self._by_id.get(jid)
 
+    def rows(self) -> list[dict]:
+        """Every row on the board, as /api/jobs sends them."""
+        with self._lock:
+            self._refresh()
+            return list(self._rows)
+
     def by_tracker(self, row_id: str) -> Optional[dict]:
         """The row for this tracker id."""
         with self._lock:
@@ -392,13 +398,15 @@ def says_remote(text: str) -> bool:
 def _tracker_fields(n: Optional[dict]) -> dict:
     """tracker_id: the job is tracked. notion_page_id: its row exists in Notion. pending: it has a change Notion hasn't had yet.
     applied_on: the day it was applied to (YYYY-MM-DD), for the dashboard. status_since: the day its status last changed (by you).
-    ghosted_on, ghosted_from: the day the app moved it to Ghosted on its own, and the status it had then."""
+    ghosted_on, ghosted_from: the day the app moved it to Ghosted on its own, and the status it had then.
+    reached: the furthest stage it got to (Applied, Interviewing, Offer), for the dashboard's application flow."""
     if not n:
         return {"tracker_id": None, "notion_page_id": None, "notion_url": None, "pending": False, "applied_on": "",
-                "status_since": "", "ghosted_on": "", "ghosted_from": ""}
+                "status_since": "", "ghosted_on": "", "ghosted_from": "", "reached": ""}
     return {"tracker_id": n["page_id"], "notion_page_id": n["notion_page_id"], "notion_url": n["page_url"] or None,
             "pending": n["pending"], "applied_on": n.get("applied_on", ""), "status_since": n.get("status_since", ""),
-            "ghosted_on": n.get("ghosted_on", ""), "ghosted_from": n.get("ghosted_from", "")}
+            "ghosted_on": n.get("ghosted_on", ""), "ghosted_from": n.get("ghosted_from", ""),
+            "reached": n.get("reached", "")}
 
 
 def referral_fields(m: dict) -> dict:

@@ -473,3 +473,47 @@ html[data-theme="arcade"] .ghosted-note b { color: var(--ink); font-weight: 700;
 /* Profile › Pinned résumé section */
 html[data-theme="arcade"] .pin-sheet { border: 2px solid var(--line); border-radius: 0; }
 html[data-theme="arcade"] .pin-empty { border: 2px dashed var(--line); border-radius: 0; font-size: 14px; }
+
+/* Application flow: pixel stairs (app.js draws them) in HUD colours, counters in the pixel face; the switch is a cartridge */
+html[data-theme="arcade"] .flow-chart .node rect { rx: 0; stroke: var(--ink); stroke-width: 2px; }
+html[data-theme="arcade"] .flow-chart .link { fill: color-mix(in srgb, var(--fc) 45%, transparent); shape-rendering: crispEdges; }
+html[data-theme="arcade"] .flow-chart .n, html[data-theme="arcade"] .flow-stat b { font-family: var(--pixel); font-weight: 400; }
+html[data-theme="arcade"] .flow-chart .n { font-size: 11px; }
+html[data-theme="arcade"] .flow-stat b { font-size: 18px; line-height: 1.6; }
+html[data-theme="arcade"] .flow-stats { border-top: 3px dashed var(--line); }
+html[data-theme="arcade"] .flow-stat.offers b { color: var(--accent-ink); }
+html[data-theme="arcade"] .flow-card .flow-title h3 { font: 400 13px/1.6 var(--pixel); }
+html[data-theme="arcade"] .share-dialog h2 { font: 400 15px/1.6 var(--pixel); }
+html[data-theme="arcade"] .share-toggle input, html[data-theme="arcade"] .share-toggle input::after { border-radius: 0; }
+html[data-theme="arcade"] .share-toggle input { border: var(--px, 2px) solid var(--ink); box-sizing: content-box; height: 20px; width: 36px; }
+html[data-theme="arcade"] .share-toggle input::after { top: 2px; left: 2px; width: 16px; height: 16px; background: var(--ink); box-shadow: none; }
+html[data-theme="arcade"] .share-toggle input:checked { background: var(--yellow); }
+html[data-theme="arcade"] .share-canvas { border-radius: 0; box-shadow: 6px 6px 0 var(--ink); }
+/* the setup wizard: six levels, cleared ones ticked; the chat is an RPG dialogue box */
+html[data-theme="arcade"] .setup-dialog { padding: 0; }
+html[data-theme="arcade"] .setup-top { border-bottom: 4px solid var(--ink); }
+html[data-theme="arcade"] .setup-foot { border-top: 4px solid var(--ink); background: var(--sel); }
+html[data-theme="arcade"] .setup-steps button { border-radius: 0; font: 400 9px/1.4 var(--pixel); text-transform: uppercase; color: var(--muted); }
+html[data-theme="arcade"] .setup-steps .n { border-radius: 0; border: 3px solid var(--ink); background: var(--panel); color: var(--ink); font: 400 9px/1 var(--pixel); }
+html[data-theme="arcade"] .setup-steps li.past .n { background: var(--green); border-color: var(--ink); color: var(--ink); font: 700 12px/1 var(--body); }
+html[data-theme="arcade"] .setup-steps li.now button { color: var(--ink); background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); }
+html[data-theme="arcade"] .setup-steps li.now .n { background: var(--accent); color: #fff; animation: arcade-blink-step 1s steps(2) infinite; }
+@keyframes arcade-blink-step { 50% { background: var(--panel); color: var(--ink); } }
+html[data-theme="arcade"] .setup-body > h2 { font: 400 20px/1.3 var(--pixel-lg); }
+html[data-theme="arcade"] .setup-plan li, html[data-theme="arcade"] .setup-way, html[data-theme="arcade"] .setup-ai,
+html[data-theme="arcade"] .setup-chat, html[data-theme="arcade"] .setup-draft, html[data-theme="arcade"] .setup-sum li { border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--ink); }
+html[data-theme="arcade"] .setup-plan li::before { border-radius: 0; background: var(--cyan); color: var(--ink); font: 400 11px/1 var(--pixel); }
+html[data-theme="arcade"] .setup-plan b, html[data-theme="arcade"] .setup-way h3, html[data-theme="arcade"] .setup-chat-head b { font: 400 13px/1.4 var(--pixel-lg); }
+html[data-theme="arcade"] .setup-way .tag { background: var(--yellow); border: 2px solid var(--ink); color: var(--ink); font: 400 8px var(--pixel); }
+html[data-theme="arcade"] .setup-roles button { border: 3px solid var(--ink); border-radius: 0; }
+html[data-theme="arcade"] .setup-roles button.on { background: var(--sel); box-shadow: 3px 3px 0 var(--accent); }
+html[data-theme="arcade"] .setup-addrole { border: 3px dashed var(--ink); border-radius: 0; }
+html[data-theme="arcade"] .setup-chat-head { border-bottom: 3px solid var(--ink); background: var(--ink); color: #fff; }
+html[data-theme="arcade"] .setup-chat-head b { color: var(--yellow); }
+html[data-theme="arcade"] .setup-chat-head .muted, html[data-theme="arcade"] .setup-chat-head .link-btn { color: #C9D6FF; }
+html[data-theme="arcade"] .setup-msg p { border-radius: 0 !important; border: 3px solid var(--ink); }
+html[data-theme="arcade"] .setup-msg.ai p::before { content: "▶ "; color: var(--accent); }
+html[data-theme="arcade"] .setup-msg.you p { background: var(--cyan); color: var(--ink); }
+html[data-theme="arcade"] .setup-ai-dot { border-radius: 0; box-shadow: none; }
+html[data-theme="arcade"] .setup-done-mark { border-radius: 0; border: 4px solid var(--ink); background: var(--green); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); font-family: var(--pixel); font-size: 24px; }
+@media (prefers-reduced-motion: reduce) { html[data-theme="arcade"] .setup-steps li.now .n { animation: none; } }

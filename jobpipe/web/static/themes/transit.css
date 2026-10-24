@@ -459,3 +459,41 @@ html[data-theme="transit"] .ghosted-note b { font-family: var(--display); font-w
 /* Profile › Pinned résumé section */
 html[data-theme="transit"] .pin-sheet { border: 1.5px solid var(--line); border-radius: 4px; }
 html[data-theme="transit"] .pin-empty { border: 1.5px dashed var(--line); border-radius: 4px; }
+
+/* Application flow: line colours on a station board, condensed numbers; Share your search in signage type */
+html[data-theme="transit"] .flow-chart .node rect { rx: 2px; }
+html[data-theme="transit"] .flow-chart .link { fill: color-mix(in srgb, var(--fc) 42%, transparent); }
+html[data-theme="transit"] .flow-chart .n, html[data-theme="transit"] .flow-stat b { font-family: var(--display); font-weight: 700; }
+html[data-theme="transit"] .flow-chart .n { font-size: 18px; }
+html[data-theme="transit"] .flow-stat b { font-size: 30px; }
+html[data-theme="transit"] .flow-stats { border-top: 4px solid var(--ink); }
+html[data-theme="transit"] .flow-card .flow-title h3 { text-transform: uppercase; letter-spacing: .04em; }
+html[data-theme="transit"] .share-dialog h2, html[data-theme="transit"] .share-controls h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: .05em; }
+html[data-theme="transit"] .share-toggle input { border-radius: 4px; }
+html[data-theme="transit"] .share-toggle input::after { border-radius: 2px; }
+html[data-theme="transit"] .share-canvas { border-radius: 8px; }
+html[data-theme="transit"] .flow-card .card-head .muted { color: #CBD5E0; }
+html[data-theme="transit"] .flow-stat.offers b { color: var(--ink); }
+/* the setup wizard: the steps are stations on one line, passed stations filled in */
+html[data-theme="transit"] .setup-steps { gap: 0; }
+html[data-theme="transit"] .setup-steps li { position: relative; }
+html[data-theme="transit"] .setup-steps li + li::before { content: ""; position: absolute; left: -50%; right: 50%; top: 17px; height: 5px; background: var(--line); z-index: 0; }
+html[data-theme="transit"] .setup-steps li.past + li::before, html[data-theme="transit"] .setup-steps li.past::before { background: var(--accent); }
+html[data-theme="transit"] .setup-steps button { position: relative; z-index: 1; flex-direction: column; gap: 3px; padding: 4px 2px; font: 600 15px var(--display); background: none !important; }
+html[data-theme="transit"] .setup-steps .n { width: 24px; height: 24px; border: 4px solid var(--line); background: var(--panel); color: transparent; font-size: 0; }
+html[data-theme="transit"] .setup-steps li.past .n { border-color: var(--accent); background: var(--accent); }
+html[data-theme="transit"] .setup-steps li.now .n { border-color: var(--ink); background: var(--panel); box-shadow: 0 0 0 3px var(--board-text); }
+html[data-theme="transit"] .setup-body > h2 { font-size: 30px; }
+html[data-theme="transit"] .setup-plan li { border: 1.5px solid var(--ink); }
+html[data-theme="transit"] .setup-plan li::before { border-radius: 4px; background: var(--board); color: var(--board-text); font: 700 18px/1 var(--display); }
+html[data-theme="transit"] .setup-plan b, html[data-theme="transit"] .setup-way h3, html[data-theme="transit"] .setup-chat-head b { font: 700 18px var(--display); }
+html[data-theme="transit"] .setup-way, html[data-theme="transit"] .setup-ai, html[data-theme="transit"] .setup-chat { border: 1.5px solid var(--ink); }
+html[data-theme="transit"] .setup-way .tag { background: var(--board-text); color: var(--ink); border-color: var(--ink); font-weight: 700; }
+html[data-theme="transit"] .setup-roles button { border: 1.5px solid var(--edge); border-left: 6px solid var(--line); }
+html[data-theme="transit"] .setup-roles button.on { border-color: var(--ink); border-left-color: var(--accent); background: var(--tint); }
+html[data-theme="transit"] .setup-roles b { font: 700 16px/1.15 var(--display); }
+html[data-theme="transit"] .setup-chat-head { background: var(--board); color: #fff; }
+html[data-theme="transit"] .setup-chat-head b { color: var(--board-text); }
+html[data-theme="transit"] .setup-chat-head .muted, html[data-theme="transit"] .setup-chat-head .link-btn { color: #C9D6E8; }
+html[data-theme="transit"] .setup-msg.you p { background: var(--accent); }
+html[data-theme="transit"] .setup-done-mark { border-radius: 6px; background: var(--good); }

@@ -4,7 +4,11 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-24
 
+### Dashboard
+- Application flow, and a card to share your search
+
 ### Profile
+- A setup wizard for your first run
 - See and edit the pinned résumé section
 
 ### Tracker

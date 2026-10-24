@@ -455,3 +455,53 @@ html[data-theme="bauhaus"] .ghosted-note b { color: var(--black); font-weight: 7
 /* Profile › Pinned résumé section */
 html[data-theme="bauhaus"] .pin-sheet { border: var(--rule); border-radius: 0; }
 html[data-theme="bauhaus"] .pin-empty { border: var(--rule); border-radius: 0; background: var(--white); }
+
+/* Application flow: flat colour bands, black nodes' labels in the display face, no rounding; the switch is a block */
+html[data-theme="bauhaus"] .flow-chart .link { fill: var(--fc); opacity: .85; }
+html[data-theme="bauhaus"] .flow-chart .link:hover { fill: var(--fc); opacity: 1; }
+html[data-theme="bauhaus"] .flow-chart .node rect { rx: 0; }
+html[data-theme="bauhaus"] .flow-chart .halo { stroke: var(--white); }
+html[data-theme="bauhaus"] .flow-chart text { font-weight: 700; }
+html[data-theme="bauhaus"] .flow-chart .n, html[data-theme="bauhaus"] .flow-stat b { font-family: var(--display); font-weight: 400; }
+html[data-theme="bauhaus"] .flow-chart .n { font-size: 18px; }
+html[data-theme="bauhaus"] .flow-stat b { font-size: 32px; }
+html[data-theme="bauhaus"] .flow-stat span { color: var(--black); font-weight: 600; }
+html[data-theme="bauhaus"] .flow-stats { border-top: 2px solid var(--black); }
+html[data-theme="bauhaus"] .flow-stat.offers b { color: var(--red); }
+html[data-theme="bauhaus"] .share-toggle input, html[data-theme="bauhaus"] .share-toggle input::after { border-radius: 0; box-shadow: none; }
+html[data-theme="bauhaus"] .share-toggle input { background: var(--grey); outline: 2px solid var(--black); }
+html[data-theme="bauhaus"] .share-toggle input::after { background: var(--black); }
+html[data-theme="bauhaus"] .share-toggle input:checked { background: var(--yellow); }
+html[data-theme="bauhaus"] .share-controls h3 { color: var(--black); }
+html[data-theme="bauhaus"] .share-canvas { border-radius: 0; box-shadow: none; outline: 2px solid var(--black); }
+/* the setup wizard: big numbered blocks; the step you're on is yellow, the ones behind you blue */
+html[data-theme="bauhaus"] .setup-dialog { border: var(--rule); }
+html[data-theme="bauhaus"] .setup-top, html[data-theme="bauhaus"] .setup-foot { border-color: #000; }
+html[data-theme="bauhaus"] .setup-foot { background: var(--grey-soft); border-top: var(--rule); }
+html[data-theme="bauhaus"] .setup-steps { gap: 0; border: var(--rule); }
+html[data-theme="bauhaus"] .setup-steps li + li { border-left: var(--rule); }
+html[data-theme="bauhaus"] .setup-steps button { border-radius: 0; padding: 6px 10px; color: #000; font-weight: 700; }
+html[data-theme="bauhaus"] .setup-steps .n { border: 0; border-radius: 0; font: 400 18px/1 var(--display); width: auto; height: auto; background: none !important; color: #000 !important; }
+html[data-theme="bauhaus"] .setup-steps li.past button { background: var(--blue); color: #fff; }
+html[data-theme="bauhaus"] .setup-steps li.past .n { color: #fff !important; }
+html[data-theme="bauhaus"] .setup-steps li.now button { background: var(--yellow); }
+html[data-theme="bauhaus"] .setup-body > h2 { font: 400 34px/1.05 var(--display); letter-spacing: -.02em; }
+html[data-theme="bauhaus"] .setup-plan { gap: 0; border: var(--rule); }
+html[data-theme="bauhaus"] .setup-plan li { border: 0; border-radius: 0; }
+html[data-theme="bauhaus"] .setup-plan li + li { border-top: var(--rule); }
+html[data-theme="bauhaus"] .setup-plan li::before { border-radius: 50%; background: var(--red); color: #000; font: 400 16px/1 var(--display); }
+html[data-theme="bauhaus"] .setup-plan li:nth-child(2)::before { border-radius: 0; background: var(--blue); color: #fff; }
+html[data-theme="bauhaus"] .setup-plan li:nth-child(3)::before { border-radius: 0; background: var(--yellow); clip-path: polygon(50% 0, 100% 100%, 0 100%); padding-top: 8px; }
+html[data-theme="bauhaus"] .setup-way, html[data-theme="bauhaus"] .setup-ai, html[data-theme="bauhaus"] .setup-chat, html[data-theme="bauhaus"] .setup-draft { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] .setup-way h3, html[data-theme="bauhaus"] .setup-chat-head b { font: 400 18px var(--display); }
+html[data-theme="bauhaus"] .setup-way .tag { background: var(--yellow); border: 0; color: #000; font-weight: 700; }
+html[data-theme="bauhaus"] .setup-roles button { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] .setup-roles button.on { background: var(--yellow); border-color: #000; }
+html[data-theme="bauhaus"] .setup-chat-head { border-bottom: var(--rule); }
+html[data-theme="bauhaus"] .setup-msg p { border-radius: 0 !important; }
+html[data-theme="bauhaus"] .setup-msg.ai p { border: var(--rule); }
+html[data-theme="bauhaus"] .setup-msg.you p { background: var(--blue); color: #fff; }
+html[data-theme="bauhaus"] .setup-ai-dot { border-radius: 0; box-shadow: none; }
+html[data-theme="bauhaus"] .setup-done-mark { border-radius: 0; background: var(--green); color: #000; font-family: var(--display); }
+html[data-theme="bauhaus"] .setup-sum li, html[data-theme="bauhaus"] .setup-addrole { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] p.setup-note:not(.muted) { border-radius: 0; background: var(--yellow); }

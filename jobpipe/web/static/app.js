@@ -66,6 +66,9 @@ const ICONS = {
   star: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.4l2.35 4.76 5.25.77-3.8 3.7.9 5.23L10 14.39l-4.7 2.47.9-5.23-3.8-3.7 5.25-.77z"/></svg>',
   person: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3.1"/><path d="M3.8 16.8c.7-3 3.2-4.6 6.2-4.6s5.5 1.6 6.2 4.6"/></svg>',
   personAdd: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="7" r="3.1"/><path d="M2.4 16.8c.7-3 3.1-4.6 6.1-4.6 1.3 0 2.5.3 3.5.9M15.5 11.2v5.6M12.7 14h5.6"/></svg>',
+  share: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8v9.4M6.4 6.2L10 2.8l3.6 3.4M4.6 10.4v5.2c0 .9.7 1.6 1.6 1.6h7.6c.9 0 1.6-.7 1.6-1.6v-5.2"/></svg>',
+  download: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8v9.6M6.2 8.8L10 12.6l3.8-3.8M4 16.6h12"/></svg>',
+  copy: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.6"/><path d="M13 7V4.6c0-.9-.7-1.6-1.6-1.6H4.6C3.7 3 3 3.7 3 4.6v6.8c0 .9.7 1.6 1.6 1.6H7"/></svg>',
   close: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15"/></svg>',
   info: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.2"/><path d="M10 9v5M10 6.2v.1"/></svg>',
   up: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 12.5L10 8l4.5 4.5"/></svg>',
@@ -786,7 +789,7 @@ function renderDashboard() {
     others.length > 0 && h("p", { class: "dash-foot" }, "Also in the tracker: ",
       others.map(([st, n]) => `${n} ${st}`).join(" · "), others.some(([st]) => st === "Done") ? ". Done counts as applied." : "."));
 
-  root.replaceChildren(hero, stages, perDayCard(applied, today));
+  root.replaceChildren(hero, stages, perDayCard(applied, today), flowCard());
 }
 
 function perDayCard(applied, today) {
@@ -907,6 +910,512 @@ window.addEventListener("resize", () => {
   clearTimeout(dashResize);
   dashResize = setTimeout(() => { if (S.tab === "dashboard") renderDashboard(); }, 120);
 });
+
+// ---- application flow -------------------------------------------------------------------------
+// /api/flow (jobpipe/web/flow.py) counts where every application went: Applied, on to Interviewed, and where each
+// ended. The Sankey is drawn to the card's width in the look's stage colours; a stage opens its jobs in the Tracker.
+const FLOW_NODES = [
+  ["applied", 0, "Applied", APPLIED_STAGES], ["interviewed", 1, "Interviewed", ["Interviewing", "Offer"]],
+  ["offer", 2, "Offer", ["Offer"]], ["interviewing", 2, "Still interviewing", ["Interviewing"]],
+  ["rejected", 2, "Rejected", ["Denied"]], ["ghosted", 2, "Ghosted", ["Ghosted"]], ["no_reply", 2, "No reply yet", ["Applied", "Done"]],
+];
+const flowValue = (f, id) => ({ applied: f.applications, offer: f.offers })[id] ?? f[id];
+
+// Columns of nodes stacked from the top, one scale for all; links leave a node in the order given and arrive in the
+// order they left, so they don't cross at the target. o: left, right (label room), nw (node width), gap, step (pixel stairs).
+function sankey(nodes, links, W, H, o) {
+  nodes = nodes.filter((n) => n.value > 0);
+  const ids = new Set(nodes.map((n) => n.id));
+  links = links.filter((l) => l.n > 0 && ids.has(l.from) && ids.has(l.to)).map((l) => ({ ...l }));
+  const last = Math.max(0, ...nodes.map((n) => n.col));
+  let k = Infinity;
+  for (let c = 0; c <= last; c++) {
+    const col = nodes.filter((n) => n.col === c);
+    if (col.length) k = Math.min(k, (H - o.gap * (col.length - 1)) / col.reduce((s, n) => s + n.value, 0));
+  }
+  const by = {};
+  for (let c = 0; c <= last; c++) {
+    let y = 0;
+    for (const n of nodes.filter((n) => n.col === c)) {
+      by[n.id] = { ...n, x: o.left + (W - o.left - o.right - o.nw) * (last ? c / last : 0), y, w: o.nw, h: n.value * k };
+      y += n.value * k + o.gap;
+    }
+  }
+  for (const n of Object.values(by)) {
+    let at = n.y;
+    for (const l of links.filter((l) => l.from === n.id)) { l.sy = at; at += l.n * k; }
+  }
+  for (const n of Object.values(by)) {
+    let at = n.y;
+    for (const l of links.filter((l) => l.to === n.id).sort((a, b) => a.sy - b.sy)) { l.ty = at; at += l.n * k; }
+  }
+  for (const l of links) {
+    const s = by[l.from], t = by[l.to], x0 = s.x + s.w, x1 = t.x, xm = (x0 + x1) / 2, th = l.n * k, sy = l.sy, ty = l.ty;
+    l.d = o.step ? stairs(x0, x1, sy, ty, th)
+      : `M${x0},${sy}C${xm},${sy} ${xm},${ty} ${x1},${ty}V${ty + th}C${xm},${ty + th} ${xm},${sy + th} ${x0},${sy + th}Z`;
+  }
+  return { nodes: Object.values(by), links, last };
+}
+
+// The S-curve in pixel steps: eight flat runs, each a little further along the ease from sy to ty.
+function stairs(x0, x1, sy, ty, th, n = 8) {
+  const r = Math.round, xs = [...Array(n + 1)].map((_, i) => r(x0 + (x1 - x0) * i / n));
+  const ys = [...Array(n)].map((_, i) => { const u = i / (n - 1); return r(sy + (ty - sy) * u * u * (3 - 2 * u)); });
+  let d = `M${xs[0]},${ys[0]}`;
+  for (let i = 0; i < n; i++) d += `H${xs[i + 1]}` + (i < n - 1 ? `V${ys[i + 1]}` : "");
+  d += `V${r(ty + th)}`;
+  for (let i = n - 1; i >= 0; i--) d += `H${xs[i]}` + (i > 0 ? `V${r(ys[i - 1] + th)}` : "");
+  return d + "Z";
+}
+
+// Right-hand labels at least `gap` apart, pushed down from the top and back up from the bottom.
+function spread(ys, gap, max) {
+  const out = ys.slice();
+  for (let i = 1; i < out.length; i++) out[i] = Math.max(out[i], out[i - 1] + gap);
+  for (let i = out.length - 1; i >= 0; i--) out[i] = Math.min(out[i], (i === out.length - 1 ? max : out[i + 1] - gap));
+  return out;
+}
+
+function flowCard() {
+  const card = h("section", { class: "card wide flow-card" });
+  if (S.flow && S.flowFor === S.etag) fillFlowCard(card, S.flow);
+  else {
+    card.append(h("div", { class: "card-head" }, h("h3", {}, "Application flow")), h("p", { class: "dash-empty" }, "Counting…"));
+    const want = S.etag;
+    api("/api/flow").then((f) => { S.flow = f; S.flowFor = want; fillFlowCard(card, f); })
+      .catch((e) => card.replaceChildren(h("div", { class: "card-head" }, h("h3", {}, "Application flow")), h("p", { class: "dash-empty" }, e.message)));
+  }
+  return card;
+}
+
+function fillFlowCard(card, f) {
+  const since = f.start ? `, since ${fmtDate(keyDate(f.start))}` : "";
+  const head = h("div", { class: "card-head" },
+    h("div", { class: "flow-title" }, h("h3", {}, "Application flow"),
+      h("span", { class: "muted" }, f.applications ? `Where your ${plural(f.applications, "application")} went${since}` : "")),
+    f.applications > 0 && h("button", { class: "primary flow-share", onclick: () => openShare(f) }, icon("share"), "Share your search"));
+  if (!f.applications) {
+    card.replaceChildren(head, h("p", { class: "dash-empty" }, "No applications yet. Mark a job Applied in the Tracker and its path shows here."));
+    return;
+  }
+  const chart = h("div", { class: "flow-chart" });
+  const stat = (n, label, cls = "") => h("div", { class: "flow-stat " + cls }, h("b", {}, n), h("span", {}, label));
+  const named = Object.fromEntries(FLOW_NODES.map(([id, , label]) => [id, label]));
+  const rows = f.links.filter((l) => l.n);
+  card.replaceChildren(head, chart,
+    h("div", { class: "flow-stats" }, stat(f.applications, plural(f.applications, "application").replace(/^\d+ /, "")),
+      stat(f.companies_interviewed, `${f.companies_interviewed === 1 ? "company" : "companies"} interviewed`),
+      stat(pct(f.interview_rate), "interview rate"), stat(pct(f.heard_back), "heard back"),
+      stat(f.offers, f.offers === 1 ? "offer" : "offers", "offers")),
+    h("p", { class: "dash-foot" }, "Rejected and Ghosted are split by how far each job got first. Click a stage to see its jobs in the Tracker."),
+    h("details", { class: "dash-table" }, h("summary", {}, "Show as a table"),
+      h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "From"), h("th", {}, "To"), h("th", {}, "Jobs"))),
+        h("tbody", {}, ...rows.map((l) => h("tr", {}, h("td", {}, named[l.from]), h("td", {}, named[l.to]), h("td", { class: "n" }, l.n)))))));
+  requestAnimationFrame(() => drawFlow(chart, f));
+}
+
+function drawFlow(box, f) {
+  const svg = (tag, attrs = {}) => {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    return el;
+  };
+  const W = Math.max(320, box.clientWidth || 800), narrow = W < 620, H = narrow ? 260 : 300, T = 8;
+  const L = narrow ? 64 : 100, R = narrow ? 118 : 160, LH = 20;
+  const lay = sankey(FLOW_NODES.map(([id, col, label]) => ({ id, col, label, value: flowValue(f, id) })), f.links,
+    W, H - 2 * T, { left: L, right: R, nw: 12, gap: 12, step: window.Look?.current() === "arcade" });
+  const named = Object.fromEntries(FLOW_NODES.map(([id, , label, st]) => [id, { label, st }]));
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label":
+    `Application flow: ${lay.nodes.map((n) => `${n.value} ${n.label}`).join(", ")}` });
+  const g = svg("g", { transform: `translate(0,${T})` });
+  for (const l of lay.links) {
+    const p = svg("path", { class: "link", "data-k": l.to, d: l.d });
+    const t = svg("title");
+    t.textContent = `${l.n} ${named[l.from].label} → ${named[l.to].label}`;
+    p.append(t);
+    g.append(p);
+  }
+  const ends = lay.nodes.filter((n) => n.col === lay.last && lay.last > 0);
+  const endY = spread(ends.map((n) => n.y + n.h / 2), LH, H - 2 * T - LH / 2 + 4);
+  for (const n of lay.nodes) {
+    const node = svg("g", { class: "node", "data-k": n.id, tabindex: "0", role: "button",
+      "aria-label": `${n.label}: ${n.value}. Show them in the Tracker` });
+    const open = () => { S.stages = new Set(named[n.id].st); showTab("tracker"); };
+    node.addEventListener("click", open);
+    node.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+    node.append(svg("rect", { x: n.x, y: n.y, width: n.w, height: Math.max(2, n.h), rx: 3 }));
+    const text = svg("text", {});
+    const num = svg("tspan", { class: "n" });
+    num.textContent = n.value;
+    if (n.col === 0) {                       // number over label, left of the bar
+      Object.assign(text.dataset, { side: "left" });
+      text.setAttribute("text-anchor", "end");
+      num.setAttribute("x", n.x - 8);
+      num.setAttribute("y", n.y + n.h / 2 - 2);
+      const lab = svg("tspan", { x: n.x - 8, dy: "1.3em" });
+      lab.textContent = n.label;
+      text.append(num, lab);
+    } else {
+      const y = n.col === lay.last ? endY[ends.indexOf(n)] : n.y + 14;
+      text.setAttribute("x", n.x + n.w + 8);
+      text.setAttribute("y", y + 5);
+      if (n.col !== lay.last) text.classList.add("halo");
+      text.append(num, ` ${n.label}`);
+    }
+    node.append(text);
+    g.append(node);
+  }
+  root.append(g);
+  box.replaceChildren(root);
+}
+
+// ---- share your search --------------------------------------------------------------------------
+// A picture of the search to post: drawn on a canvas in the current look, here in the browser. Nothing is uploaded
+// and there is no link; Save image downloads the PNG and Copy image puts it on the clipboard. Only numbers show
+// until a switch adds the first name, or the offer's date, title or company.
+const SHARE_STYLES = [["journey", "Journey"], ["receipt", "Receipt"], ["big", "Big number"]];
+const SHARE_SIZES = [["square", "Square", "LinkedIn, Instagram", 540, 540], ["story", "Story", "Stories", 540, 960],
+                     ["wide", "Wide", "X, Reddit", 800, 450]];
+const SHARE_SCALE = 2;          // drawn at 540 points across, saved at twice that (1080 px)
+const MONO = 'Menlo, "SF Mono", ui-monospace, monospace';
+// Each look's card: its ground, ink and accent, the flows' colours (to Interviewed, to Rejected, to No reply), its type.
+const CARD_SKINS = {
+  sorbet: { bg: "#FF7EA9", ink: "#2A1B3D", accent: "#FFFFFF", offer: "#FFD166", node: "#2A1B3D", sub: "#2A1B3D",
+    flows: ["rgba(42,27,61,.42)", "rgba(255,255,255,.42)", "rgba(255,255,255,.26)"], rule: "rgba(42,27,61,.18)",
+    display: '"Fredoka", "Arial Rounded MT Bold", sans-serif', dw: 700, body: '"Nunito Sans", system-ui, sans-serif', bw: 800,
+    paper: "#FFFDF8", paperInk: "#2A1B3D", paperAccent: "#D81B5E",
+    decor(c, W, H, wide) {
+      c.fillStyle = "#FF9FC0"; c.beginPath(); c.arc(W - 30, 30, wide ? 70 : 110, 0, 7); c.fill();
+      if (!wide) { c.fillStyle = "#FFD166"; c.beginPath(); c.arc(W - 135, 75, 35, 0, 7); c.fill(); }
+    } },
+  transit: { bg: "#0B1F3A", ink: "#FFFFFF", accent: "#F3A9BB", offer: "#F3A9BB", node: "#FFFFFF", sub: "#CBD5E0", kick: "#DDAA00",
+    flows: ["#00A4A7", "rgba(172,100,187,.8)", "rgba(255,255,255,.25)"], rule: "#4A5A70", upper: true,
+    display: '"Barlow Condensed", "Arial Narrow", sans-serif', dw: 700, body: '"Barlow", "Arial Narrow", sans-serif', bw: 600,
+    paper: "#FFFFFF", paperInk: "#0B1F3A", paperAccent: "#0066CC",
+    decor(c, W) { c.fillStyle = "#DDAA00"; c.fillRect(0, 0, W, 10); } },
+  bauhaus: { bg: "#FFD400", ink: "#000000", accent: "#FF4F1F", offer: "#FF4F1F", node: "#000000", sub: "#000000",
+    flows: ["#2E6BFF", "#000000", "#FFFFFF"], rule: "#000000", ruleW: 3,
+    display: '"Archivo Black", "Arial Black", sans-serif', dw: 400, body: '"Archivo", Arial, sans-serif', bw: 700,
+    paper: "#FFFFFF", paperInk: "#000000", paperAccent: "#FF4F1F",
+    decor(c, W, H, wide) {
+      const r = wide ? 56 : 120;
+      c.fillStyle = "#2E6BFF"; c.beginPath(); c.moveTo(W, 0); c.arc(W, 0, r, Math.PI / 2, Math.PI); c.closePath(); c.fill();
+      c.fillStyle = "#FF4F1F"; c.fillRect(W - r - 30, 24, wide ? 16 : 26, wide ? 16 : 26);
+    } },
+  arcade: { bg: "#1B1B4D", ink: "#FFFFFF", accent: "#FFD500", offer: "#FFD500", node: "#FFFFFF", sub: "#FFFFFF", kick: "#16C7F2", stat: "#22D36B",
+    flows: ["#FF2D95", "rgba(139,93,206,.8)", "rgba(255,255,255,.2)"], rule: "#4F4F80", step: true, pixel: true,
+    display: '"Press Start 2P", "Courier New", monospace', dw: 400, body: '"Rubik", system-ui, sans-serif', bw: 500,
+    paper: "#F3FCFF", paperInk: "#1B1B4D", paperAccent: "#D6136F",
+    decor(c, W, H) { c.strokeStyle = "#FF2D95"; c.lineWidth = 4; c.strokeRect(10, 10, W - 20, H - 20); } },
+  classic: { bg: "#FFFFFF", ink: "#15171c", accent: "#d3121f", offer: "#d3121f", node: "#15171c", sub: "#5f6672",
+    flows: ["rgba(10,124,148,.4)", "rgba(184,66,58,.25)", "rgba(141,148,160,.22)"], rule: "#e1e4e9",
+    display: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif', dw: 700, body: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif', bw: 600,
+    paper: "#FFFFFF", paperInk: "#15171c", paperAccent: "#d3121f", paperBg: "#f3f4f6",
+    decor(c, W) { c.fillStyle = "#d3121f"; c.fillRect(0, 0, W, 6); } },
+};
+const SHARE = { style: "journey", size: "square", name: false, date: false, title: false, company: false };
+
+function openShare(f) {
+  Object.assign(SHARE, { name: false, date: false, title: false, company: false });     // numbers only, every time
+  const dlg = $("#share-dialog") || document.body.appendChild(h("dialog", { id: "share-dialog", class: "share-dialog", "aria-labelledby": "share-title" }));
+  const canvas = h("canvas", { class: "share-canvas", role: "img" });
+  const caption = h("p", { class: "muted share-caption" });
+  const redraw = () => drawShareCard(canvas, f).then(() => {
+    const on = [SHARE.name && "your name", SHARE.title && "the job title", SHARE.company && "the company", SHARE.date && "the offer date"].filter(Boolean);
+    const size = SHARE_SIZES.find((s) => s[0] === SHARE.size);
+    caption.textContent = `${on.length ? `Showing ${on.join(", ").replace(/, ([^,]*)$/, " and $1")}.` : "Showing numbers only."} ${size[3] * SHARE_SCALE} × ${size[4] * SHARE_SCALE} px.`;
+  });
+  const toggle = (key, label, hint, disabled) => h("label", { class: "share-toggle" + (disabled ? " off" : "") },
+    h("span", {}, h("span", { class: "tl" }, label), hint && h("span", { class: "th" }, hint)),
+    h("input", { type: "checkbox", role: "switch", disabled, onchange: (e) => { SHARE[key] = e.target.checked; redraw(); } }));
+  const noOffer = !f.offer;
+  const seg = (list, key, render, label) => h("div", { class: "seg share-seg", role: "group", "aria-label": label }, ...list.map((it) =>
+    h("button", { type: "button", class: SHARE[key] === it[0] ? "active" : "", "aria-pressed": String(SHARE[key] === it[0]),
+      onclick: (e) => {
+        SHARE[key] = it[0];
+        e.currentTarget.parentNode.querySelectorAll("button").forEach((b) => { b.classList.toggle("active", b === e.currentTarget); b.setAttribute("aria-pressed", String(b === e.currentTarget)); });
+        redraw();
+      } }, render(it))));
+  const blob = () => new Promise((ok, no) => canvas.toBlob((b) => (b ? ok(b) : no(new Error("Couldn't draw the card."))), "image/png"));
+  const save = async () => {
+    const url = URL.createObjectURL(await blob());
+    h("a", { href: url, download: `job-search-${SHARE.style}-${SHARE.size}.png` }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob() })]);
+      toast("Copied. Paste it into your post.");
+    } catch (e) {
+      toast("This browser wouldn't copy the picture. Use Save image instead.", true);
+    }
+  };
+  dlg.replaceChildren(
+    h("button", { class: "icon-btn share-close", title: "Close", "aria-label": "Close", onclick: () => dlg.close() }, icon("close")),
+    h("div", { class: "share-grid" },
+      h("div", { class: "share-controls" },
+        h("h2", { id: "share-title" }, "Share your search"),
+        h("p", { class: "muted" }, "Made on this Mac. Nothing is uploaded and there's no link: save the picture or copy it, then post it where you like."),
+        h("h3", {}, "Show on your card"),
+        h("p", { class: "muted share-note" }, "Numbers only until you switch something on."),
+        f.first_name && toggle("name", `First name (${f.first_name})`),
+        toggle("date", "Offer date", noOffer ? "Once a job reaches Offer" : "", noOffer),
+        toggle("title", "Job title", noOffer ? "Once a job reaches Offer" : "The role you were offered", noOffer),
+        toggle("company", "Company", noOffer ? "Once a job reaches Offer" : "Worth waiting until you've told your current employer.", noOffer),
+        h("h3", {}, "Style"),
+        seg(SHARE_STYLES, "style", ([, label]) => label, "Style"),
+        h("h3", {}, "Size"),
+        seg(SHARE_SIZES, "size", ([, label, where]) => [h("span", {}, label), h("small", {}, where)], "Size")),
+      h("div", { class: "share-preview" },
+        h("div", { class: "share-frame" }, canvas), caption,
+        h("div", { class: "actions" },
+          h("button", { class: "primary", onclick: () => save().catch((e) => toast(e.message, true)) }, icon("download"), "Save image"),
+          h("button", { class: "ghost", onclick: copy }, icon("copy"), "Copy image")))));
+  redraw();
+  dlg.showModal();
+}
+
+const cardFont = (sk, size, display = false, weight) =>
+  `${weight ?? (display ? sk.dw : sk.bw)} ${size}px ${display ? sk.display : sk.body}`;
+const monthYear = (k) => keyDate(k).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+const dayMonth = (k) => keyDate(k).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+// The words on the card. With no switches on, nothing in it names you, the role or the company.
+function shareWords(f) {
+  const who = SHARE.name && f.first_name ? `${f.first_name}’s job search` : "My job search";
+  const range = f.start ? (monthYear(f.start) === monthYear(f.today) ? monthYear(f.start) : `${monthYear(f.start)} to ${monthYear(f.today)}`) : "";
+  const o = f.offer || {};
+  let offer = "";
+  if (f.offer && (SHARE.title || SHARE.company || SHARE.date)) {
+    offer = SHARE.title && o.title ? `Offer: ${o.title}` : "Offer";
+    if (SHARE.company && o.company) offer += ` at ${o.company}`;
+    if (SHARE.date && o.date) offer += ` · ${dayMonth(o.date)}`;
+  }
+  return { kicker: [who, range].filter(Boolean).join(" · ").toUpperCase(), offer,
+    apps: plural(f.applications, "application"), offers: plural(f.offers, "offer"),
+    stats: [[String(f.companies_interviewed), f.companies_interviewed === 1 ? "company interviewed" : "companies interviewed"],
+            [pct(f.interview_rate), "interview rate"], [pct(f.heard_back), "heard back"]] };
+}
+
+async function drawShareCard(canvas, f) {
+  const look = window.Look?.current() || "classic";
+  const sk = CARD_SKINS[look] || CARD_SKINS.classic;
+  const [, , , W, H] = SHARE_SIZES.find((s) => s[0] === SHARE.size);
+  try {
+    await Promise.all([cardFont(sk, 40, true), cardFont(sk, 14), `700 14px ${MONO}`].map((font) => document.fonts.load(font)));
+  } catch (_) { /* draws in the fallback font */ }
+  canvas.width = W * SHARE_SCALE;
+  canvas.height = H * SHARE_SCALE;
+  canvas.style.aspectRatio = `${W} / ${H}`;
+  canvas.setAttribute("aria-label", `Your ${SHARE.style} card: ${f.applications} applications, ${f.offers} offers`);
+  const c = canvas.getContext("2d");
+  c.setTransform(SHARE_SCALE, 0, 0, SHARE_SCALE, 0, 0);
+  c.textBaseline = "alphabetic";
+  c.fillStyle = sk.bg;
+  c.fillRect(0, 0, W, H);
+  sk.decor(c, W, H, SHARE.size === "wide");
+  const words = shareWords(f);
+  const card = { c, sk, f, W, H, words };
+  ({ journey: drawJourney, receipt: drawReceipt, big: drawBig })[SHARE.style](card, SHARE.size);
+}
+
+// Text at (x, y), shrunk until it fits maxW; returns its width.
+function cardText(c, text, x, y, font, color, maxW = Infinity, align = "left", spacing = 0) {
+  let size = Number(font.match(/(\d+(?:\.\d+)?)px/)[1]);
+  const at = (s) => font.replace(/\d+(?:\.\d+)?px/, `${s}px`);
+  c.font = at(size);
+  if ("letterSpacing" in c) c.letterSpacing = `${spacing * size}px`;
+  while (size > 6 && c.measureText(text).width > maxW) { size -= 1; c.font = at(size); if ("letterSpacing" in c) c.letterSpacing = `${spacing * size}px`; }
+  c.fillStyle = color;
+  c.textAlign = align;
+  c.fillText(text, x, y);
+  const w = c.measureText(text).width;
+  if ("letterSpacing" in c) c.letterSpacing = "0px";
+  return w;
+}
+
+function cardKicker({ c, sk, words }, x, y, maxW, size = 12.5) {
+  cardText(c, words.kicker, x, y, cardFont(sk, sk.pixel ? size * .76 : size), sk.kick || sk.ink, maxW, "left", sk.pixel ? 0 : .1);
+}
+
+function cardFooter({ c, sk, W }, x, y, w, note = true) {
+  c.fillStyle = sk.rule;
+  c.fillRect(x, y - 24, w, sk.ruleW || 2);
+  cardText(c, "Job Oyster", x, y, cardFont(sk, sk.pixel ? 9 : 15, true), sk.kick || sk.ink);
+  if (note) cardText(c, "a free, open-source job tracker", x + w, y, cardFont(sk, 12), sk.sub, w * .6, "right");
+}
+
+// Stats side by side (row) or one under another (stack).
+function cardStats({ c, sk, words }, x, y, w, size, stack = false) {
+  const num = (t, px, py) => cardText(c, t, px, py, cardFont(sk, sk.pixel ? size * .55 : size, true), sk.stat || sk.ink);
+  words.stats.forEach(([n, label], i) => {
+    if (stack) {
+      const nw = num(n, x, y + i * size * 1.75);
+      cardText(c, label, x + nw + 10, y + i * size * 1.75, cardFont(sk, size * .42), sk.sub, w - nw - 10);
+    } else {
+      const cw = w / 3, px = x + i * cw;
+      num(n, px, y);
+      cardText(c, label, px, y + size * .62, cardFont(sk, Math.max(10, size * .38)), sk.sub, cw - 8);
+    }
+  });
+}
+
+function cardHeadline({ c, sk, words }, x, y, size, maxW) {
+  const s = sk.pixel ? size * .5 : size, gap = sk.pixel ? s * 1.6 : s * 1.04;
+  const t = (txt) => (sk.upper ? txt.toUpperCase() : txt);
+  cardText(c, t(`${words.apps}.`), x, y, cardFont(sk, s, true), sk.ink, maxW);
+  cardText(c, t(`${words.offers}.`), x, y + gap, cardFont(sk, s, true), sk.accent, maxW);
+  return y + gap;
+}
+
+function cardOffer({ c, sk, words }, x, y, size, maxW) {
+  if (words.offer) cardText(c, words.offer, x, y, cardFont(sk, size), sk.ink, maxW);
+}
+
+// The share card's Sankey: Ghosted joins No reply, so the small picture stays readable.
+function cardFlow({ c, sk, f }, x, y, w, h, labelSize) {
+  const lk = (from, to) => f.links.filter((l) => l.from === from && to.includes(l.to)).reduce((s, l) => s + l.n, 0);
+  const nodes = [{ id: "applied", col: 0, value: f.applications, label: "Applied" }, { id: "interviewed", col: 1, value: f.interviewed, label: "Interviewed" },
+    { id: "offer", col: 2, value: f.offers, label: f.offers === 1 ? "Offer" : "Offers" }, { id: "interviewing", col: 2, value: f.interviewing, label: "Interviewing" },
+    { id: "rejected", col: 2, value: f.rejected, label: "Rejected" }, { id: "no_reply", col: 2, value: f.no_reply + f.ghosted, label: "No reply" }];
+  const links = [{ from: "applied", to: "interviewed", n: f.interviewed }, { from: "applied", to: "rejected", n: lk("applied", ["rejected"]) },
+    { from: "applied", to: "no_reply", n: lk("applied", ["ghosted", "no_reply"]) }, { from: "interviewed", to: "offer", n: f.offers },
+    { from: "interviewed", to: "interviewing", n: f.interviewing }, { from: "interviewed", to: "rejected", n: lk("interviewed", ["rejected"]) },
+    { from: "interviewed", to: "no_reply", n: lk("interviewed", ["ghosted"]) }];
+  const lh = labelSize * 1.5, top = lh + 4;
+  const lay = sankey(nodes, links, w, h - top, { left: 0, right: labelSize * 7.4, nw: Math.max(4, w / 90), gap: labelSize * .6, step: sk.step });
+  const fills = { interviewed: sk.flows[0], interviewing: sk.flows[0], offer: sk.offer, rejected: sk.flows[1], no_reply: sk.flows[2] };
+  c.save();
+  c.translate(x, y + top);
+  for (const l of lay.links) { c.fillStyle = fills[l.to]; c.fill(new Path2D(l.d)); }
+  const ends = lay.nodes.filter((n) => n.col === lay.last && lay.last > 0);
+  const endY = spread(ends.map((n) => n.y + n.h / 2), lh, h - top - lh / 2);
+  for (const n of lay.nodes) {
+    c.fillStyle = n.id === "offer" ? sk.offer : sk.node;
+    c.fillRect(n.x, n.y, n.w, Math.max(2, n.h));
+    const lx = n.col === lay.last && lay.last > 0 ? n.x + n.w + 6 : n.x + (n.col ? 0 : n.w + 4);
+    const ly = n.col === lay.last && lay.last > 0 ? endY[ends.indexOf(n)] + labelSize * .38 : n.y - 6;
+    const nw = cardText(c, String(n.value), lx, ly, cardFont(sk, sk.pixel ? labelSize * .7 : labelSize * 1.25, true), sk.ink);
+    cardText(c, n.label, lx + nw + 5, ly, cardFont(sk, labelSize), sk.ink);
+  }
+  c.restore();
+}
+
+function drawJourney(card, size) {
+  const { W, H } = card;
+  if (size === "square") {
+    cardKicker(card, 36, 52, 468);
+    const y = cardHeadline(card, 36, 104, 46, 468);
+    cardOffer(card, 36, y + 30, 15, 468);
+    cardFlow(card, 36, 196, 468, 210, 12.5);
+    cardStats(card, 36, 450, 468, 30);
+    cardFooter(card, 36, 512, 468);
+  } else if (size === "story") {
+    cardKicker(card, 40, 84, 460, 14);
+    const y = cardHeadline(card, 40, 160, 56, 460);
+    cardOffer(card, 40, y + 38, 18, 460);
+    cardFlow(card, 40, 300, 460, 340, 15);
+    cardStats(card, 40, 720, 460, 40, true);
+    cardFooter(card, 40, 912, 460);
+  } else {
+    cardKicker(card, 40, 56, 300, 11);
+    const y = cardHeadline(card, 40, 108, 40, 290);
+    cardOffer(card, 40, y + 28, 13, 290);
+    cardStats(card, 40, 270, 290, 28, true);
+    cardFooter(card, 40, H - 32, W - 80);
+    cardFlow(card, 360, 70, 400, 300, 12.5);
+  }
+}
+
+function drawBig(card, size) {
+  const { c, sk, f, W, H, words } = card;
+  const big = (x, y, px, maxW) => {
+    cardText(c, String(f.applications), x, y, cardFont(sk, sk.pixel ? px * .5 : px, true), sk.ink, maxW, "left", sk.pixel ? 0 : -.03);
+    const s = sk.pixel ? px * .14 : px * .23;
+    cardText(c, sk.upper ? "APPLICATIONS" : "applications", x, y + s * 1.25, cardFont(sk, s, true), sk.accent, maxW);
+    const sub = f.offers ? `to land ${words.offers}` : "and counting";
+    cardText(c, sub, x, y + s * 1.25 + px * .13, cardFont(sk, px * .1), sk.ink, maxW);
+    return y + s * 1.25 + px * .13;
+  };
+  if (size === "square") {
+    cardKicker(card, 32, 52, 476);
+    const y = big(32, 210, 150, 476);
+    cardOffer(card, 32, y + 28, 15, 476);
+    cardStats(card, 32, 450, 476, 30);
+    cardFooter(card, 32, 512, 476);
+  } else if (size === "story") {
+    cardKicker(card, 40, 84, 460, 14);
+    const y = big(40, 400, 230, 460);
+    cardOffer(card, 40, y + 40, 20, 460);
+    cardStats(card, 40, 720, 460, 40, true);
+    cardFooter(card, 40, 912, 460);
+  } else {
+    cardKicker(card, 40, 56, 420, 11);
+    const y = big(40, 240, 170, 420);
+    cardOffer(card, 40, y + 30, 14, 420);
+    cardStats(card, 500, 180, 260, 32, true);
+    cardFooter(card, 40, H - 32, W - 80);
+  }
+}
+
+// A till receipt on the look's ground, a little askew.
+function drawReceipt(card, size) {
+  const { c, sk, f, W, H, words } = card;
+  if (sk.paperBg) { c.fillStyle = sk.paperBg; c.fillRect(0, 0, W, H); sk.decor(c, W, H, size === "wide"); }
+  const rows = [["APPLICATIONS SENT", f.applications], ["NO REPLY / GHOSTED", f.no_reply + f.ghosted], ["REJECTIONS", f.rejected],
+    [f.companies_interviewed === 1 ? "COMPANY INTERVIEWED" : "COMPANIES INTERVIEWED", f.companies_interviewed], ["DAYS SEARCHING", f.days || "—"],
+    null, ["HEARD BACK", pct(f.heard_back)], ["INTERVIEW RATE", pct(f.interview_rate)]];
+  const pw = 300, lh = 19, mono = (px, w = 500) => `${w} ${px}px ${MONO}`;
+  const offerLines = words.offer ? 1 : 0;
+  const ph = 98 + rows.length * lh + 64 + offerLines * lh + 30;
+  const room = size === "wide" ? [W * .5, H - 60] : [W - 120, H - 120];
+  const k = Math.min(room[0] / pw, room[1] / ph, size === "story" ? 1.5 : 1.2);
+  const cx = size === "wide" ? W * .7 : W / 2, cy = H / 2;
+  c.save();
+  c.translate(cx, cy);
+  c.rotate(-2 * Math.PI / 180);
+  c.scale(k, k);
+  c.translate(-pw / 2, -ph / 2);
+  c.shadowColor = "rgba(0,0,0,.25)"; c.shadowBlur = 18; c.shadowOffsetY = 8;
+  const zig = new Path2D();
+  const teeth = 24, tw = pw / teeth;
+  zig.moveTo(0, 5);
+  for (let i = 0; i < teeth; i++) { zig.lineTo(i * tw + tw / 2, 0); zig.lineTo((i + 1) * tw, 5); }
+  zig.lineTo(pw, ph - 5);
+  for (let i = teeth; i > 0; i--) { zig.lineTo(i * tw - tw / 2, ph); zig.lineTo((i - 1) * tw, ph - 5); }
+  zig.closePath();
+  c.fillStyle = sk.paper;
+  c.fill(zig);
+  c.shadowColor = "transparent";
+  const ink = sk.paperInk, P = 20;
+  let y = 40;
+  cardText(c, "Job Oyster", pw / 2, y, cardFont(sk, sk.pixel ? 12 : 22, true), sk.paperAccent, pw - 2 * P, "center");
+  y += 18;
+  cardText(c, words.kicker, pw / 2, y, mono(9.5), ink, pw - 2 * P, "center");
+  const dashed = (yy) => { c.save(); c.strokeStyle = ink; c.globalAlpha = .55; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(P, yy); c.lineTo(pw - P, yy); c.stroke(); c.restore(); };
+  y += 14; dashed(y); y += 6;
+  for (const r of rows) {
+    if (!r) { y += 6; dashed(y - 2); y += 6; continue; }
+    y += lh;
+    cardText(c, r[0], P, y, mono(11.5), ink, pw * .72);
+    cardText(c, String(r[1]), pw - P, y, mono(11.5, 700), ink, pw * .25, "right");
+  }
+  y += 12;
+  c.fillStyle = ink; c.fillRect(P, y, pw - 2 * P, 1.5); c.fillRect(P, y + 4, pw - 2 * P, 1.5);
+  y += 32;
+  cardText(c, "TOTAL", P, y, cardFont(sk, sk.pixel ? 11 : 20, true), ink);
+  cardText(c, f.offers ? words.offers.toUpperCase() : `${f.interviewed} INTERVIEWED`, pw - P, y, cardFont(sk, sk.pixel ? 11 : 20, true), sk.paperAccent, pw * .6, "right");
+  if (words.offer) { y += lh; cardText(c, words.offer.toUpperCase(), pw - P, y, mono(10), ink, pw - 2 * P, "right"); }
+  y += 26;
+  cardText(c, "THANKS FOR APPLYING · KEEP GOING", pw / 2, y, mono(9), ink, pw - 2 * P, "center");
+  c.restore();
+  if (size === "wide") {
+    cardKicker(card, 40, 56, 300, 11);
+    const yy = cardHeadline(card, 40, 120, 38, 300);
+    cardOffer(card, 40, yy + 28, 13, 300);
+    cardText(c, "Job Oyster", 40, H - 32, cardFont(sk, sk.pixel ? 9 : 15, true), sk.kick || sk.ink);
+  }
+}
 
 // ---- jobs: list and board ----------------------------------------------------------------------
 function renderJobs() {
@@ -3851,19 +4360,22 @@ function jobImportSave(d, body, cols, md, recheck, toggle) {
 
 // What a résumé has that the impact record doesn't, role by role: new lines ticked, lines the record has with less
 // detail unticked, lines it already has folded away. Each role's ticked lines are added with one click.
-async function renderSuggestions(params) {
-  const body = $("#import-body");
-  $("#import-title").textContent = "What's new for your impact record";
-  $("#import-sub").textContent = `From ${params.source || params.file}. Nothing is added until you press Add.`;
-  if (!impDialog.open) impDialog.showModal();
+// `into` shows it in another box (the setup wizard's) instead of the dialog, without the dialog's buttons.
+async function renderSuggestions(params, into = null) {
+  const body = into || $("#import-body");
+  if (!into) {
+    $("#import-title").textContent = "What's new for your impact record";
+    $("#import-sub").textContent = `From ${params.source || params.file}. Nothing is added until you press Add.`;
+    if (!impDialog.open) impDialog.showModal();
+  }
   body.replaceChildren(h("div", { class: "import-reading" }, h("span", { class: "import-blob", "aria-hidden": "true" }),
     h("p", {}, h("b", {}, "Checking each line against your impact record…")),
     h("p", { class: "muted" }, "Up to half a minute: the evidence models run on this Mac.")));
   let r;
   try { r = await post("/api/impact-record/suggestions", params); }
   catch (e) {
-    body.replaceChildren(h("p", { class: "form-error" }, e.message), h("div", { class: "actions" }, h("span", { class: "grow" }),
-      h("button", { class: "ghost", onclick: () => impDialog.close() }, "Close")));
+    body.replaceChildren(h("p", { class: "form-error" }, e.message), ...(into ? [] : [h("div", { class: "actions" }, h("span", { class: "grow" }),
+      h("button", { class: "ghost", onclick: () => impDialog.close() }, "Close"))]));
     return;
   }
   const source = r.source;
@@ -3914,9 +4426,9 @@ async function renderSuggestions(params) {
       covered ? `${plural(covered, "role")} with nothing new left out. ` : "",
       "Added lines go in the record's “From your résumés” section, under their role. ",
       r.models ? "Checked with the evidence models and by words and figures." : `Checked by words and figures (the evidence models weren't used: ${r.reason || "off"}).`),
-    h("div", { class: "actions" },
+    ...(into ? [] : [h("div", { class: "actions" },
       h("button", { class: "ghost", onclick: () => { impDialog.close(); showTab("impact"); } }, "Open the impact record"),
-      h("span", { class: "grow" }), h("button", { class: "primary", onclick: () => impDialog.close() }, "Done")));
+      h("span", { class: "grow" }), h("button", { class: "primary", onclick: () => impDialog.close() }, "Done"))]));
 }
 
 // The Impact record tab: compare one of your saved résumés with the record.
@@ -4749,6 +5261,332 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ---- the setup wizard (onboarding.py): your details, your LinkedIn, then an interview about each past job that
+// fills in the impact record. Every step can be skipped. It opens by itself on first use (no profile saved yet,
+// never finished or skipped); Profile › Setup opens it again, where you left off.
+const SETUP_STEPS = [["welcome", "Welcome"], ["about", "About you"], ["ai", "Your AI"], ["linkedin", "LinkedIn"],
+                     ["interview", "Interviews"], ["done", "Done"]];
+const WIZ = { step: 0, data: null, imported: null, importBox: null, role: null, extra: [] };
+const setupDialog = $("#setup-dialog");
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false && k !== ""));
+const setupBody = $("#setup-body"), setupFootEl = $("#setup-foot");
+
+async function openSetup(step = WIZ.step) {
+  try { WIZ.data = await api("/api/setup"); } catch (e) { toast(e.message, true); return; }
+  if (!setupDialog.open) setupDialog.showModal();
+  setupStep(step);
+}
+function setupStep(n) {
+  WIZ.step = Math.max(0, Math.min(SETUP_STEPS.length - 1, n));
+  fill($("#setup-steps"), ...SETUP_STEPS.map(([, label], i) => h("li", {
+    class: i < WIZ.step ? "past" : i === WIZ.step ? "now" : "", "aria-current": i === WIZ.step ? "step" : null },
+    h("button", { type: "button", disabled: i === WIZ.step, onclick: () => setupStep(i) },
+      h("span", { class: "n" }, i < WIZ.step ? "✓" : String(i + 1)), h("span", { class: "l" }, label)))));
+  $("#setup-steps .now").scrollIntoView({ block: "nearest", inline: "nearest" });
+  setupDialog.dataset.step = SETUP_STEPS[WIZ.step][0];
+  SETUP_RENDER[SETUP_STEPS[WIZ.step][0]]();
+  setupBody.scrollTop = 0;
+}
+function setupFoot(...right) {
+  fill(setupFootEl, 
+    WIZ.step < SETUP_STEPS.length - 1 ? h("button", { type: "button", class: "link-btn setup-skip", onclick: skipSetup }, "Skip setup for now") : null,
+    h("span", { class: "grow" }),
+    WIZ.step > 0 && WIZ.step < SETUP_STEPS.length - 1 ? h("button", { type: "button", class: "ghost", onclick: () => setupStep(WIZ.step - 1) }, "Back") : null,
+    ...right);
+}
+const setupNext = (label = "Next", fn = null) =>
+  h("button", { type: "button", class: "primary", onclick: fn || (() => setupStep(WIZ.step + 1)) }, label);
+const setupHead = (title, sub) => [h("h2", { id: "setup-title" }, title), sub ? h("p", { class: "muted setup-sub" }, sub) : null];
+
+// Skipping asks once, because the setup is what makes the scores and résumés good.
+function skipSetup() {
+  if (WIZ.data?.state) { setupDialog.close(); return; }
+  fill(setupFootEl, h("span", { class: "setup-confirm" },
+    h("b", {}, "Skip the rest? "), "Your résumés are only as good as your impact record. You can carry on any time from Profile › Setup."),
+    h("span", { class: "grow" }),
+    h("button", { type: "button", class: "ghost", onclick: () => setupStep(WIZ.step) }, "Keep going"),
+    h("button", { type: "button", class: "primary", onclick: async () => {
+      try { WIZ.data = await put("/api/setup", { state: "skipped" }); } catch (e) { toast(e.message, true); }
+      setupDialog.close();
+    } }, "Skip"));
+}
+setupDialog.addEventListener("cancel", (e) => { if (!WIZ.data?.state) { e.preventDefault(); skipSetup(); } });
+setupDialog.addEventListener("close", setupCard);
+$("#setup-x").addEventListener("click", () => WIZ.data?.state ? setupDialog.close() : skipSetup());
+$("#setup-open").addEventListener("click", () => openSetup(WIZ.step > 0 && WIZ.step < SETUP_STEPS.length - 1 ? WIZ.step : 0));
+function setupCard() {
+  const mid = WIZ.step > 0 && WIZ.step < SETUP_STEPS.length - 1;
+  $("#setup-open").textContent = mid ? "Carry on with setup" : WIZ.data?.state === "done" ? "Run setup again" : "Run setup";
+}
+
+const SETUP_RENDER = {
+  welcome() {
+    fill(setupBody, ...setupHead("Welcome to Job Oyster"),
+      h("p", { class: "setup-lede" }, "Every score and résumé the app makes is drawn from your ", h("b", {}, "impact record"),
+        ": what you did at each job, and what came of it. The fuller it is, the better your résumés. This setup fills it in with you."),
+      h("ol", { class: "setup-plan" },
+        h("li", {}, h("b", {}, "About you"), h("span", {}, "The name and contact line on every résumé."), h("small", {}, "1 minute")),
+        h("li", {}, h("b", {}, "Your LinkedIn"), h("span", {}, "Your jobs and what you wrote about them, from LinkedIn's PDF or data export."), h("small", {}, "2 minutes")),
+        h("li", {}, h("b", {}, "Interviews"), h("span", {}, "Your AI asks about each past job, one question at a time, then drafts lines for your record. You check every line."), h("small", {}, "about 5 minutes a job"))),
+      h("p", { class: "muted" }, "Each step can be skipped, and Profile › Setup brings you back here."));
+    setupFoot(setupNext("Let's start"));
+  },
+
+  async about() {
+    fill(setupBody, ...setupHead("About you", "The name and contact line on every résumé. You can change them later on Profile."), h("p", {}, spinner()));
+    let prof;
+    try { prof = await api("/api/profile"); } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
+    const c = prof.candidate, blank = prof.example || !prof.saved;
+    const field = (name, label, attrs = {}, hint = "") => h("label", {}, label, hint ? [" ", h("span", { class: "hint" }, hint)] : null,
+      h("input", { name, value: blank ? "" : c[name] || "", ...attrs }));
+    const form = h("form", { class: "setup-form", autocomplete: "off", novalidate: true },
+      h("div", { class: "row2" },
+        field("name", "Name", { required: true, placeholder: "Your Name" }),
+        h("label", {}, "Pronouns ", h("span", { class: "hint" }, "how the prompts refer to you"),
+          h("select", { name: "pronouns" }, ...["he/him", "she/her", "they/them"].map((p) => h("option", { selected: c.pronouns === p }, p)))),
+        field("city", "City", { placeholder: "Portland, OR" }, "City, ST"),
+        field("phone", "Phone", { type: "tel", placeholder: "+1 555-555-5555" }),
+        field("email", "Email", { type: "email", placeholder: "you@example.com" }),
+        field("linkedin", "LinkedIn", { placeholder: "linkedin.com/in/your-name", spellcheck: "false" }, "your profile's address")),
+      h("p", { class: "muted setup-note" }, "The LinkedIn address goes on your résumés. LinkedIn doesn't let apps read a profile from its address, so the next steps bring your jobs in another way."),
+      prof.example ? h("p", { class: "setup-note" }, "The app is showing an example profile. Put in your own details.") : null,
+      h("p", { class: "form-error hidden" }));
+    fill(setupBody, ...setupHead("About you", "The name and contact line on every résumé. You can change them later on Profile."), form);
+    const save = async () => {
+      const vals = Object.fromEntries(["name", "pronouns", "city", "phone", "email", "linkedin"].map((k) => [k, form.elements.namedItem(k).value.trim()]));
+      if (!vals.name) { formError(form, "Put in your name: it heads every résumé."); form.elements.namedItem("name").focus(); return; }
+      if (!blank && Object.entries(vals).every(([k, v]) => v === (c[k] || ""))) { setupStep(WIZ.step + 1); return; }
+      try { applyProfile(await put("/api/profile", { ...c, ...vals })); setupStep(WIZ.step + 1); }
+      catch (e) { formError(form, e.message); }
+    };
+    form.addEventListener("submit", (e) => { e.preventDefault(); save(); });
+    setupFoot(setupNext("Save and continue", save));
+    form.elements.namedItem("name").focus();
+  },
+
+  async ai() {
+    fill(setupBody, ...setupHead("Your AI", "The interviews run through the AI that scores your jobs and writes your résumés."), h("p", {}, spinner()));
+    setupFoot(setupNext());
+    let d, claude = null;
+    try {
+      d = await api("/api/ai");
+      if (isClaude(d.backend) && d.backend === "claude-code") claude = await api("/api/ai/claude");
+    } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
+    const p = d.providers.find((x) => x.id === d.backend) || { label: d.backend };
+    const ready = claude ? !!claude.found : p.local || p.key_set;
+    const how = claude ? (claude.found ? "It runs on your Claude subscription, through Claude Code. If you haven't signed in to Claude Code yet, do that first."
+                                       : "Claude Code isn't installed, so the app can't reach Claude yet.")
+      : p.local ? "It runs on this computer." : p.key_set ? "Its key is saved in your profile folder." : "Its key isn't saved yet.";
+    const change = h("button", { type: "button", class: "ghost", onclick: () => {
+      setupDialog.close();
+      showTab("profile")?.then(() => $("#ai-form").scrollIntoView({ behavior: "smooth", block: "start" }));
+      toast("Set up the AI, then press Carry on with setup (Profile › Setup).");
+    } }, "Change the AI…");
+    fill(setupBody, ...setupHead("Your AI", "The interviews run through the AI that scores your jobs and writes your résumés."),
+      h("div", { class: `setup-ai ${ready ? "ok" : "warn"}` },
+        h("span", { class: "setup-ai-dot", "aria-hidden": "true" }),
+        h("div", {}, h("b", {}, p.label, d.stages?.chat?.model ? ` · ${d.stages.chat.model}` : ""), h("p", {}, how),
+          h("div", { class: "setup-ai-actions" },
+            claude?.found ? h("button", { type: "button", class: "ghost", onclick: async () => {
+              try { await post("/api/ai/claude-login"); toast("Terminal is open: type /login, sign in, then close it."); }
+              catch (e) { toast(e.message, true); } } }, "Sign in to Claude…") : null,
+            claude && !claude.found ? extLink("https://claude.ai/download", "Install the Claude app") : null,
+            change))),
+      h("p", { class: "muted" }, "Your answers go to this AI only, as your postings and résumés already do. ",
+        ready ? "" : "You can import LinkedIn without it, and come back for the interviews once it's set up."));
+  },
+
+  linkedin() {
+    if (WIZ.imported) return setupImported();
+    const file = h("input", { type: "file", accept: ".pdf,.zip,application/pdf,application/zip", hidden: true });
+    file.addEventListener("change", () => { const f = file.files[0]; file.value = ""; if (f) setupImport(f); });
+    const choose = (label) => h("button", { type: "button", class: "primary", onclick: () => file.click() }, label);
+    const drop = h("div", { class: "setup-drop" },
+      h("div", { class: "setup-way" },
+        h("h3", {}, "Your profile as a PDF ", h("span", { class: "tag" }, "quickest")),
+        h("ol", {}, h("li", {}, "Open ", extLink("https://www.linkedin.com/in/me/", "your LinkedIn profile"), "."),
+          h("li", {}, "Click ", h("b", {}, "Resources"), " (or ", h("b", {}, "More"), ") under your name, then ", h("b", {}, "Save to PDF"), "."),
+          h("li", {}, "Add the PDF it saves (Profile.pdf) here.")),
+        choose("Choose the PDF…")),
+      h("div", { class: "setup-way" },
+        h("h3", {}, "Your data export ", h("span", { class: "tag" }, "most complete")),
+        h("ol", {}, h("li", {}, "Open ", extLink("https://www.linkedin.com/mypreferences/d/download-my-data", "Get a copy of your data"), "."),
+          h("li", {}, "Pick ", h("b", {}, "Positions"), ", ", h("b", {}, "Profile"), " and ", h("b", {}, "Skills"), " (or everything), then ", h("b", {}, "Request archive"), "."),
+          h("li", {}, "LinkedIn emails a link, usually within minutes. Add the ZIP it gives you here.")),
+        choose("Choose the ZIP…")),
+      file);
+    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+    drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setupImport(f); });
+    fill(setupBody, ...setupHead("Bring in your LinkedIn", "Your jobs, dates and what you wrote about each, as lines for your impact record. You pick every line."),
+      drop,
+      h("p", { class: "muted setup-note" }, "Why not just your profile's address? LinkedIn shows apps only a sliver of a profile and blocks reading the rest, so one of these exports is the way in. Both stay on this computer. You can drop the file onto this box."));
+    setupFoot(setupNext("Skip this step"));
+  },
+
+  async interview() {
+    fill(setupBody, ...setupHead("Interviews", "Pick a job. Your AI asks up to six questions about it, then drafts lines for your impact record."), h("p", {}, spinner()));
+    setupFoot(setupNext("Finish"));
+    try { WIZ.data = await api("/api/setup"); } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
+    const pane = h("div", { class: "setup-chat" });
+    const list = h("ul", { class: "setup-roles" });
+    const roles = () => [...WIZ.data.roles, ...WIZ.extra.filter((x) => !WIZ.data.roles.some((r) => r.key === x.key))];
+    const drawList = () => fill(list, ...roles().map((r) => h("li", {},
+      h("button", { type: "button", class: r.key === WIZ.role?.key ? "on" : "", onclick: () => { WIZ.role = r; drawList(); setupInterview(r, pane, drawList); if (matchMedia("(max-width: 720px)").matches) pane.scrollIntoView({ block: "start" }); } },
+        h("b", {}, r.title), h("span", {}, r.company), r.dates ? h("small", {}, r.dates) : null,
+        r.added ? h("span", { class: "tag setup-added" }, `${plural(r.added, "line")} added`)
+          : r.answers ? h("span", { class: "tag" }, `${plural(r.answers, "answer")}`) : null))));
+    const company = h("input", { placeholder: "Company", "aria-label": "Company" }), title = h("input", { placeholder: "Job title", "aria-label": "Job title" }),
+      dates = h("input", { placeholder: "2019–2022", "aria-label": "Dates" });
+    const addForm = h("form", { class: "setup-addrole" }, h("b", {}, "Another job"), company, title, dates,
+      h("button", { class: "ghost small" }, "Add"));
+    addForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!company.value.trim() || !title.value.trim()) { (company.value.trim() ? title : company).focus(); return; }
+      const r = { company: company.value.trim(), title: title.value.trim(), dates: dates.value.trim(), notes: "", answers: 0, added: 0,
+                  key: (company.value + " " + title.value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80) };
+      WIZ.extra.push(r); addForm.reset(); WIZ.role = r; drawList(); setupInterview(r, pane, drawList);
+    });
+    fill(setupBody, ...setupHead("Interviews", "Pick a job. Your AI asks up to six questions about it, then drafts lines for your impact record."),
+      h("div", { class: "setup-iv" }, h("div", { class: "setup-side" }, list, addForm), pane));
+    drawList();
+    const r = WIZ.role && roles().find((x) => x.key === WIZ.role.key);
+    if (r) setupInterview(r, pane, drawList);
+    else fill(pane, h("div", { class: "setup-empty" },
+      h("p", {}, h("b", {}, roles().length ? "Pick a job on the left to start." : "Add a job on the left to start.")),
+      h("p", { class: "muted" }, "It asks about scope, what you owned, results with numbers, a hard problem and the tools you used. Answer in your own words; rough numbers are fine, and the draft says which figures to check. Nothing goes into your record until you add it.")));
+  },
+
+  async done() {
+    try { WIZ.data = await put("/api/setup", { state: "done" }); } catch (e) { toast(e.message, true); }
+    const li = WIZ.data?.linkedin, done = (WIZ.data?.roles || []).filter((r) => r.added);
+    const added = done.reduce((n, r) => n + r.added, 0);
+    fill(setupBody, h("div", { class: "setup-done" },
+      h("span", { class: "setup-done-mark", "aria-hidden": "true" }, "✓"),
+      ...setupHead("You're set up", "From here, search for jobs: each one is scored against your impact record, and résumés are written from it."),
+      h("ul", { class: "setup-sum" },
+        h("li", {}, li ? `LinkedIn: ${plural(li.roles, "job")} read from ${li.file}.` : "LinkedIn: skipped. Add it any time from here."),
+        h("li", {}, added ? `Interviews: ${plural(added, "line")} added for ${plural(done.length, "job")}.` : "Interviews: none yet. They're here whenever you have ten minutes.")),
+      h("p", { class: "muted" }, "Profile › Setup brings you back to any step.")));
+    fill(setupFootEl, h("span", { class: "grow" }),
+      h("button", { type: "button", class: "ghost", onclick: () => { setupDialog.close(); showTab("impact"); } }, "Open my impact record"),
+      h("button", { type: "button", class: "primary", onclick: () => { setupDialog.close(); showTab("find"); } }, "Search jobs"));
+  },
+};
+
+async function setupImport(f) {
+  fill(setupBody, ...setupHead("Bring in your LinkedIn"), h("div", { class: "import-reading" },
+    h("span", { class: "import-blob", "aria-hidden": "true" }), h("p", {}, h("b", {}, `Reading ${f.name}…`)),
+    h("p", { class: "muted" }, "A few seconds for LinkedIn's PDF or ZIP; about a minute if your AI has to sort a different PDF.")));
+  try {
+    WIZ.imported = await api("/api/setup/linkedin", { method: "POST", body: f,
+      headers: { "Content-Type": f.type || "application/octet-stream", "X-Filename": encodeURIComponent(f.name) } });
+  } catch (e) {
+    fill(setupBody, ...setupHead("Bring in your LinkedIn"), h("p", { class: "form-error" }, e.message),
+      h("p", {}, h("button", { type: "button", class: "ghost", onclick: () => SETUP_RENDER.linkedin() }, "Try another file")));
+    return;
+  }
+  WIZ.importBox = null;
+  // Fill blanks on the profile from the export (never over what you typed).
+  try {
+    const prof = await api("/api/profile");
+    const blanks = Object.entries(WIZ.imported.fields).filter(([k]) => !prof.example && prof.saved && !prof.candidate[k]);
+    if (blanks.length) {
+      applyProfile(await put("/api/profile", { ...prof.candidate, ...Object.fromEntries(blanks) }));
+      WIZ.imported.filled = blanks.map(([k]) => k);
+    }
+  } catch { /* the profile stays as it was */ }
+  setupImported();
+}
+function setupImported() {
+  const d = WIZ.imported;
+  if (!WIZ.importBox) { WIZ.importBox = h("div", { class: "setup-sugg" }); renderSuggestions({ import_id: d.id }, WIZ.importBox); }
+  fill(setupBody, ...setupHead("Bring in your LinkedIn", "Tick the lines to keep. Each role's Add puts them in your impact record."),
+    h("p", { class: "setup-got" }, h("b", {}, `${plural(d.roles.length, "job")} and ${plural(d.lines, "line")} `), `from ${d.filename}`,
+      d.filled?.length ? `; your profile's blank ${d.filled.join(", ")} filled in from it` : "", ". ",
+      h("button", { type: "button", class: "link-btn", onclick: () => { WIZ.imported = null; SETUP_RENDER.linkedin(); } }, "Use another file")),
+    d.heuristic ? h("p", { class: "setup-note" }, `Your AI couldn't sort this file (${d.heuristic}), so it was sorted roughly: check the roles.`) : null,
+    d.roles.length && !d.lines ? h("p", { class: "setup-note" }, "LinkedIn had no descriptions under your jobs, so there's nothing to add yet. The interviews are the way to fill them in.") : null,
+    WIZ.importBox);
+  setupFoot(setupNext("Continue to interviews"));
+}
+
+// One job's interview: the questions and your answers, then the drafted lines to check and add.
+async function setupInterview(role, pane, redraw) {
+  const say = (who, text) => h("div", { class: `setup-msg ${who}` }, h("p", {}, text));
+  const thinking = (what) => h("div", { class: "setup-msg ai thinking" }, h("p", {}, spinner(), " ", what));
+  const head = h("div", { class: "setup-chat-head" }, h("b", {}, role.title), h("span", {}, `· ${role.company}`),
+    role.dates ? h("span", { class: "muted" }, `· ${role.dates}`) : null, h("span", { class: "grow" }),
+    h("button", { type: "button", class: "link-btn", onclick: () => run({ restart: true }) }, "Start over"));
+  const thread = h("div", { class: "setup-thread", "aria-live": "polite" });
+  const box = h("div", { class: "setup-answer" });
+  fill(pane, head, thread, box);
+  let iv = null;
+  const answered = () => (iv?.turns || []).filter((t) => t.a.trim()).length;
+  function draw(extra = null) {
+    fill(thread, ...(iv?.turns || []).flatMap((t) => [say("ai", t.q), t.a ? say("you", t.a) : null]), extra);
+    thread.scrollTop = thread.scrollHeight;
+    const last = iv?.turns.at(-1);
+    if (!last || last.a || iv.done) { fill(box); return; }
+    const ta = h("textarea", { rows: 3, placeholder: "Your answer, in your own words. Rough numbers are fine.", "aria-label": "Your answer" });
+    const send = h("button", { type: "button", class: "primary", onclick: () => ta.value.trim() && run({ answer: ta.value.trim() }) }, "Send");
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send.click(); } });
+    fill(box, ta, h("div", { class: "setup-answer-bar" },
+      h("span", { class: "muted" }, `Question ${iv.turns.length} of up to 6 · ⌘↩ sends`), h("span", { class: "grow" }),
+      answered() ? h("button", { type: "button", class: "ghost", onclick: () => run({ finish: true }) }, "That's enough: draft my lines") : null, send));
+    ta.focus();
+  }
+  async function run(extra) {
+    fill(box);
+    draw(thinking(extra.finish ? "Wrapping up…" : "Your AI is thinking of a question…"));
+    if (extra.answer) { iv.turns.at(-1).a = extra.answer; draw(thinking("Your AI is thinking of the next question…")); }
+    try { iv = await post("/api/setup/interview", { role, ...extra }); }
+    catch (e) { draw(h("p", { class: "form-error" }, e.message)); if (iv && extra.answer) fill(box, h("button", { type: "button", class: "ghost", onclick: () => run({}) }, "Ask again")); return; }
+    role.key = iv.key; role.answers = answered(); WIZ.role = role; redraw();
+    if (iv.done) draftLines(); else draw();
+  }
+  async function draftLines() {
+    iv.done = true;
+    draw(thinking("Drafting lines for your impact record from your answers…"));
+    let d;
+    try { d = await post(`/api/setup/interview/${encodeURIComponent(iv.key)}/draft`); }
+    catch (e) { draw(h("p", { class: "form-error" }, e.message)); fill(box, h("button", { type: "button", class: "ghost", onclick: draftLines }, "Try again")); return; }
+    if (!d.lines.length) { draw(say("ai", "Your answers didn't add anything your record doesn't already say about this job. Try another job, or Start over.")); return; }
+    const rows = d.lines.map((l) => {
+      const cb = h("input", { type: "checkbox", checked: l.ok }), text = h("input", { type: "text", value: l.text, "aria-label": "Line" });
+      cb.addEventListener("change", count);
+      return { cb, text, el: h("li", { class: `sugg-line ${l.ok ? "new" : "detail"}` }, h("label", { class: "check" }, cb, text), l.why ? h("small", {}, l.why) : null) };
+    });
+    const add = h("button", { type: "button", class: "primary" });
+    function count() { const n = rows.filter((r) => r.cb.checked).length; add.disabled = !n; add.textContent = `Add ${plural(n, "line")} to my impact record`; }
+    count();
+    add.addEventListener("click", async () => {
+      const lines = rows.filter((r) => r.cb.checked).map((r) => r.text.value.trim()).filter(Boolean);
+      add.disabled = true;
+      try {
+        await DOCS.impact.amend("/interview-apply", { key: iv.key, lines }, /^from your interviews$/i);
+        rows.forEach((r) => { if (r.cb.checked) { r.cb.checked = false; r.cb.disabled = r.text.disabled = true; r.el.classList.add("added"); } });
+        role.added = (role.added || 0) + lines.length; redraw();
+        add.replaceWith(h("span", { class: "sugg-done" }, `Added ${plural(lines.length, "line")} ✓`));
+      } catch (e) { toast(e.message, true); count(); }
+    });
+    draw(h("div", { class: "setup-draft" }, h("p", {}, h("b", {}, "Lines for your impact record. "),
+      h("span", { class: "muted" }, "Edit any of them; untick what's wrong. A figure that isn't in your answers is unticked until you check it.")),
+      h("ul", { class: "sugg-lines" }, ...rows.map((r) => r.el)), h("div", { class: "actions" }, h("span", { class: "grow" }), add)));
+  }
+  fill(thread, thinking("Loading…"));
+  if (role.answers || role.added) {
+    try { iv = { ...(await api(`/api/setup/interview/${encodeURIComponent(role.key)}`)), key: role.key }; }
+    catch { iv = null; }
+  }
+  if (!iv || !iv.turns?.length) return run({});
+  if (iv.turns.at(-1).a && answered()) { iv.done = true; draw(); fill(box, h("div", { class: "setup-answer-bar" },
+    h("span", { class: "muted" }, `${plural(answered(), "answer")} so far.`), h("span", { class: "grow" }),
+    h("button", { type: "button", class: "ghost", onclick: () => { iv.done = false; run({}); } }, "Keep answering"),
+    h("button", { type: "button", class: "primary", onclick: draftLines }, "Draft my lines"))); return; }
+  draw();
+}
+
 // ---- boot -------------------------------------------------------------------------------------------
 (async function boot() {
   if (!TOKEN) $("#auth-error").classList.remove("hidden");
@@ -4761,6 +5599,7 @@ document.addEventListener("keydown", (e) => {
   Object.entries(DOCS).forEach(([k, d]) => d.setView(S.docViews[k]));
   await Promise.all([loadSummary(), loadJobs()]);
   setScope("tracker");
+  api("/api/setup").then((d) => { WIZ.data = d; setupCard(); if (d.show) openSetup(0); }).catch(() => {});
   // An open document also picks up changes made elsewhere, e.g. notes Claude adds to interview prep.
   setInterval(() => { if (!document.hidden) { loadSummary(); if (S.tab in DOCS) DOCS[S.tab].load(); } }, 5000);
   document.addEventListener("visibilitychange", () => {

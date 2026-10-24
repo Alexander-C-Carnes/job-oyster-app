@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS tracker (
   applied TEXT NOT NULL DEFAULT '',          -- the local day (YYYY-MM-DD) the status reached an applied stage
   status_since TEXT NOT NULL DEFAULT '',     -- the local day the status last changed (a move to Ghosted keeps it)
   ghosted_on TEXT NOT NULL DEFAULT '',       -- the day ghost_stale moved it to Ghosted ('' if you set it, or it moved on)
-  ghosted_from TEXT NOT NULL DEFAULT ''      -- the status it had then
+  ghosted_from TEXT NOT NULL DEFAULT '',     -- the status it had then
+  reached TEXT NOT NULL DEFAULT ''           -- the furthest stage it got to: Applied, Interviewing or Offer ('' before applying)
 );
 CREATE INDEX IF NOT EXISTS tracker_url ON tracker(url_key);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -63,7 +64,7 @@ FROM_NOTION = ("page_url", "name", "company", "job_url", "fit", "notes", "priori
 # Columns added after the first release, for tracker.db files made before them.
 ADDED = {"resume_files": "TEXT NOT NULL DEFAULT '[]'", "resume_upload": "TEXT", "applied": "TEXT NOT NULL DEFAULT ''",
          "status_since": "TEXT NOT NULL DEFAULT ''", "ghosted_on": "TEXT NOT NULL DEFAULT ''",
-         "ghosted_from": "TEXT NOT NULL DEFAULT ''"}
+         "ghosted_from": "TEXT NOT NULL DEFAULT ''", "reached": "TEXT NOT NULL DEFAULT ''"}
 # The stages a job is moved to Ghosted from when its status hasn't changed in ghost_after_days.
 GHOSTABLE = ("Applied", "Interviewing")
 
@@ -92,6 +93,12 @@ class LocalTracker:
                         con.executemany("UPDATE tracker SET status_since = ? WHERE id = ?", [
                             (r["applied"] if r["status"] == "Applied" and r["applied"] else _local_day(r["updated"]), r["id"])
                             for r in con.execute("SELECT id, status, applied, updated FROM tracker")])
+                    if col == "reached":
+                        # Rows from before this column: where they stand now, or where they were when the app ghosted
+                        # them. A job rejected before this counts as rejected at Applied: nothing recorded more.
+                        con.executemany("UPDATE tracker SET reached = ? WHERE id = ?", [
+                            (_reach(_reach("", r["ghosted_from"]), r["status"]), r["id"])
+                            for r in con.execute("SELECT id, status, ghosted_from FROM tracker")])
             con.execute("PRAGMA journal_mode=WAL")
         if seed is not None:
             self._seed(seed)
@@ -144,7 +151,7 @@ class LocalTracker:
                 "fit": r["fit"], "notes": r["notes"], "priority": r["priority"], "due": r["due"],
                 "resume_files": json.loads(r["resume_files"] or "[]"),
                 "applied_on": _applied_on(r["status"], r["due"], r["applied"]), "status_since": r["status_since"],
-                "ghosted_on": r["ghosted_on"], "ghosted_from": r["ghosted_from"],
+                "ghosted_on": r["ghosted_on"], "ghosted_from": r["ghosted_from"], "reached": r["reached"],
                 "pending": bool(r["dirty_status"] or (r["entry"] and r["job_url"]) or r["resume_upload"])} for r in found])
         return self._cache[1]
 
@@ -166,13 +173,14 @@ class LocalTracker:
         if status not in STATUSES:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
         with closing(self._db()) as con, con:
-            done = con.execute("UPDATE tracker SET status = ?, dirty_status = 1, updated = ?, "
-                               "applied = CASE WHEN ? THEN CASE WHEN applied = '' THEN ? ELSE applied END ELSE '' END, "
-                               f"{_SINCE} WHERE id = ?",
-                               (status, now_iso(), status in APPLIED_STATUSES, _today(), status, _today(), status, status,
-                                row_id))
-            if not done.rowcount:
+            row = con.execute("SELECT reached FROM tracker WHERE id = ?", (row_id,)).fetchone()
+            if row is None:
                 raise KeyError(row_id)
+            con.execute("UPDATE tracker SET status = ?, dirty_status = 1, updated = ?, reached = ?, "
+                        "applied = CASE WHEN ? THEN CASE WHEN applied = '' THEN ? ELSE applied END ELSE '' END, "
+                        f"{_SINCE} WHERE id = ?",
+                        (status, now_iso(), _reach(row["reached"], status), status in APPLIED_STATUSES, _today(), status,
+                         _today(), status, status, row_id))
             self._bump(con)
 
     def queue_resume(self, row_id: str, pdf: Path) -> None:
@@ -208,9 +216,9 @@ class LocalTracker:
                 or (con.execute("SELECT * FROM tracker WHERE url_key = ?", (key,)).fetchone() if key else None)
             if row is None:
                 con.execute("INSERT INTO tracker(id, job_id, name, company, job_url, url_key, status, fit, notes, entry, updated, "
-                            "status_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            "status_since, reached) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             ("local-" + secrets.token_hex(8), job_id, f"{e.title} — {e.company}", e.company, e.url, key,
-                             e.status, e.fit_score, e.notes, queued, now_iso(), _today()))
+                             e.status, e.fit_score, e.notes, queued, now_iso(), _today(), _reach("", e.status)))
                 action = "created"
             else:
                 status = "In progress" if row["status"] in ("", "Not started") and e.status == "In progress" else row["status"]
@@ -348,11 +356,13 @@ class LocalTracker:
 
     def _insert_from_notion(self, con: sqlite3.Connection, r: dict) -> None:
         con.execute("INSERT INTO tracker(id, notion_page_id, page_url, name, company, job_url, url_key, status, fit, notes, "
-                    "priority, due, resume_files, updated, applied, status_since) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "priority, due, resume_files, updated, applied, status_since, reached) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (r["page_id"], r["page_id"], r.get("page_url", ""), r.get("name", ""), r.get("company", ""),
                      r.get("job_url", ""), canonical_url(r.get("job_url")), r.get("status", ""), r.get("fit"),
                      r.get("notes", ""), r.get("priority", ""), r.get("due", ""),
-                     _file_names(r.get("resume_files")), now_iso(), _applied(r.get("status", ""), ""), _today()))
+                     _file_names(r.get("resume_files")), now_iso(), _applied(r.get("status", ""), ""), _today(),
+                     _reach("", r.get("status", ""))))
 
     def _pull(self) -> None:
         theirs = self.notion.list_jobs()
@@ -371,6 +381,7 @@ class LocalTracker:
                 if not row["dirty_status"]:       # an unsent status set here wins over Notion's
                     values["status"] = r["status"]
                     values["applied"] = _applied(r["status"], row["applied"])
+                    values["reached"] = _reach(row["reached"], r["status"])
                     if r["status"] != row["status"]:     # changed in Notion: its clock starts again
                         values.update(status_since=_today(), ghosted_on="", ghosted_from="")
                 for k in ("name", "company", "job_url"):     # an empty field in Notion doesn't blank what's known here
@@ -413,6 +424,18 @@ def _local_day(iso: str) -> str:
 def _applied(status: str, was: str) -> str:
     """The applied day to keep for a row now at `status`: the day it was first seen in an applied stage."""
     return (was or _today()) if status in APPLIED_STATUSES else ""
+
+
+# How far a status means a job got: an application, an interview, an offer. Rejected, Ghosted and Done say only that
+# it was applied to; the row's reached column remembers if it got further first.
+REACH = {"Applied": 1, "Done": 1, "Denied": 1, "Ghosted": 1, "Interviewing": 2, "Offer": 3}
+_REACHED = {1: "Applied", 2: "Interviewing", 3: "Offer"}
+
+
+def _reach(was: str, status: str) -> str:
+    """The furthest stage after a move to `status`, from the furthest before it (`was`)."""
+    n = max(REACH.get(was or "", 0), REACH.get(status or "", 0))
+    return _REACHED.get(n, "")
 
 
 def _applied_on(status: str, due: str, applied: str) -> str:

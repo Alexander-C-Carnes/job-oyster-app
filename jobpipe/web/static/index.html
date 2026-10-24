@@ -313,6 +313,14 @@
           </div>
         </div>
 
+        <section class="pcard setup-card" id="setup-card">
+          <div class="grow">
+            <h2>Setup</h2>
+            <p class="muted" id="setup-card-text">A guided start, about ten minutes: your details, your LinkedIn, then a short interview about each past job that fills in your impact record. Run it again any time.</p>
+          </div>
+          <button type="button" id="setup-open" class="primary">Run setup</button>
+        </section>
+
         <section class="pcard look-card" id="look-card">
           <h2>Look</h2>
           <p class="muted">How the app looks on this computer. Every look has the same tabs, buttons and shortcuts; they differ in colour, type and how they celebrate an application.</p>
@@ -550,6 +558,15 @@
   <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title">
     <div class="import-head"><h2 id="import-title">Add a résumé</h2><p class="muted" id="import-sub"></p></div>
     <div id="import-body"></div>
+  </dialog>
+
+  <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">
+    <div class="setup-top">
+      <ol class="setup-steps" id="setup-steps" aria-label="Setup steps"></ol>
+      <button type="button" class="icon-btn setup-x" id="setup-x" title="Close setup" aria-label="Close setup"><span class="ico" data-icon="close"></span></button>
+    </div>
+    <div class="setup-body" id="setup-body"></div>
+    <div class="setup-foot" id="setup-foot"></div>
   </dialog>
 
   <dialog id="describe-dialog">

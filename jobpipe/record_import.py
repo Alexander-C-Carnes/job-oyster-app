@@ -29,7 +29,6 @@ from typing import Optional
 from . import evidence
 
 SECTION = "From your résumés"
-SECTION_HEADING = re.compile(rf"^#\s+{re.escape(SECTION)}\s*#*\s*$", re.I)
 INTRO = ("Lines from résumés you added, each put here after you checked it. They count as evidence like the rest of "
          "this record; edit or move them as you like.")
 ROLE_SECTIONS = {"PROFESSIONAL EXPERIENCE", "EXPERIENCE", "ADDITIONAL EXPERIENCE", "WORK EXPERIENCE", "WORK HISTORY"}
@@ -150,17 +149,19 @@ def suggest(record_md: str, resume_md: str, models=None) -> list[Role]:
     return out
 
 
-def apply(record_md: str, company: str, title: str, dates: str, lines: list[str], source: str, day: date) -> str:
-    """The record with these lines added under the role's heading in the "From your résumés" section (both made
-    when they aren't there yet). A line already there isn't added twice."""
+def apply(record_md: str, company: str, title: str, dates: str, lines: list[str], source: str, day: date,
+          section: str = SECTION, intro: str = INTRO) -> str:
+    """The record with these lines added under the role's heading in the "From your résumés" section, or another
+    the app keeps (both made when they aren't there yet). A line already there isn't added twice."""
     clean = [re.sub(r"\s+", " ", l).strip() for l in lines if l and l.strip()]
     head = f"## {company}, {title}" + (f" ({dates})" if dates else "")
     note = f"<!-- added from {source.replace('--', '-')}, {day:%b} {day.day}, {day.year} -->"
     md = record_md.rstrip("\n")
     lines_ = md.split("\n")
-    start = next((i for i, l in enumerate(lines_) if SECTION_HEADING.match(l)), None)
+    heading = re.compile(rf"^#\s+{re.escape(section)}\s*#*\s*$", re.I)
+    start = next((i for i, l in enumerate(lines_) if heading.match(l)), None)
     if start is None:
-        return md + f"\n\n# {SECTION}\n\n{INTRO}\n\n{head}\n\n{note}\n" + "".join(f"- {l}\n" for l in clean)
+        return md + f"\n\n# {section}\n\n{intro}\n\n{head}\n\n{note}\n" + "".join(f"- {l}\n" for l in clean)
     end = next((i for i in range(start + 1, len(lines_)) if re.match(r"^#\s", lines_[i])), len(lines_))
     sec = lines_[start:end]
     key = _plain(f"{company} {title}")
