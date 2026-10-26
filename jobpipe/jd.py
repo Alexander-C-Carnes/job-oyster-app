@@ -210,6 +210,20 @@ def _next_data_posting(raw: str, url: str) -> str:
     return html_to_text(max(found)[2]) if found else ""
 
 
+def _comeet_posting(raw: str, meta: dict) -> str:
+    """A Comeet job: the page is an Angular template, the posting is its POSITION_DATA script variable."""
+    i = raw.find("POSITION_DATA = {")
+    if i < 0:
+        return ""
+    try:
+        d, _ = json.JSONDecoder().raw_decode(raw, i + len("POSITION_DATA = "))
+    except ValueError:
+        return ""
+    _fill(meta, job_title=d.get("name"), company=d.get("company_name"),
+          location=(d.get("location") or {}).get("name"), remote=True if d.get("workplace_type") == "Remote" else None)
+    return html_to_text("\n".join(f.get("value") or "" for f in (d.get("custom_fields") or {}).get("details") or []))
+
+
 def _ats_posting(url: str, c: httpx.Client, meta: dict) -> str:
     """Ask the applicant-tracking system directly, for the sites whose pages hold no posting text."""
     p = urlsplit(url)
@@ -244,6 +258,15 @@ def _ats_posting(url: str, c: httpx.Client, meta: dict) -> str:
             return html_to_text(d.get("job_description") or "")
     if host.endswith(".icims.com") and re.match(r"/jobs/\d+", p.path):
         return _icims_posting(urlunsplit(p._replace(query="")), c, meta)
+    m = re.match(r"/([^/]+)/j/([A-Za-z0-9]+)", p.path)
+    if m and host == "apply.workable.com":  # a Workable job page is an app shell, its API has the text
+        r = c.get(f"https://apply.workable.com/api/v2/accounts/{m.group(1)}/jobs/{m.group(2)}")
+        if r.status_code == 200:
+            d = r.json()
+            loc = d.get("location") or {}
+            _fill(meta, job_title=d.get("title"), location=", ".join(x for x in (loc.get("region"), loc.get("country")) if x),
+                  remote=True if d.get("remote") or d.get("workplace") == "remote" else None)
+            return html_to_text("\n".join(d.get(k) or "" for k in ("description", "requirements", "benefits")))
     jid = linkedin_job_id(url) if sld == "linkedin" else ""
     if jid:
         return _linkedin_posting(jid, c, meta)
@@ -332,6 +355,9 @@ def _read_posting(url: str, c: httpx.Client, meta: dict) -> str:
         text = _next_data_posting(raw, url)
         if len(text) >= MIN_DESCRIPTION_CHARS:
             return text
+        text = _comeet_posting(raw, meta)
+        if len(text) >= MIN_DESCRIPTION_CHARS:
+            return text
         # A company page that embeds its iCIMS portal in an iframe.
         frame = re.search(r'(?is)<iframe[^>]*src=["\'](https?://[^"\']*\.icims\.com/jobs/\d+[^"\']*)', raw)
         if frame:
@@ -339,7 +365,7 @@ def _read_posting(url: str, c: httpx.Client, meta: dict) -> str:
             if len(text) >= MIN_DESCRIPTION_CHARS:
                 return text
         text = html_to_text(raw)
-        return text if len(text) <= MAX_PAGE_CHARS else ""
+        return text if len(text) <= MAX_PAGE_CHARS and "{{" not in text else ""
     finally:
         _fill(meta, **_page_title_meta(raw, url))
 

@@ -22,6 +22,8 @@ class FakeSites:
             return httpx.Response(200, json={})
         if host == "api.ashbyhq.com":
             return httpx.Response(200, json={"jobs": [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]})
+        if host == "apply.workable.com":
+            return httpx.Response(404 if "/jobs/GONE1" in url else 200, json={})
         if host == "gone.example":
             return httpx.Response(410)
         if host == "site.example":
@@ -41,6 +43,8 @@ def test_is_closed_per_site():
     assert closed("https://jobs.lever.co/acme/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is False
     assert closed("https://jobs.ashbyhq.com/acme/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") is False
     assert closed("https://jobs.ashbyhq.com/acme/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") is True
+    assert closed("https://apply.workable.com/lawnstarter/j/GONE1") is True
+    assert closed("https://apply.workable.com/sakana-ai/j/9B6A0E82AF") is False
     assert closed("https://gone.example/jobs/1") is True
     assert closed("https://site.example/jobs/1") is True
     assert closed("https://open.example/jobs/1") is False
@@ -151,8 +155,13 @@ def test_a_job_without_its_text_gets_it_from_its_link(tmp_dirs):
     # a page that can't be read, one that wants a browser, and a job with no link say why
     assert "no link" in postings.fetch_posting(store, "startup-acme-nolink", read)
     store.save_job({"id": "startup-acme-ops", "job_title": "Ops", "company": "Acme", "url": "https://jobs.acme.example/2"}, "startups")
-    assert "Couldn't read the posting" in postings.fetch_posting(store, "startup-acme-ops", lambda url: {"description": "Apply"})
+    c = httpx.Client(transport=httpx.MockTransport(FakeSites()))
+    assert "Couldn't read the posting" in postings.fetch_posting(store, "startup-acme-ops", lambda url: {"description": "Apply"}, c)
     assert "HiringCafe only shows" in postings.fetch_posting(
-        store, "startup-acme-ops", lambda url: {"description": "", "browser_check": "HiringCafe"})
-    assert "Couldn't read" in postings.fetch_posting(store, "startup-acme-ops", lambda url: 1 / 0)
-    assert not store.job("startup-acme-ops").get("description_pasted")
+        store, "startup-acme-ops", lambda url: {"description": "", "browser_check": "HiringCafe"}, c)
+    assert "Couldn't read" in postings.fetch_posting(store, "startup-acme-ops", lambda url: 1 / 0, c)
+    assert not store.job("startup-acme-ops").get("description_pasted") and not store.job("startup-acme-ops").get("closed_at")
+    # a page that can't be read because the posting has closed says so, and the job is tagged Closed
+    store.save_job({"id": "startup-lawn-ops", "job_title": "Ops", "company": "Lawn", "url": "https://apply.workable.com/lawn/j/GONE1"}, "startups")
+    assert postings.fetch_posting(store, "startup-lawn-ops", lambda url: {"description": "Lawn"}, c) == postings.CLOSED_MESSAGE
+    assert store.state()["startup-lawn-ops"]["closed_at"]

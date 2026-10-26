@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-26
+
+### Finding jobs
+- Comeet and Workable postings are read, and a closed posting says so
+
 ## 2026-10-24
 
 ### Dashboard

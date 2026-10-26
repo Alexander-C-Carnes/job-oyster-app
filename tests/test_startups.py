@@ -127,6 +127,9 @@ class FakeWeb:
             return httpx.Response(200, json=GETRO_JOBS if body["page"] == 0 else {"results": {"count": 2, "jobs": []}})
         if host == "acme.com":
             return httpx.Response(200, text='<html><a href="https://boards.greenhouse.io/acme">Careers</a></html>', headers={"content-type": "text/html"})
+        if host == "fort.example":
+            return httpx.Response(200, text='<html><a href="mailto:founders@fort.example?subject=Careers">Careers</a></html>',
+                                  headers={"content-type": "text/html", "set-cookie": "sid=1"})
         if host == "boards-api.greenhouse.io":
             board = url.split("/boards/")[1].split("/")[0].split("?")[0]
             if url.rstrip("/").endswith(f"/boards/{board}"):
@@ -342,6 +345,12 @@ def test_a_guessed_board_must_be_the_companys_own(client, web):
     assert su.find_board("", "Ro", client)[0] is None     # too short a name to guess with
 
 
+def test_a_mailto_careers_link_is_not_followed(client, web):
+    # fort.cx's careers link is an email address: no board, and no error reading it as a page
+    assert su.find_board("https://fort.example", "Fort", client) == (None, "")
+    assert not any("founders@" in u for u in web.calls)
+
+
 def test_roles_pinned_to_another_region_do_not_answer_a_us_search():
     from jobpipe.config import Search
     remote = Search(id="em-remote", name="EM remote", titles=["Engineering Manager"], remote=True, country="US")
@@ -455,6 +464,16 @@ def test_scoring_startup_roles(tmp_dirs):
     assert len(su.unscored_startup_roles(jobs)) == 2 and "startup-y-stub-9" in su.unscored_startup_roles(jobs)
     n = asyncio.run(su.score_startup_roles(cfg, jobs, limit=5, log=lines.append, runner=FakeRunner()))
     assert n == 1 and any("no posting text" in l for l in lines) and len(su.unscored_startup_roles(jobs)) == 1
+    # a role with no text whose posting has closed is tagged Closed, and dismissed unless it's tracked
+    for jid, code in (("startup-l-gone-1", "GONE1"), ("startup-l-gone-2", "GONE2"), ("startup-l-open-3", "OPEN3")):
+        jobs.save_job({"id": jid, "job_title": "EM", "company": "L", "url": f"https://apply.workable.com/l/j/{code}"}, "startups")
+    c = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404 if "/jobs/GONE" in str(r.url) else 200, json={})))
+    asyncio.run(su.score_startup_roles(cfg, jobs, limit=5, log=lines.append, runner=FakeRunner(),
+                                       tracked={"startup-l-gone-2": "Not started"}, client=c))
+    st = jobs.state()
+    assert st["startup-l-gone-1"]["closed_at"] and st["startup-l-gone-1"]["dismissed"]
+    assert st["startup-l-gone-2"]["closed_at"] and not st["startup-l-gone-2"].get("dismissed")
+    assert not st["startup-l-open-3"].get("closed_at") and any("posting has closed" in l for l in lines)
 
 
 def test_scored_startup_roles_go_to_the_tracker(tmp_dirs):

@@ -878,8 +878,8 @@ def find_board(website: str, name: str, client: httpx.Client, log: Callable[[str
             return found[0], url if url != site else ""
         if url == site:   # follow the home page's own careers link, if it points elsewhere
             m = re.search(r'href=["\']([^"\']*(?:career|jobs|join-us|work-with-us|openings)[^"\']*)["\']', raw, re.I)
-            if m:
-                link = urljoin(site, html.unescape(m.group(1)))
+            link = urljoin(site, html.unescape(m.group(1))) if m else ""
+            if urlsplit(link).scheme in ("http", "https"):   # not a "mailto:jobs@..." link
                 if link not in seen and _domain(link) and _domain(link) != _domain(site):
                     pages.append(link)
                     for kind, rx in ATS_RE.items():
@@ -1290,12 +1290,15 @@ def unscored_startup_roles(jobs_store: Any) -> list[str]:
 
 
 async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log: Callable[[str], None] = print,
-                              runner: Any = None, tracker: Any = None) -> int:
+                              runner: Any = None, tracker: Any = None, tracked: Optional[dict[str, str]] = None,
+                              client: Optional[httpx.Client] = None) -> int:
     """Signal-score up to `limit` unscored startup roles (one short Claude call each, three at a time), so Find jobs
-    can be filtered by fit, and put the ones scoring cfg.track_min_fit or more in the tracker. `cfg` is the full
-    Config. Returns how many were scored."""
+    can be filtered by fit, and put the ones scoring cfg.track_min_fit or more in the tracker. A role with no posting
+    text whose posting has closed is tagged Closed, and dismissed unless it's in `tracked` (stored job id -> tracker
+    status), as check-postings does. `cfg` is the full Config. Returns how many were scored."""
     from .jd import build_jd
     from .pipeline import make_runner
+    from .postings import mark_if_closed
     from .triage import Triage, triage_many
     ids = unscored_startup_roles(jobs_store)[:limit]
     if not ids:
@@ -1306,6 +1309,10 @@ async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log
         jd_md, usable = build_jd(jobs_store.job(jid))
         if usable:
             todo[jid] = jd_md
+        elif mark_if_closed(jobs_store, jid, client):
+            if jid not in (tracked or {}):
+                jobs_store.update(jid, dismissed=True)
+            log(f"  {jid}: posting has closed")
         else:
             log(f"  {jid}: no posting text to score")
     log(f"Startup roles: scoring {len(todo)} against the impact record")
