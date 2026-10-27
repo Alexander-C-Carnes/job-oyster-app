@@ -2408,6 +2408,61 @@ def test_setup_wizard_first_run_linkedin_import_and_interview(env, tmp_path):
     assert c.put("/api/setup", headers=H, json={"state": "done"}).json()["state"] == "done"
 
 
+def test_ready_to_send_lists_resumes_questions_referrals_and_closed_postings(env):
+    from pathlib import Path
+
+    from jobpipe.web.runs import Run
+
+    c = env["client"]
+    assert c.get("/api/ready").status_code == 401
+    item = c.get("/api/ready", headers=H).json()["items"][0]
+    assert item["id"] == "j1" and item["reasons"] == ["ready"] and item["company"] == "Acme"
+
+    Path(env["store"].state()["j1"]["report"]).write_text(
+        "# Report\n\n## Questions before I finalize\n\n"
+        "1. The posting asks for hardware programs. Have you run one?\n"
+        "2. It asks for vendor management. Which vendors did you own?\n")
+    item = c.get("/api/ready", headers=H).json()["items"][0]
+    assert item["reasons"] == ["questions", "ready"] and len(item["questions"]) == 2
+    key = item["questions"][0]["key"]
+    ready = c.post("/api/ready/j1/answer", headers=H, json={"key": key, "fact": "I ran the hardware program at Northwind."}).json()
+    record = env["impact"].read_text()
+    assert "I ran the hardware program at Northwind." in record and "user-confirmed" in record
+    left = ready["items"][0]
+    assert [q["key"] for q in left["questions"]] == [item["questions"][1]["key"]]
+    assert c.post("/api/ready/j1/answer", headers=H, json={"key": "0123456789abcdef"}).status_code == 400
+    ready = c.post("/api/ready/j1/answer", headers=H, json={"key": left["questions"][0]["key"]}).json()
+    assert ready["items"][0]["reasons"] == ["ready"] and ready["items"][0]["questions"] == []
+    assert env["impact"].read_text() == record          # already answered: the record is left as it was
+
+    env["store"].update("j1", closed_at="2026-10-20T15:00:00+00:00")
+    assert c.get("/api/ready", headers=H).json()["items"][0]["reasons"] == ["closed"]
+    env["store"].update("j1", closed_at="")
+    assert c.post("/api/tracker/p1/status", headers=H, json={"status": "Applied"}).json() == {"ok": True}
+    assert [it["id"] for it in c.get("/api/ready", headers=H).json()["items"]] == []
+
+    assert c.post("/api/jobs/j2/track", headers=H).json()["action"] == "created"
+    c.patch("/api/jobs/j2", headers=H, json={"referral_url": "sam@example.com", "referral_name": "Sam Lee"})
+    ref = c.get("/api/ready", headers=H).json()["items"]
+    assert [(it["id"], it["reasons"], it["referral_name"]) for it in ref] == [("j2", ["referral"], "Sam Lee")]
+    c.patch("/api/jobs/j1", headers=H, json={"referral_url": "https://www.linkedin.com/in/ada", "referral_name": "Ada"})
+    back = {it["id"]: it for it in c.get("/api/ready", headers=H).json()["items"]}
+    assert back["j1"]["reasons"] == ["referral"] and back["j1"]["referral_name"] == "Ada"
+    env["store"].update("j2", dismissed=True)
+    assert "j2" not in {it["id"] for it in c.get("/api/ready", headers=H).json()["items"]}
+
+    assert c.get("/api/runs/finished", headers=H).json() == {"runs": []}
+    env["runs"].runs[8] = Run(8, "Search", ["run"], "2026-10-01T00:00:00+00:00", returncode=0, finished="2026-10-01T00:01:00+00:00")
+    env["runs"].runs[9] = Run(9, "Make résumé", ["tailor", "j1"], "2026-10-01T00:00:00+00:00", returncode=0, finished="2026-10-01T00:20:00+00:00")
+    env["runs"].runs[10] = Run(10, "Make résumé", ["tailor", "missing"], "2026-10-01T00:00:00+00:00", returncode=1, finished="2026-10-01T00:05:00+00:00")
+    env["runs"].runs[11] = Run(11, "Make résumé", ["tailor", "j1"], "2026-10-01T00:00:00+00:00", returncode=-15, finished="2026-10-01T00:06:00+00:00")
+    done = c.get("/api/runs/finished?after=0", headers=H).json()["runs"]
+    assert [r["id"] for r in done] == [9, 10]
+    assert done[0]["status"] == "done" and done[0]["jobs"] == [{"id": "j1", "title": TITLE, "company": "Acme"}]
+    assert done[1]["status"] == "failed" and done[1]["jobs"][0]["id"] == "missing"
+    assert c.get("/api/runs/finished?after=10", headers=H).json()["runs"] == []
+
+
 def test_setup_wizard_stays_shut_for_a_saved_profile(env):
     c = env["client"]
     prof = c.get("/api/profile", headers=H).json()

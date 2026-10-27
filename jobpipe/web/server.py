@@ -37,6 +37,7 @@ from .. import formats, jd, onboarding, own_formats, pinned, record_import, regi
 from .. import hiringcafe as hc
 from . import about, follow
 from .flow import application_flow
+from .ready import Answered, counts, inbox, is_key, questions_in
 from ..postings import CLOSED_MESSAGE, PostingKeeper, fetch_posting, has_posting, mark_if_closed
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -191,6 +192,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     runs = runs or RunManager(db=local.path)   # run history sits beside the tracker in data/tracker.db
     progress = Estimator(runs)                 # how far along a tailoring run is, for the ring on its fit badge
     marks = Marks(store.root / "marks.json")
+    answered = Answered(store.root / "ready.json")   # fit-report questions already answered, so they leave Ready to send
     # Jobs kept under an id that file names and URLs can't hold (store.safe_id) move to a safe one, and the
     # tracker rows, run history and stars that name them follow, before anything reads them.
     moved = store.fix_ids()
@@ -1345,6 +1347,27 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         """How many runs are going and waiting: the Mac app asks before quitting, which stops them."""
         return runs.going()
 
+    @app.get("/api/runs/finished")
+    def runs_finished(after: int = 0):
+        """Résumé runs that have finished since `after` (a run id). The Mac app notifies for each new one.
+        A search that made résumés is included; a run you stopped is not."""
+        out = []
+        for run in sorted(runs.runs.values(), key=lambda r: r.id):
+            if run.id <= after or run.status not in ("done", "failed"):
+                continue
+            if run.args[:1] == ["tailor"] and len(run.args) > 1:
+                row = board.row(run.args[1]) or {}
+                jobs = [{"id": run.args[1], "title": row.get("title") or "", "company": row.get("company") or ""}]
+            elif run.status == "done" and run.args[:1] == ["run"]:
+                jobs = [{"id": r["id"], "title": r.get("title") or "", "company": r.get("company") or ""}
+                        for r in results(run) if r.get("tailored")]
+                if not jobs:
+                    continue
+            else:
+                continue
+            out.append({"id": run.id, "status": run.status, "jobs": jobs})
+        return {"runs": out}
+
     @app.post("/api/runs/stop-all")
     def stop_all_runs():
         """Stop every run going and drop the waiting ones (`oyster restart --force`)."""
@@ -2297,6 +2320,50 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         write_impact(new, current)
         state["runner"] = None  # the cached system prompt includes the record
         return impact_payload(new)
+
+    # ---- ready to send: résumés waiting, open questions, referrals at To ask, closed postings ----------
+    def report_file(jid: str) -> Optional[Path]:
+        st = board.state().get(jid) or {}
+        p = local_path(st.get("report"))
+        if p:
+            return p
+        rd = local_path(st.get("run_dir"))
+        alt = (rd / "report.md") if rd else None
+        return alt if alt and alt.is_file() else None
+
+    def ready_payload() -> dict:
+        rows = board.rows()
+        asked = answered.get()
+        questions = {}
+        for r in rows:
+            if r.get("tailored") and r.get("tracker_id") and not r.get("dismissed") and not r.get("closed"):
+                questions[r["id"]] = questions_in(report_file(r["id"]))
+        items = inbox(rows, questions, asked)
+        return {"items": items, "counts": counts(items)}
+
+    @app.get("/api/ready")
+    def ready_list():
+        """What to do before an application goes out. See jobpipe/web/ready.py."""
+        return ready_payload()
+
+    @app.post("/api/ready/{jid}/answer")
+    def ready_answer(jid: str, body: dict):
+        """Answer one fit-report question. `fact` is added to the impact record; without one, the question
+        was already answered there and only leaves the list."""
+        if not board.row(jid):
+            raise HTTPException(404, "Unknown job")
+        key = str(body.get("key") or "")
+        if not is_key(key) or key not in {k for k, _ in questions_in(report_file(jid))}:
+            raise HTTPException(400, "That question isn't in this fit report.")
+        fact = re.sub(r"\s*\n\s*", " ", str(body.get("fact") or "").strip())
+        if fact:
+            current = read_impact()
+            new = add_confirmed_fact(current, fact[:4000], date.today(), config.candidate().first_name)
+            if new != current:
+                write_impact(new, current)
+                state["runner"] = None
+        answered.add(jid, key)
+        return ready_payload()
 
     # ---- what a résumé says that the impact record doesn't (record_import.py) ------------------------------
     # Checked in a process of its own: the evidence models take gigabytes, and this way they go when it ends.

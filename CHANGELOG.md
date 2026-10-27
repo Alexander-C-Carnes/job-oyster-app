@@ -4,6 +4,12 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-26
 
+### Tracker
+- Ready to send, above the list: résumés waiting to go out, fit questions still to answer, referrals at To ask, and postings that closed after a résumé was made
+
+### Mac app
+- A notification when a résumé finishes; opening it shows that role
+
 ### Finding jobs
 - Comeet and Workable postings are read, and a closed posting says so
 
