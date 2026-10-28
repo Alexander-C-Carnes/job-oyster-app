@@ -13,7 +13,7 @@ from .config import Config, HiringCafeSearch, Search
 from .hiringcafe import HiringCafe, Unreadable, links, posting_index
 from .himalayas import Himalayas
 from .jd import build_jd, posting_url
-from .jobs_api import BudgetExhausted, JobsClient, post_filter, salary_text, work_mode
+from .jobs_api import BudgetExhausted, JobsClient, company_matches, post_filter, salary_text, work_mode
 from .llm import PROVIDERS, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner, Runner
 from .notion import APPLIED_STATUSES, NotionTracker, TrackerEntry
 from .startups import funding_line
@@ -213,9 +213,13 @@ class Pipeline:
                 elif jid not in cands:
                     cands[jid] = Candidate(job, s.id, flags)
         # After JobsPipe and Himalayas, so a posting they found this run is the job HiringCafe's result joins.
+        # HiringCafe searches keep their own filters; only the defaults' excluded companies apply to them.
+        never = list(self.cfg.defaults.get("exclude_companies") or [])
         for job, s in self._hiringcafe(hiringcafe):
             if job.get("closed_at"):
                 skipped.append(f"{job.get('job_title')} @ {job.get('company')}: posting closed")
+            elif company_matches(job.get("company", ""), never):
+                skipped.append(f"{job.get('job_title')} @ {job.get('company')}: excluded company")
             elif str(job["id"]) not in cands:
                 cands[str(job["id"])] = Candidate(job, s.id)
         return list(cands.values()), skipped

@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-28
+
+### Finding jobs
+- Filters for the companies you want, and the ones you don't
+
 ## 2026-10-26
 
 ### Finding jobs

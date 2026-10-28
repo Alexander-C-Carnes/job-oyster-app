@@ -3492,6 +3492,8 @@ function searchCard(s) {
     h("div", { class: "tags" }, ...(s.titles || []).map((t) => h("span", { class: "tag" }, t))),
     h("div", { class: "facts" }, searchFacts(s)),
     (s.exclude_titles || []).length ? h("div", { class: "muted" }, "Excludes: ", s.exclude_titles.join(", ")) : null,
+    (s.companies || []).length ? h("div", { class: "muted" }, "Only at: ", s.companies.join(", ")) : null,
+    (s.exclude_companies || []).length ? h("div", { class: "muted" }, "Never at: ", s.exclude_companies.join(", ")) : null,
     req ? h("div", { class: "req" }, h("div", { class: "hint" }, "Sent to JobsPipe as POST /v1/jobs/search, with the defaults filled in. Showing it costs nothing."),
             h("pre", {}, typeof req === "string" ? req : JSON.stringify(req, null, 2))) : null,
     h("footer", {},
@@ -3575,6 +3577,7 @@ cafeForm.addEventListener("submit", async (e) => {
 const searchDialog = $("#search-dialog"), searchForm = $("#search-form");
 const sField = (name) => searchForm.elements.namedItem(name);
 const lines = (v) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+const SEARCH_LISTS = ["titles", "locations", "exclude_titles", "companies", "exclude_companies"];
 function openSearch(s, mode) {
   const df = S.defaults;
   searchDialog._base = s || {};
@@ -3584,12 +3587,13 @@ function openSearch(s, mode) {
   $("h2", searchForm).textContent = mode === "edit" ? "Edit filter" : "New filter";
   s = s || { remote: true };
   sField("name").value = s.name || "";
-  for (const k of ["titles", "locations", "exclude_titles"]) sField(k).value = (s[k] || []).join("\n");
+  for (const k of SEARCH_LISTS) sField(k).value = (s[k] || []).join("\n");
   for (const k of ["min_salary_usd", "posted_within_days", "limit"]) {
     sField(k).value = s[k] ?? "";
     sField(k).placeholder = df[k] ?? "";
   }
   sField("exclude_titles").placeholder = (df.exclude_titles || []).join("\n");
+  sField("exclude_companies").placeholder = (df.exclude_companies || []).join("\n");
   const wa = s.work_arrangement || [];
   const modeSel = sField("mode");
   $("option[value=keep]", modeSel)?.remove();
@@ -3608,7 +3612,7 @@ sField("where_codes").addEventListener("input", whereNote);
 $("[data-act=cancel]", searchForm).addEventListener("click", () => searchDialog.close());
 function searchBody() {
   const body = { ...searchDialog._base, name: sField("name").value.trim() };
-  for (const k of ["titles", "locations", "exclude_titles"]) body[k] = lines(sField(k).value);
+  for (const k of SEARCH_LISTS) body[k] = lines(sField(k).value);
   for (const k of ["min_salary_usd", "posted_within_days", "limit"]) body[k] = sField(k).value;
   const mode = sField("mode").value;
   if (mode !== "keep") { delete body.remote; delete body.work_arrangement; }

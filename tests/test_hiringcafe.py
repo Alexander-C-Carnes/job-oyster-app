@@ -126,6 +126,15 @@ def test_a_run_joins_a_result_to_the_jobspipe_job_at_the_same_posting(tmp_dirs):
     assert len(cands) == 4 and store.hiringcafe_checks()["hc-tpm"]["new"] == 0 and len(store.state()) == 4
 
 
+
+def test_a_run_drops_hiringcafe_results_at_the_defaults_excluded_companies(tmp_dirs):
+    cfg = config.load()
+    cfg.defaults = {**cfg.defaults, "exclude_companies": ["Initech"]}
+    p = Pipeline(cfg, store=Store(), jobs=JobsClient(cfg, Store(), client=jobspipe_client(FakeJobsAPI({}))),
+                 runner=FakeRunner({}), use_notion=False, log=lambda s: None, fetch_pages=False, hiringcafe=cafe())
+    cands, skipped = p.search([], [saved()])
+    assert "Initech" not in [c.meta.company for c in cands] and any("Initech: excluded company" in s for s in skipped)
+
 def test_a_search_the_bot_check_turns_away_is_recorded_and_the_run_goes_on(tmp_dirs):
     cfg = config.load()
     store = Store()

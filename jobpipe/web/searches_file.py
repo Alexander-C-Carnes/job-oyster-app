@@ -13,8 +13,9 @@ from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 from .. import config, regions
 
 FIELDS = ("id", "name", "titles", "exclude_titles", "country", "posted_within_days", "min_salary_usd",
-          "remote", "work_arrangement", "locations", "seniority", "limit", "api_filters")
-LIST_FIELDS = {"titles", "exclude_titles", "work_arrangement", "locations", "seniority"}
+          "remote", "work_arrangement", "locations", "seniority", "companies", "exclude_companies", "limit",
+          "api_filters")
+LIST_FIELDS = {"titles", "exclude_titles", "work_arrangement", "locations", "seniority", "companies", "exclude_companies"}
 INT_FIELDS = {"posted_within_days", "min_salary_usd", "limit"}
 
 

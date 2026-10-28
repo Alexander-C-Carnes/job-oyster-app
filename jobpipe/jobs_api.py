@@ -126,9 +126,19 @@ class JobsClient:
                             f"limit lowered from {search.limit} to {limit} to stay in budget")
 
 
+def company_matches(company: str, names: list[str]) -> bool:
+    """Whether a job's company is one of `names`, each a name or a whole word of one, any case:
+    "Stripe" matches "Stripe, Inc." and "stripe", but "Meta" doesn't match "Metabase"."""
+    return any(re.search(rf"(?<!\w){re.escape(n.strip())}(?!\w)", company or "", re.I) for n in names if n.strip())
+
+
 def post_filter(job: dict, search: Search, enforce_min_salary: bool) -> tuple[bool, list[str]]:
     """Local safety net on jobs already paid for. Returns (keep, flags)."""
     flags: list[str] = []
+    if search.companies and not company_matches(job.get("company", ""), search.companies):
+        return False, ["not one of this filter's companies"]
+    if company_matches(job.get("company", ""), search.exclude_companies):
+        return False, ["excluded company"]
     if search.remote and job.get("remote") is False:
         return False, ["not remote"]
     if "hybrid" in [w.lower() for w in search.work_arrangement] and job.get("hybrid") is False:

@@ -900,6 +900,12 @@ def test_searches_edit_round_trip(env):
     assert 'country: ["EU", "Schengen"]' in env["searches"].read_text()
     assert len(c.get("/api/searches/requests", headers=H).json()["em-eu"]["job_country_code_or"]) == 31
     assert c.get("/api/searches", headers=H).json()["searches"][-1]["country"] == ["EU", "Schengen"]
+    # Companies: only these, sent to JobsPipe; never these, dropped after
+    ss.append({"id": "tpm-co", "name": "TPM at", "titles": ["TPM"], "companies": ["Acme", ""], "exclude_companies": ["Globex"]})
+    assert c.put("/api/searches", headers=H, json={"searches": ss}).status_code == 200
+    assert 'companies: ["Acme"]' in env["searches"].read_text()
+    assert config.load(env["searches"]).search("tpm-co").exclude_companies == ["Globex"]
+    assert c.get("/api/searches/requests", headers=H).json()["tpm-co"]["company_name_partial_match_or"] == ["Acme"]
     narnia = [{"id": "x", "titles": ["x"], "country": "Narnia"}]
     assert "Where" in c.put("/api/searches", headers=H, json={"searches": narnia}).json()["detail"]
 

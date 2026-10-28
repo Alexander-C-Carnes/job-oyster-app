@@ -274,6 +274,8 @@ class Search:
     work_arrangement: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
     seniority: list[str] = field(default_factory=list)
+    companies: list[str] = field(default_factory=list)          # only jobs at these (a name, or part of one)
+    exclude_companies: list[str] = field(default_factory=list)  # never jobs at these; dropped locally, after paying
     limit: int = 10
     api_filters: dict[str, Any] = field(default_factory=dict)
 
@@ -290,6 +292,7 @@ class Search:
             "work_arrangement_or": self.work_arrangement or None,
             "job_location_or": self.locations or None,
             "job_seniority_or": self.seniority or None,
+            "company_name_partial_match_or": self.companies or None,
         }
         body = {k: v for k, v in body.items() if v is not None}
         body.update(self.api_filters)
@@ -435,6 +438,8 @@ def _search(raw: dict, defaults: dict) -> Search:
         work_arrangement=list(wa),
         locations=list(merged.get("locations") or []),
         seniority=list(merged.get("seniority") or []),
+        companies=list(merged.get("companies") or []),
+        exclude_companies=list(merged.get("exclude_companies") or []),
         limit=int(merged.get("limit", 10)),
         api_filters=dict(merged.get("api_filters") or {}),
     )
@@ -562,6 +567,7 @@ def adhoc_search(*, title: list[str], remote: bool, hybrid: bool, min_salary: Op
         name="Ad-hoc: " + ", ".join(title),
         titles=title,
         exclude_titles=defaults.exclude_titles if defaults else [],
+        exclude_companies=defaults.exclude_companies if defaults else [],
         country=regions.canonical(country),
         posted_within_days=days,
         min_salary_usd=min_salary,
