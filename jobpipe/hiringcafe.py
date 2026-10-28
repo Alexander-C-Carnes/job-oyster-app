@@ -6,10 +6,10 @@ decoded searchState is kept in searches.yaml beside the link, so a run doesn't d
 
 HiringCafe renders its search page on its server: /classic?searchState=…&page=N carries that page's results (40 at
 most) in the page's __NEXT_DATA__ JSON, and each result has the employer's own apply link. That link is the job's
-url, so a job HiringCafe found is the one JobsPipe or Himalayas found at the same posting, and its posting text is
-read from the employer's page, as for theirs. A result with no apply link has its HiringCafe listing (/job/<id>)
-read for one. HiringCafe's robots.txt asks crawlers to keep off search pages; this reads one person's saved searches,
-a page or two each per run.
+url, so a job HiringCafe found is the one JobsPipe or Himalayas found at the same posting. A result carries only a
+short summary, not the posting: a new result's HiringCafe listing (/job/<id>) is read for the whole posting text,
+and a result with no apply link has it read for the link too. HiringCafe's robots.txt asks crawlers to keep off
+search pages (it lets anyone read /job/); this reads one person's saved searches, a page or two each per run.
 
 HiringCafe sits behind Cloudflare's bot check. Plain HTTP clients (httpx, curl) and headless Chromium get its "Just a
 moment…" challenge (403, cf-mitigated: challenge) on every page; curl_cffi, which connects with Chrome's TLS and
@@ -131,6 +131,12 @@ def describe(state: dict) -> str:
     return " · ".join(p for p in parts if p)
 
 
+def posting_text(raw: dict) -> str:
+    """The whole posting a HiringCafe job carries (its listing page's does; a search result's doesn't), as text."""
+    text = (raw.get("job_information") or {}).get("description") or ""
+    return html_to_text(text) if "<" in text else text
+
+
 def _num(v) -> Optional[float]:
     try:
         return float(v) if v not in (None, "") and float(v) > 0 else None
@@ -152,7 +158,6 @@ def to_job(raw: dict) -> dict:
         pay = f"{cur} {k(lo)}–{k(hi)}" if lo and hi and lo != hi else f"{cur} {k(hi or lo)}"
     posted = (v.get("estimated_publish_date") or "")[:10]
     countries = [c for c in v.get("workplace_countries") or [] if isinstance(c, str)]
-    text = info.get("description") or ""
     job = {
         "id": safe_id(url),         # a stored job at the same posting keeps its own id (Pipeline._hiringcafe)
         "job_title": info.get("title") or v.get("core_job_title") or "",
@@ -165,8 +170,7 @@ def to_job(raw: dict) -> dict:
         "seniority": v.get("seniority_level") or "",
         "employment_statuses": [c for c in v.get("commitment") or [] if isinstance(c, str)],
         "salary_string": pay.strip(),
-        # A result's own text is a short summary: the posting is read from the employer's page when it's scored.
-        "description": html_to_text(text) if "<" in text else text or v.get("requirements_summary") or "",
+        "description": posting_text(raw),       # "" when the listing wasn't read: never the result's short summary
     }
     if cur == "USD":
         job.update(min_annual_salary_usd=lo, max_annual_salary_usd=hi)
@@ -243,8 +247,9 @@ class HiringCafe:
         return got
 
     def _listing(self, raw: dict) -> dict:
-        """A result with no apply link, filled in from its listing page (the link and the posting text)."""
+        """A result filled in from its listing page: the posting text, and the apply link when it had none."""
         url = listing_url(raw)
+        time.sleep(self.pause)
         try:
             job = page_props(self._get(url).text).get("job") if url else None
         except Unreadable as e:
@@ -252,13 +257,22 @@ class HiringCafe:
             return raw
         return {**raw, **job} if isinstance(job, dict) else raw
 
-    def search(self, s: HiringCafeSearch) -> list[dict]:
-        """The search's open results as stored jobs, one per posting."""
+    def listing_text(self, url: str) -> str:
+        """The posting text on a HiringCafe listing page, or "" when it can't be read."""
+        try:
+            job = page_props(self._get(url).text).get("job")
+        except Unreadable:
+            return ""
+        return posting_text(job) if isinstance(job, dict) else ""
+
+    def search(self, s: HiringCafeSearch, wanted: Callable[[dict], bool] = lambda job: True) -> list[dict]:
+        """The search's open results as stored jobs, one per posting. A result's listing is read for its posting
+        when wanted(job) (the app has no posting text for it yet), and always for a result with no apply link."""
         jobs: dict[str, dict] = {}
         for raw in self.results(s.search_state):
             if raw.get("is_expired"):
                 continue
-            if not raw.get("apply_url"):
+            if not raw.get("apply_url") or (not posting_text(raw) and wanted(to_job(raw))):
                 raw = self._listing(raw)
             job = to_job(raw)
             if job["url"] and job["job_title"]:

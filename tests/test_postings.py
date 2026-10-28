@@ -136,6 +136,25 @@ def test_postings_you_applied_to_are_kept(tmp_dirs):
     assert reads == ["https://gone.example/1"]
 
 
+def test_a_job_hiringcafe_found_is_read_from_its_listing_then_the_employers_page(tmp_dirs):
+    store = Store()
+    store.save_job({"id": "hc1", "job_title": "SSE", "company": "Wiz", "url": "https://www.wiz.io/careers/job/1",
+                    "listing_url": "https://hiringcafe.com/job/abc", "source": "HiringCafe",
+                    "description": "5+ years technical support."}, "hc-sse")
+    listing_text, page_text = "Wiz's whole posting, from HiringCafe. " * 20, "Wiz's whole posting, from wiz.io. " * 20
+    asked = []
+    read = lambda url: asked.append(url) or {"url": url, "description": page_text}
+    assert postings.fetch_posting(store, "hc1", read, listing=lambda url: asked.append(url) or listing_text) == ""
+    assert asked == ["https://hiringcafe.com/job/abc"] and store.job("hc1")["description"] == listing_text.strip()
+    # a listing that can't be read: the employer's page
+    asked.clear()
+    store.save_job({"id": "hc2", "job_title": "SSE", "company": "Wiz", "url": "https://www.wiz.io/careers/job/1",
+                    "listing_url": "https://hiringcafe.com/job/abc", "source": "HiringCafe", "description": ""}, "hc-sse")
+    assert postings.fetch_posting(store, "hc2", read, listing=lambda url: asked.append(url) or "") == ""
+    assert asked == ["https://hiringcafe.com/job/abc", "https://www.wiz.io/careers/job/1"]
+    assert store.job("hc2")["description"] == page_text.strip()
+
+
 def test_a_job_without_its_text_gets_it_from_its_link(tmp_dirs):
     store = Store()
     store.save_job({"id": "startup-acme-pm", "job_title": "PM", "company": "Acme", "url": "https://jobs.acme.example/1",
