@@ -1965,6 +1965,9 @@ def test_claude_sign_in_helper(env, monkeypatch):
     assert "Install the Claude app" in c.post("/api/ai/claude-login", headers=H).json()["detail"]
 
     monkeypatch.setattr(llm, "find_claude", lambda: "/Apps/Claude Code/claude")
+    monkeypatch.setattr(llm, "claude_status", lambda b: {"version": "2.1.309", "signed_in": False, "account": None})
+    assert c.get("/api/ai/claude", headers=H).json() == \
+        {"found": "/Apps/Claude Code/claude", "version": "2.1.309", "signed_in": False, "account": None}
     opened = []
     monkeypatch.setattr(subprocess, "run", lambda args, **kw: opened.append(args))
     monkeypatch.setattr(sys, "platform", "darwin")

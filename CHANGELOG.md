@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-29
+
+### Profile
+- The AI card shows whether Claude is ready, and the app finds Claude Code again when it moves
+
 ## 2026-10-28
 
 ### Finding jobs

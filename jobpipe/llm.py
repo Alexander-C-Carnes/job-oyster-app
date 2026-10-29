@@ -213,6 +213,28 @@ def find_claude() -> str:
     raise RuntimeError("Claude Code CLI not found. " + fix)
 
 
+def claude_status(bin_: str) -> dict:
+    """The CLI's version and whether it's signed in (`claude auth status`), for the AI card on the Profile tab.
+    signed_in is None when the CLI can't say (one too old for `auth status`)."""
+    import subprocess
+    run = lambda *args: subprocess.run([bin_, *args], capture_output=True, text=True, timeout=30,
+                                       env=ClaudeCodeRunner.child_env())
+    try:
+        v = run("--version")
+        if v.returncode:
+            raise RuntimeError(f"{bin_} doesn't start ({error_line(v.stderr)})")
+        a = run("auth", "status", "--json")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"{bin_} doesn't start ({e})") from None
+    try:
+        auth = json.loads(a.stdout)
+    except json.JSONDecodeError:
+        auth = {}
+    signed_in = auth.get("loggedIn") if isinstance(auth, dict) else None
+    return {"version": (v.stdout.split() or [""])[0], "signed_in": signed_in,
+            "account": auth.get("email") if signed_in else None}
+
+
 class ClaudeCodeRunner(_RetryingRunner):
     """Runs each agent through the Claude Code CLI (`claude -p`), so it counts against a
     Claude subscription (Pro/Max) instead of API credits.
@@ -230,6 +252,7 @@ class ClaudeCodeRunner(_RetryingRunner):
     def __init__(self, *, claude_bin: Optional[str] = None, max_parallel: int = 3,
                  timeout_s: int = 1800):
         import tempfile
+        self.pinned = bool(claude_bin or os.environ.get("CLAUDE_BIN"))   # a CLI the settings name is never swapped
         self.bin = claude_bin or os.environ.get("CLAUDE_BIN") or find_claude()
         self.sem = asyncio.Semaphore(max_parallel)
         self.timeout_s = timeout_s
@@ -258,6 +281,9 @@ class ClaudeCodeRunner(_RetryingRunner):
         return env
 
     async def _once(self, call: AgentCall, extra_note: str = "") -> AgentResult:
+        if not self.pinned and not os.access(self.bin, os.X_OK):
+            # The CLI found at start-up is gone (uninstalled, or Homebrew moved it): find the one that's here now.
+            self.bin = await asyncio.to_thread(find_claude)
         async with self.sem:
             proc = await asyncio.create_subprocess_exec(
                 *self.command(call), cwd=self.workdir, env=self.child_env(),

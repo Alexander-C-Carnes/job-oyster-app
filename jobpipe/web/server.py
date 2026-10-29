@@ -1729,12 +1729,22 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         os.environ[name] = value                    # runs started from now on get it
         return get_keys()
 
-    @app.get("/api/ai/claude")
-    def claude_cli():
-        """Whether a working Claude Code CLI is here (the Claude desktop app bundles one)."""
+    def claude_bin() -> Optional[str]:
+        """The Claude Code CLI runs use: the one the settings name, else the first that starts (the Claude desktop
+        app bundles one). None when there's none."""
         from ..llm import find_claude
         try:
-            return {"found": cfg.claude_bin or os.environ.get("CLAUDE_BIN") or find_claude()}
+            return cfg.claude_bin or os.environ.get("CLAUDE_BIN") or find_claude()
+        except RuntimeError:
+            return None
+
+    @app.get("/api/ai/claude")
+    def claude_cli():
+        """Whether a working Claude Code CLI is here, its version, and whether it's signed in."""
+        from .. import llm
+        try:
+            found = cfg.claude_bin or os.environ.get("CLAUDE_BIN") or llm.find_claude()
+            return {"found": found, **llm.claude_status(found)}
         except RuntimeError as e:
             return {"found": None, "error": str(e)}
 
@@ -1744,7 +1754,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         import shlex
         import subprocess
         import sys
-        found = claude_cli()["found"]
+        found = claude_bin()
         if not found:
             raise HTTPException(400, "Claude Code isn't installed. Install the Claude app (claude.ai/download), then try again.")
         if sys.platform != "darwin":
