@@ -1520,9 +1520,13 @@ function renderBatch() {
   if (picked.length) {
     const ok = picked.filter(canScore), full = ok.filter((j) => !j.tailored), sig = ok.filter((j) => j.impact_score == null);
     const make = picked.filter((j) => j.local && !j.tailored && !RUNP.jobs.has(j.id));
+    const restore = S.findFilter === "dismissed", hide = picked.filter((j) => j.local && !j.tracker_id && j.dismissed === restore);
     parts.push(h("span", {}, h("b", {}, picked.length), " selected"),
       ...(S.scope === "find" ? [h("button", { class: "primary small", title: "Adds them to your tracker as Not started. You stay here.",
-        onclick: () => trackJobs(picked.map((j) => j.id)) }, "Track")] : []),
+        onclick: () => trackJobs(picked.map((j) => j.id)) }, "Track"),
+        h("button", { class: "ghost small", disabled: !hide.length,
+          title: restore ? "Puts them back in New." : "Moves them to Dismissed. Restore brings them back.",
+          onclick: () => dismissJobs(hide.map((j) => j.id), !restore) }, restore ? "Restore" : "Dismiss")] : []),
       h("button", { class: "ghost small", disabled: !sig.length, title: `${ACTIONS.signal.what} ${actionTime("signal")} each; roles with a full score are skipped.`,
         onclick: () => scoreJobs(sig.map((j) => j.id), "signal") }, "Signal score"),
       h("button", { class: "ghost small", disabled: !full.length, title: `${ACTIONS.full.what} ${actionTime("full")} each, one at a time.`,
@@ -1975,6 +1979,18 @@ async function trackJobs(ids) {
   await loadJobs();
   stepPast(ids, at);
   loadJobs({ wait: true });
+}
+// The checked roles in Find jobs, dismissed (or restored) in one go.
+async function dismissJobs(ids, dismissed) {
+  const at = S.visible.findIndex((j) => ids.includes(j.id));
+  let done = 0;
+  try {
+    for (const id of ids) { await post(`/api/jobs/${encodeURIComponent(id)}/dismiss`, { dismissed }); done++; S.picks.delete(id); }
+  } catch (e) { toast(e.message, true); }
+  if (!done) return;
+  toast(dismissed ? `Dismissed ${plural(done, "role")}. They're under Dismissed if you change your mind.` : `Put ${plural(done, "role")} back in New.`);
+  await loadJobs();
+  stepPast(ids, at);
 }
 // After tracking, the open role left Find jobs: open the one that took its place in the list.
 function stepPast(ids, at) {
