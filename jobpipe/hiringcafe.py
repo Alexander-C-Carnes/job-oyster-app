@@ -49,6 +49,10 @@ class Unreadable(RuntimeError):
     """HiringCafe didn't give the page: its bot check, an error status or no connection."""
 
 
+class Blocked(Unreadable):
+    """HiringCafe's bot check, or a 403/429: it's turning this connection away for now, not just that page."""
+
+
 @dataclass
 class Page:
     status: int
@@ -193,18 +197,26 @@ def posting_index(store: Store) -> dict[str, str]:
 
 class HiringCafe:
     def __init__(self, *, fetch: Optional[Fetch] = None, max_pages: int = 3, pause: float = 1.0,
-                 log: Callable[[str], None] = lambda s: None):
+                 listing_pause: float = 3.0, log: Callable[[str], None] = lambda s: None):
         self._fetch = fetch             # made on first use: curl_cffi and the DNS lookup only when there's a search
         self.max_pages = max_pages      # 40 results a page; a search's newest week is rarely more than one
         self.pause = pause              # seconds between pages
+        self.listing_pause = listing_pause      # seconds between listings: ~17 a second apart got the bot check (2026-10-28)
+        self.blocked = False            # the bot check turned a listing away: no more listings until reset()
         self.log = log
+
+    def reset(self) -> None:
+        """A new run: read listings again."""
+        self.blocked = False
 
     def _get(self, url: str, follow: bool = True) -> Page:
         if self._fetch is None:
             self._fetch = browser_fetch()
         p = self._fetch(url, follow)
         if p.challenged:
-            raise Unreadable("HiringCafe's bot check (Cloudflare) turned the request away")
+            raise Blocked("HiringCafe's bot check (Cloudflare) turned the request away")
+        if p.status in (403, 429):
+            raise Blocked(f"HiringCafe answered {p.status}")
         if p.status >= 400:
             raise Unreadable(f"HiringCafe answered {p.status}")
         return p
@@ -249,9 +261,15 @@ class HiringCafe:
     def _listing(self, raw: dict) -> dict:
         """A result filled in from its listing page: the posting text, and the apply link when it had none."""
         url = listing_url(raw)
-        time.sleep(self.pause)
+        if self.blocked or not url:
+            return raw
+        time.sleep(self.listing_pause)
         try:
-            job = page_props(self._get(url).text).get("job") if url else None
+            job = page_props(self._get(url).text).get("job")
+        except Blocked as e:
+            self.blocked = True
+            self.log(f"  HiringCafe: {e} at {url}, so no more listings are read this run")
+            return raw
         except Unreadable as e:
             self.log(f"  HiringCafe: couldn't read {url} ({e})")
             return raw

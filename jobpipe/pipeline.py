@@ -245,6 +245,7 @@ class Pipeline:
         if not searches:
             return []
         self.hiringcafe = self.hiringcafe or HiringCafe(log=self.log)
+        self.hiringcafe.reset()
         known = posting_index(self.store)
         stored_as = lambda job: next((known[k] for k in sorted(links(job)) if k in known), None)
 

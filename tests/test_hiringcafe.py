@@ -39,8 +39,9 @@ def listing_page(job: dict) -> str:
 class FakeCafe:
     """HiringCafe's pages by address; `blocked` answers as its bot check does."""
 
-    def __init__(self, blocked=False):
+    def __init__(self, blocked=False, checked=()):
         self.blocked = blocked
+        self.checked = set(checked)     # pages the bot check answers for
         self.asked: list[str] = []
         self.pages = {search_url(STATE, 0): (FIX / "search-page-0.html").read_text(),
                       search_url(STATE, 1): (FIX / "search-page-1.html").read_text(),
@@ -49,7 +50,7 @@ class FakeCafe:
 
     def __call__(self, url: str, follow: bool = True) -> Page:
         self.asked.append(url)
-        if self.blocked:
+        if self.blocked or url in self.checked:
             return Page(403, "<title>Just a moment...</title>", challenged=True)
         if url == f"{ORIGIN}/s/Ab12Cd34" and not follow:     # a share link leads to the search page it names
             return Page(307, location=search_url(STATE).removeprefix(ORIGIN))
@@ -59,7 +60,7 @@ class FakeCafe:
 
 
 def cafe(fake=None, **kw) -> HiringCafe:
-    return HiringCafe(fetch=fake or FakeCafe(), pause=0, **kw)
+    return HiringCafe(fetch=fake or FakeCafe(), pause=0, listing_pause=0, **kw)
 
 
 def saved(sid="hc-tpm", paused=False) -> HiringCafeSearch:
@@ -105,6 +106,24 @@ def test_a_search_reads_each_page_and_each_results_listing_for_its_posting():
     fake.asked.clear()      # a result the app has the posting for isn't read again; one with no apply link is
     cafe(fake).search(saved(), lambda job: False)
     assert fake.asked[2:] == [f"{ORIGIN}/job/rq0004example"]
+
+
+def test_once_the_bot_check_turns_a_listing_away_no_more_are_read_until_the_next_run():
+    fake = FakeCafe(checked=[f"{ORIGIN}/job/rq0001example"])
+    lines = []
+    hc = cafe(fake, log=lines.append)
+    jobs = hc.search(saved())
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1), f"{ORIGIN}/job/rq0001example"]
+    assert len(jobs) == 4 and all(j["description"] == "" for j in jobs)
+    assert any("no more listings are read this run" in line for line in lines)
+    initech = next(j for j in jobs if j["company"] == "Initech")       # its link stays its HiringCafe page
+    assert initech["url"] == listing_url({"requisition_id": "rq0004example"})
+    fake.checked.clear()
+    fake.asked.clear()
+    hc.search(saved())                                                  # still this run: listings stay unread
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
+    hc.reset()                                                          # the next run reads them again
+    assert "Run Acme Robotics' release trains." in hc.search(saved())[0]["description"]
 
 
 def test_a_result_whose_listing_cant_be_read_keeps_its_hiringcafe_page():
