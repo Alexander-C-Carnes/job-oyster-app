@@ -15,6 +15,7 @@ from .himalayas import Himalayas
 from .jd import build_jd, posting_url
 from .jobs_api import BudgetExhausted, JobsClient, company_matches, post_filter, salary_text, work_mode
 from .llm import PROVIDERS, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner, Runner
+from .lowfit import dismiss_low_fit
 from .notion import APPLIED_STATUSES, NotionTracker, TrackerEntry
 from .startups import funding_line
 from .store import Store, canonical_url, slug
@@ -306,6 +307,7 @@ class Pipeline:
                 self.store.update(c.id, triage=r.__dict__, triaged_at=self.today)
             elif r is not None:
                 c.error = f"triage failed: {r}"
+        dismiss_low_fit(self.cfg, self.store, [c.id for c in cands if isinstance(results.get(c.id), Triage)], self.log)
 
     def shortlist(self, cands: list[Candidate], top: int) -> list[Candidate]:
         ok = [c for c in cands if c.triage and c.triage.fit_score >= self.cfg.shortlist_min_fit]

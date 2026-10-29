@@ -359,6 +359,7 @@ class Config:
     allowance_amount: int = 1000
     allowance_period: str = "once"  # "once" or "monthly"
     shortlist_min_fit: int = 7
+    dismiss_at_or_below_fit: Optional[int] = None   # a job scoring this or less is dismissed when scored; see lowfit.py
     tailor_top: int = 3
     enforce_min_salary: bool = True
     himalayas: bool = True          # also search Himalayas (free remote jobs) for each remote filter; see himalayas.py
@@ -524,6 +525,8 @@ def load(path: Optional[Path] = None) -> Config:
         allowance_amount=int(allowance.get("amount", 1000)),
         allowance_period=allowance.get("period", "once"),
         shortlist_min_fit=int(pipe.get("shortlist_min_fit", 7)),
+        dismiss_at_or_below_fit=(None if pipe.get("dismiss_at_or_below_fit") is None
+                                 else int(pipe["dismiss_at_or_below_fit"])),
         tailor_top=int(pipe.get("tailor_top", 3)),
         enforce_min_salary=bool(pipe.get("enforce_min_salary", True)),
         himalayas=bool(pipe.get("himalayas", True)) and os.environ.get("JOBPIPE_HIMALAYAS") != "off",

@@ -98,7 +98,7 @@ Edit your `searches.yaml`:
 - **`defaults`**: country (a code like `US` or `GB`, a region such as `EU`, `Schengen`, `EEA`, `Europe` or `EMEA`, a list like `[EU, Schengen]`, or `Any`; a search can set its own), how recent (`posted_within_days`), salary floor (`min_salary_usd`), the most jobs per search (`limit`), and title words to exclude.
 - **`searches`**: one block per search, each with an `id`, a `name`, the `titles` to match, and `remote: true` or `work_arrangement: ["hybrid"]` plus `locations`. The example profile's four (TPM and Engineering Manager, remote and hybrid in Portland) are there to copy from. Replace them.
 - **`budget`**: `max_credits_per_run`, and your plan's `allowance` (`{amount: 1000, period: once}` on the free plan; on a paid plan, its monthly credits and `period: monthly`).
-- **`pipeline`**: the lowest signal score that gets a résumé (`shortlist_min_fit`) and how many résumés to make per run (`tailor_top`).
+- **`pipeline`**: the lowest signal score that gets a résumé (`shortlist_min_fit`), how many résumés to make per run (`tailor_top`), and the score at or below which a job is dismissed as soon as it's scored (`dismiss_at_or_below_fit`, off by default).
 
 You can also edit searches in the web app's **Filters** tab, which writes back to this file.
 

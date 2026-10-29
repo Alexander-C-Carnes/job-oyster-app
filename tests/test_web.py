@@ -1327,7 +1327,7 @@ def test_ghosted_after_the_days_set_on_the_profile(env):
     c, notion = env["client"], env["notion"]
     s = c.get("/api/summary", headers=H).json()
     assert "Ghosted" in s["statuses"] and s["ghost_after_days"] == 60
-    assert c.get("/api/tracker/settings", headers=H).json() == {"ghost_after_days": 60}
+    assert c.get("/api/tracker/settings", headers=H).json() == {"ghost_after_days": 60, "dismiss_at_or_below_fit": None}
     jobs = lambda: {j["id"]: j for j in c.get("/api/jobs?wait=1", headers=H).json()["jobs"]}
     assert jobs()["notion-p9"]["status"] == "Applied"
     # Applied 45 days ago and not heard from since.

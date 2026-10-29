@@ -1297,6 +1297,7 @@ async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log
     text whose posting has closed is tagged Closed, and dismissed unless it's in `tracked` (stored job id -> tracker
     status), as check-postings does. `cfg` is the full Config. Returns how many were scored."""
     from .jd import build_jd
+    from .lowfit import dismiss_low_fit
     from .pipeline import make_runner
     from .postings import mark_if_closed
     from .triage import Triage, triage_many
@@ -1328,6 +1329,7 @@ async def score_startup_roles(cfg: Any, jobs_store: Any, *, limit: int = 30, log
         else:
             log(f"  {jid}: scoring failed ({r})")
     track_scored_roles(cfg, jobs_store, scored, tracker=tracker, log=log)
+    dismiss_low_fit(cfg, jobs_store, scored, log)
     return len(scored)
 
 

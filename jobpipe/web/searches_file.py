@@ -289,6 +289,28 @@ def save_resume_format(path: Path, fid: str) -> None:
 GHOST_DAYS_MAX = 3650
 
 
+def save_low_fit(path: Path, fit: Any) -> Optional[int]:
+    """Set `pipeline.dismiss_at_or_below_fit` (blank: off), keeping the file's comments. Returns the fit or None."""
+    raw = "" if fit is None else str(fit).strip()
+    try:
+        fit = int(raw) if raw else None
+    except ValueError:
+        raise SearchError("Enter a whole number from 1 to 9, or leave it blank to turn this off.") from None
+    if fit is not None and not 1 <= fit <= 9:
+        raise SearchError("Enter a whole number from 1 to 9, or leave it blank to turn this off.")
+    doc = _yaml().load(path.read_text())
+    m = doc.get("pipeline")
+    if m is None:
+        m = CommentedMap()
+        doc["pipeline"] = m
+    m["dismiss_at_or_below_fit"] = fit
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        _yaml().dump(doc, f)
+    tmp.replace(path)
+    return fit
+
+
 def save_ghost_days(path: Path, days: Any) -> int:
     """Set `tracker.ghost_after_days`, keeping the file's comments (adding the section if needed). Returns the days."""
     try:

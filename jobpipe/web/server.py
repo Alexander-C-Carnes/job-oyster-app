@@ -35,6 +35,7 @@ from .. import config
 from ..config import Config
 from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
+from ..lowfit import dismiss_low_fit
 from . import about, follow
 from .flow import application_flow
 from ..postings import CLOSED_MESSAGE, PostingKeeper, fetch_posting, has_posting, mark_if_closed
@@ -510,16 +511,22 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/tracker/settings")
     def tracker_settings():
-        return {"ghost_after_days": cfg.ghost_after_days}
+        return {"ghost_after_days": cfg.ghost_after_days, "dismiss_at_or_below_fit": cfg.dismiss_at_or_below_fit}
 
     @app.put("/api/tracker/settings")
     def put_tracker_settings(body: dict):
-        """searches.yaml's `tracker:` section. A shorter wait moves the jobs already past it to Ghosted now."""
+        """searches.yaml's tracker.ghost_after_days and pipeline.dismiss_at_or_below_fit, whichever the body has.
+        A shorter wait moves the jobs already past it to Ghosted now; a low-fit setting only acts on later scores."""
+        moved: list = []
         try:
-            cfg.ghost_after_days = searches_file.save_ghost_days(searches_path, body.get("ghost_after_days"))
+            if "ghost_after_days" in body:
+                cfg.ghost_after_days = searches_file.save_ghost_days(searches_path, body["ghost_after_days"])
+                moved = ghost_check(force=True)
+            if "dismiss_at_or_below_fit" in body:
+                cfg.dismiss_at_or_below_fit = searches_file.save_low_fit(searches_path, body["dismiss_at_or_below_fit"])
         except searches_file.SearchError as e:
             raise HTTPException(400, str(e)) from None
-        return {**tracker_settings(), "moved": ghost_check(force=True)}
+        return {**tracker_settings(), "moved": moved}
 
     @app.post("/api/jobs/{jid}/track")
     def track(jid: str):
@@ -569,7 +576,11 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def dismiss(jid: str, body: dict):
         if not store.job(jid):
             raise HTTPException(404, "Unknown job")
-        store.update(jid, dismissed=bool(body.get("dismissed", True)))
+        dismissed = bool(body.get("dismissed", True))
+        if not dismissed and (store.state().get(jid) or {}).get("low_fit"):
+            store.update(jid, dismissed=False, low_fit=None, kept=True)     # restored by you: a later score keeps it
+        else:
+            store.update(jid, dismissed=dismissed)
         return {"ok": True}
 
     @app.patch("/api/jobs/{jid}")
@@ -745,6 +756,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             from ..pipeline import Candidate, tracker_entry
             out["notion"] = local.track(tracker_entry(Candidate(job, "manual", triage=tri), today), job_id=jid)
             sync.kick()
+        out["low_fit"] = bool(dismiss_low_fit(cfg, store, [jid]))
         return out
 
     async def full_score(jid: str) -> dict:

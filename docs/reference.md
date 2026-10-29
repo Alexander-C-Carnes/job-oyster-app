@@ -18,6 +18,7 @@ python -m jobpipe startups scan --limit 100    # just the careers boards
 python -m jobpipe startups score --limit 30    # signal-score startup roles in Search Jobs (one Claude call each)
 python -m jobpipe startups track --min-fit 7   # add the scored startup roles at 7+ to the tracker
 python -m jobpipe check-postings               # move roles whose posting has closed to Dismissed (tracked: tag Closed)
+python -m jobpipe dismiss-low-fit              # dismiss scored jobs at pipeline.dismiss_at_or_below_fit or less
 python -m jobpipe startups list --stage "Series B" --days 30
 python -m jobpipe startups roles <startup id> --add   # its open roles; --add stores the ones matching your filters
 python -m jobpipe startups enrich <startup id>  # look up its latest round (FUNDABLE_API_KEY, THEIRSTACK_API_KEY or PDL_API_KEY)

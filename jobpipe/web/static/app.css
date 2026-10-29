@@ -1066,7 +1066,7 @@ dialog h2 + p { margin: -6px 0 12px; }
 .ghosted-form { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; }
 .ghosted-form label.inline { color: var(--ink); font-size: 13px; }
 .ghosted-form label.inline input { width: 72px; }
-.ghosted-form #ghosted-what { flex: 1 1 240px; font-size: 12px; }
+.ghosted-form #ghosted-what, .ghosted-form #lowfit-what { flex: 1 1 240px; font-size: 12px; }
 .about-card { margin-top: 14px; }
 .about-version { margin: 0 0 10px; font-size: 13px; }
 .about-version:empty { display: none; }
