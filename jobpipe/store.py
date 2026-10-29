@@ -141,6 +141,14 @@ class Store:
         job.update(description=text, posting_kept=now_iso())
         _write(self.jobs_dir / f"{jid}.json", job)
 
+    def forget(self, jid: str) -> None:
+        """Remove a job: its file and its entry (scores, searches, dismissed) in the state."""
+        (self.jobs_dir / f"{jid}.json").unlink(missing_ok=True)
+        with self._locked():
+            state = self.state()
+            state.pop(jid, None)
+            self._save_state(state)
+
     def state(self) -> dict:
         return _read(self.state_path, {})
 

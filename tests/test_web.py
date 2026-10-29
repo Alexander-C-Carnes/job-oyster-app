@@ -1549,6 +1549,23 @@ def test_track_and_dismiss_found_jobs(env):
     assert c.post("/api/jobs/nope/track", headers=H).status_code == 404
 
 
+def test_delete_a_dismissed_job_you_never_tracked(env):
+    c = env["client"]
+    assert c.delete("/api/jobs/j2", headers=H).status_code == 400            # dismiss it first
+    c.post("/api/jobs/j2/dismiss", headers=H, json={"dismissed": True})
+    c.patch("/api/jobs/j2", headers=H, json={"starred": True})
+    assert c.delete("/api/jobs/j2", headers=H).json() == {"ok": True}
+    assert "j2" not in {j["id"] for j in c.get("/api/jobs", headers=H).json()["jobs"]}
+    store = Store()
+    assert store.job("j2") == {} and "j2" not in store.state()
+    assert "j2" not in json.loads((store.root / "marks.json").read_text())
+    # a tracked job keeps its row, and an unknown one is unknown
+    c.post("/api/jobs/j1/dismiss", headers=H, json={"dismissed": True})
+    r = c.delete("/api/jobs/j1", headers=H)
+    assert r.status_code == 400 and "tracked" in r.json()["detail"] and store.job("j1")
+    assert c.delete("/api/jobs/nope", headers=H).status_code == 404
+
+
 def test_run_output_streams_while_running():
     runs = RunManager(argv_prefix=[sys.executable, "-c", "import time; print('first'); time.sleep(1.5); print('second')"])
     run = runs.start("stream", [])

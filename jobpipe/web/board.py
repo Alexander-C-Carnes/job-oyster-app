@@ -93,6 +93,12 @@ class Marks:
             _write(self.file.path, data)
             return rec
 
+    def drop(self, key: str) -> None:
+        with self._lock:
+            data = dict(self.file.read())
+            if data.pop(key, None) is not None:
+                _write(self.file.path, data)
+
 
 def clean_url(raw: Any) -> str:
     """A referral link as typed: '' clears it, a bare domain gets https://. Raises ValueError."""

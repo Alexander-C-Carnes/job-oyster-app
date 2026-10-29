@@ -1993,11 +1993,24 @@ async function dismissJob(j, dismissed) {
   j._el = j._card = null;
   setScope("find");       // moves on to the next role when this one left the list
 }
+// Only a dismissed role you never tracked: a tracked one has a tracker row (and maybe a Notion page) to keep.
+async function deleteJob(j) {
+  if (!confirm(`Delete ${j.title || "this job"}${j.company ? ` at ${j.company}` : ""}? Its posting text and scores are removed `
+    + "from Job Oyster. If a search finds it again, it comes back as a new job.")) return;
+  try {
+    await request(`/api/jobs/${encodeURIComponent(j.id)}`, { method: "DELETE" });
+  } catch (e) { toast(e.message, true); return; }
+  S.details.delete(j.id);
+  toast("Deleted.");
+  await loadJobs();
+  setScope("find");
+}
 function statusControl(j) {
   if (!j.tracker_id) {
     return h("span", { class: "actions-inline" },
       h("button", { class: "primary", onclick: () => trackJob(j) }, "Track"),
-      h("button", { class: "ghost", onclick: () => dismissJob(j, !j.dismissed) }, j.dismissed ? "Restore" : "Dismiss"));
+      h("button", { class: "ghost", onclick: () => dismissJob(j, !j.dismissed) }, j.dismissed ? "Restore" : "Dismiss"),
+      j.dismissed && j.local && h("button", { class: "ghost danger", title: "Remove this job from Job Oyster", onclick: () => deleteJob(j) }, "Delete"));
   }
   const sel = h("select", { class: "status-select", "data-stage": j.status, "aria-label": "Status" },
     ...(S.summary?.statuses || [j.status]).map((s) => h("option", { value: s, selected: s === j.status }, s)));
