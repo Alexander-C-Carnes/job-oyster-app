@@ -2051,7 +2051,6 @@ function detailHead(j) {
         h("button", { class: "icon-btn fold-btn", title: "Fold this header to one line", "aria-label": "Fold the header",
           "aria-expanded": "true", onclick: () => setFold("head", true) }, icon("up")),
         h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")))),
-    noPosting(j) && postingNeeded(j),
     h("div", { class: "bar" },
       statusControl(j),
       refToggle(j),
@@ -2174,7 +2173,7 @@ function drawDetail() {
   else if (tab === "heatmap") panel.append(
     h("iframe", { class: "heatmap", sandbox: "allow-scripts", src: fileUrl(`/api/jobs/${encodeURIComponent(d.id)}/heatmap`) }));
   if (tab === "posting") panel.append(h("div", { class: "posting-split" },
-    h("div", { class: "posting-pane" }, postingMeta(j, d), postingBody(d.description)),
+    h("div", { class: "posting-pane" }, postingMeta(j, d), noPosting(j) ? postingNeeded(j) : postingBody(d.description)),
     h("aside", { class: "score-pane" }, scoreBlock(j, d))));
 }
 
@@ -2313,7 +2312,7 @@ const BULLET = /^\s*(?:[-*•·–]|\d+[.)])\s+/;
 function postingBody(text) {
   const lines = (text || "").split("\n").map((l) => l.trim());
   const box = h("div", { class: "posting-body" });
-  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Use Fetch posting above, or paste the description from its page, to score it and make its résumé.")); return box; }
+  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Paste the description from its page to score it and make its résumé.")); return box; }
   const next = (i) => lines.slice(i + 1).find(Boolean) || "";
   let list = null;
   lines.forEach((line, i) => {
@@ -2341,7 +2340,7 @@ function postingMeta(j, d) {
     extLink(j.url, "Open the original"),
     d.description_pasted && h("span", {}, d.description_read ? "Added from its link " : "Pasted by you ", fmtDate(d.description_pasted)),
     !d.description_pasted && d.posting_kept && h("span", { title: "Kept because you applied: it stays here after the posting comes down." }, "Saved when you applied ", fmtDate(d.posting_kept)),
-    h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
+    !noPosting(j) && h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
       d.description_pasted ? "Replace the pasted text…" : "Paste the description…"));
 }
 
@@ -2351,7 +2350,7 @@ const FETCHING = new Map();
 async function fetchPosting(j, auto = false) {
   if (FETCHING.get(j.id) === "busy") return;
   FETCHING.set(j.id, "busy");
-  if (S.selected === j.id) renderDetailHead();
+  if (S.selected === j.id) renderPostingNeeded();
   try {
     await post(`/api/jobs/${encodeURIComponent(j.id)}/fetch-posting`, {});
     FETCHING.set(j.id, "");
@@ -2361,19 +2360,31 @@ async function fetchPosting(j, auto = false) {
     if (!auto) toast("Posting added from its link.");
   } catch (e) {
     FETCHING.set(j.id, e.message);
-    if (S.selected === j.id) renderDetailHead();
+    if (S.selected === j.id) renderPostingNeeded();
   }
 }
-// Under the job's header while it has no posting text: why Run full score and Make résumé are off, and the two ways on.
+// In the posting pane while the job has no posting text: why Run full score and Make résumé are off, and the two ways on.
+// A closed one leads with that: pasting is the way on, since its page is gone.
 function postingNeeded(j) {
   const st = FETCHING.get(j.id);
   if (st === "busy") return h("div", { class: "needs-posting", role: "status" }, spinner(), h("span", {}, "Reading the posting from its link…"));
+  const closed = !!j.closed || /^This posting has closed/.test(st || "");
+  const paste = h("button", { class: closed ? "primary small" : "ghost small", onclick: () => openDescribe(j) }, "Paste the description…");
+  const fetch = j.url && h("button", { class: closed ? "ghost small" : "primary small", onclick: () => fetchPosting(j) },
+    closed ? "Try fetching again" : "Fetch posting");
   return h("div", { class: "needs-posting", role: "status" },
-    h("div", { class: "needs-why" }, h("p", {}, h("b", {}, "No posting text yet,"), " so Run full score and Make résumé are off."),
-      st && h("p", { class: "form-error" }, st)),
-    h("div", { class: "actions-inline" },
-      j.url && h("button", { class: "primary small", onclick: () => fetchPosting(j) }, "Fetch posting"),
-      h("button", { class: "ghost small", onclick: () => openDescribe(j) }, "Paste the description…")));
+    h("div", { class: "needs-why" },
+      closed ? h("p", {}, h("b", {}, "This posting has closed."), " The employer took it down before its text was saved. "
+          + "To score this job or make its résumé, paste the description if you have a copy.")
+        : h("p", {}, h("b", {}, "No posting text yet."), j.url ? " Fetch it from the job's link, or paste the description, to score this job and make its résumé."
+          : " Paste the description to score this job and make its résumé."),
+      st && !closed && h("p", { class: "form-error" }, st)),
+    h("div", { class: "actions-inline" }, ...(closed ? [paste, fetch] : [fetch, paste])));
+}
+
+function renderPostingNeeded() {
+  const j = S.byId.get(S.selected), old = $("#job-detail .needs-posting");
+  if (j && old) old.replaceWith(postingNeeded(j));
 }
 
 // The posting text pasted onto a role, for one whose stored text is missing, cut short or wrong.
