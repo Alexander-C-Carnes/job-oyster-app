@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-29
+
+### Résumés
+- After a confirmed fact, Update this résumé rewrites only the lines that fact unlocks
+
 ## 2026-10-26
 
 ### Finding jobs

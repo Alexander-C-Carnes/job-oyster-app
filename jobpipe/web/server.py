@@ -50,7 +50,7 @@ from ..triage import triage_one
 from . import linked, searches_file
 from .sent import SentResumes
 from .board import REFERRAL_STEPS, JobBoard, Marks, TrackerSync, clean_contact, clean_url, referral_fields
-from .resumes import EditError, ResumeWorkspace
+from .resumes import EditError, PendingEdit, ResumeWorkspace
 from .progress import Estimator
 from .runs import Busy, Run, RunManager
 from .scoring import Scorer
@@ -1158,6 +1158,32 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.post("/api/jobs/{jid}/edit/discard")
     def discard(jid: str):
         return workspace(jid).discard()
+
+    @app.post("/api/jobs/{jid}/resume/from-fact")
+    async def update_from_fact(jid: str, body: dict):
+        """One pass: rewrite only the lines a new confirmed fact unlocks, then check figures and keywords.
+        The three-draft pipeline is left for the first version. Nothing is saved until the diff is accepted."""
+        ws = workspace(jid)
+        lock = state["edit_locks"].setdefault(jid, asyncio.Lock())
+        if lock.locked():
+            raise HTTPException(409, "Claude is still working on this résumé.")
+        async with lock:
+            state["chatting"].add(jid)
+            try:
+                r = await ws.update_from_fact(str(body.get("text") or ""), get_runner(), cfg)
+                p = r["proposal"]
+                from .resumes import diff
+                return {"reply": r["reply"], "reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
+                        "proposal": p and {**p, "changes_html": md_html(p["changes"]),
+                                           "diff": p.get("diff") or diff(ws.md(p["base"]), (ws.vdir / "proposal.md").read_text())}}
+            except PendingEdit as e:
+                raise HTTPException(409, str(e)) from None
+            except EditError as e:
+                raise HTTPException(400, str(e)) from None
+            except Exception as e:  # noqa: BLE001 - surface model failures to the UI
+                raise HTTPException(502, f"The résumé couldn't be updated: {e}") from None
+            finally:
+                state["chatting"].discard(jid)
 
     @app.post("/api/jobs/{jid}/restore")
     def restore(jid: str, body: dict):

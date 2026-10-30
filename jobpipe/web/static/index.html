@@ -253,10 +253,19 @@
           <button id="impact-save" class="primary" title="Save now (⌘S)">Save</button>
         </div>
         <form id="fact-box" class="fact-box hidden">
-          <label for="fact-text">Confirmed fact</label>
-          <p class="muted">An answer to a fit report's follow-up question, in your words. It goes at the end of the record under <b>Confirmed facts</b>, dated, and every score and résumé edit uses it at exactly the scope you write. Tailor a job again for its résumé to pick it up.</p>
-          <textarea id="fact-text" rows="2" placeholder="e.g. I ran the vendor migration at Northwind, but I didn't manage the vendor's team."></textarea>
-          <div class="actions"><button type="submit" class="primary">Add fact</button><button type="button" id="fact-cancel" class="ghost">Cancel</button></div>
+          <div class="fact-fields">
+            <label for="fact-text">Confirmed fact</label>
+            <p class="muted">An answer to a fit report's follow-up question, in your words. It goes at the end of the record under <b>Confirmed facts</b>, dated, and every later score uses it at exactly the scope you write. If a tailored job is open, you can update that résumé from the fact instead of making it again.</p>
+            <textarea id="fact-text" rows="2" placeholder="e.g. I ran the vendor migration at Northwind, but I didn't manage the vendor's team."></textarea>
+            <div class="actions"><button type="submit" class="primary">Add fact</button><button type="button" id="fact-cancel" class="ghost">Cancel</button></div>
+          </div>
+          <div id="fact-offer" class="fact-offer hidden">
+            <p>Added to <b>Confirmed facts</b>. Update the résumé for <b id="fact-offer-role"></b>? One pass rewrites only the lines this fact unlocks, checks the figures and the keyword score, and shows a diff you accept.</p>
+            <div class="actions">
+              <button type="button" id="fact-update" class="primary">Update this résumé</button>
+              <button type="button" id="fact-skip" class="ghost">Not now</button>
+            </div>
+          </div>
         </form>
         <div id="impact-conflict" class="doc-conflict hidden" role="alert">
           <span class="grow">The impact record was changed outside this window since you opened it, so your latest edits haven't been saved.</span>

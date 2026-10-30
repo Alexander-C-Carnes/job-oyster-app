@@ -27,7 +27,7 @@ searches.yaml ──► JobsPipe search ──► local filters ──► skip j
 5. **Track it.** The job is recorded in a local tracker (`data/tracker.db`) and copied to a Notion database. You also get an `apply-*.md` checklist with the link, the PDF to attach, and the posting's hard requirements, plus a `digest.md` for the run.
 6. **You apply.** The pipeline never submits an application. You review the résumé, apply, and set the job to Applied.
 
-**Honesty rules.** Every claim in a résumé has to trace back to the impact record, your existing résumés, or answers you've confirmed. When a requirement isn't covered anywhere, the report doesn't call it a gap. It ends with a question about it, and the answers you give (with **Add a confirmed fact** in the app's **Impact record** tab, which files them under the record's **Confirmed facts** section) count as evidence on later runs.
+**Honesty rules.** Every claim in a résumé has to trace back to the impact record, your existing résumés, or answers you've confirmed. When a requirement isn't covered anywhere, the report doesn't call it a gap. It ends with a question about it, and the answers you give (with **Add a confirmed fact** in the app's **Impact record** tab, which files them under the record's **Confirmed facts** section) count as evidence on later runs. **Update this résumé**, offered when that job is open, applies the new fact in one pass: only the lines it unlocks are rewritten, figures and the keyword score are checked again, and you accept the diff. A first résumé is still the three-draft pipeline.
 
 **Where things live.** The repo:
 
