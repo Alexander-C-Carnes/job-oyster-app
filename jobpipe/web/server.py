@@ -37,6 +37,7 @@ from .. import formats, jd, onboarding, own_formats, pinned, record_import, regi
 from .. import hiringcafe as hc
 from . import about, follow
 from .flow import application_flow
+from .menu import snapshot as menu_snapshot
 from ..postings import CLOSED_MESSAGE, PostingKeeper, fetch_posting, has_posting, mark_if_closed
 from ..jd import MIN_PASTED_CHARS, build_jd, normalize_posting_url, posting_url
 from ..config import ModelCfg
@@ -268,8 +269,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             supplied = request.headers.get("x-jobpipe-token") or (
                 request.query_params.get("t") if request.method == "GET" else None)
             if not supplied or not secrets.compare_digest(supplied, token):
-                return JSONResponse({"detail": "Missing or wrong token. Open the app with "
-                                               "`oyster run`, or the URL it prints."}, status_code=401)
+                return JSONResponse({"detail": "Missing or wrong token. Open the Mac app, "
+                                               "or `oyster run`, or the URL it prints."}, status_code=401)
         response = await call_next(request)
         if path.startswith("/static/"):
             # index.html links assets as ?v=<hash of their mtimes>, so those can be cached for good.
@@ -520,6 +521,19 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         except searches_file.SearchError as e:
             raise HTTPException(400, str(e)) from None
         return {**tracker_settings(), "moved": ghost_check(force=True)}
+
+    @app.get("/api/menu/settings")
+    def menu_settings():
+        return {"fit_floor": cfg.menu_fit_floor}
+
+    @app.put("/api/menu/settings")
+    def put_menu_settings(body: dict):
+        """searches.yaml's `menu.fit_floor`: Newest at fit N+ in the Mac menu bar (Profile › Menu Bar Settings)."""
+        try:
+            cfg.menu_fit_floor = searches_file.save_menu_fit_floor(searches_path, body.get("fit_floor"))
+        except searches_file.SearchError as e:
+            raise HTTPException(400, str(e)) from None
+        return menu_settings()
 
     @app.post("/api/jobs/{jid}/track")
     def track(jid: str):
@@ -1344,6 +1358,14 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def runs_going():
         """How many runs are going and waiting: the Mac app asks before quitting, which stops them."""
         return runs.going()
+
+    @app.get("/api/menu")
+    def menu_bar():
+        """The Mac menu bar: runs going (search, Make résumé, scores), résumés ready, new high fits."""
+        active = [{"id": r.id, "label": r.label, "status": r.status, "args": r.args}
+                  for r in (*runs.running(), *runs.waiting)]
+        scores = [{"id": jid, "kind": e["kind"], "state": e["state"]} for jid, e in scorer.active.items()]
+        return menu_snapshot(board.rows(), store.state(), active, scores=scores, fit_floor=cfg.menu_fit_floor)
 
     @app.post("/api/runs/stop-all")
     def stop_all_runs():

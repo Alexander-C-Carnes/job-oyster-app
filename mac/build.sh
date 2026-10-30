@@ -80,6 +80,7 @@ rm -rf "$RES/python/lib/python$PYVER/test" "$RES/python/lib/python$PYVER/idlelib
 
 say "Launcher and icon"
 swiftc -O -target "$ARCH-apple-macos12.0" -o "$APP/Contents/MacOS/JobOyster" mac/Launcher.swift
+swift mac/make_menubar_icon.swift "$RES/MenuBarIcon.png"
 ICONSET="$BUILD/AppIcon.iconset"; rm -rf "$ICONSET"; mkdir -p "$ICONSET"
 swift mac/make_icon.swift "$BUILD/icon-1024.png"
 for s in 16 32 128 256 512; do

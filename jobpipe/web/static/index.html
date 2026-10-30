@@ -45,10 +45,10 @@
   </header>
 
   <div id="auth-error" class="banner hidden">
-    Open this app with <code>oyster run</code>, or the link it prints (it includes your access token).
+    Open the Mac app, or this page with <code>oyster run</code> (the link it prints includes your access token).
   </div>
   <div id="offline" class="banner hidden">
-    The app can't reach its server, so what you see may be out of date. If it isn't running, start it with <code>oyster run</code>. This page reconnects by itself within a few seconds.
+    The app can't reach its server, so what you see may be out of date. If it isn't running, open the Mac app again, or start it from the command line with <code>oyster run</code>. This page reconnects by itself within a few seconds.
   </div>
   <div id="toast" class="toast hidden" role="status"></div>
 
@@ -350,6 +350,17 @@
             <span class="muted" id="ghosted-what">at Applied or Interviewing with no change of status. 0 turns it off.</span>
             <span id="ghosted-state" class="muted"></span>
             <button class="primary small" id="ghosted-save" disabled>Save</button>
+          </form>
+        </section>
+
+        <section class="pcard look-card menu-card" id="menu-card">
+          <h2>Menu Bar Settings</h2>
+          <p class="muted">The Mac menu bar lists new roles at this fit score or higher. Change it if 7 is too low or too high for what you want to see.</p>
+          <form id="menu-form" class="ghosted-form" novalidate>
+            <label class="inline">Show roles at fit score <input id="menu-fit" type="number" min="1" max="9" step="1" inputmode="numeric" value="7" aria-describedby="menu-fit-what"> or higher</label>
+            <span class="muted" id="menu-fit-what">7 matches fit score of 7+ since yesterday or today.</span>
+            <span id="menu-fit-state" class="muted"></span>
+            <button class="primary small" id="menu-fit-save" disabled>Save</button>
           </form>
         </section>
 

@@ -14,6 +14,20 @@ const TOKEN = (() => {
   }
   return t || "";
 })();
+// The menu bar opens a role, or Logs: ?job=<id>&tab=resume|posting|… or ?tab=runs. Read once, then drop them
+// so a refresh doesn't open the same role again.
+const OPEN = (() => {
+  const url = new URL(location.href);
+  const job = url.searchParams.get("job") || "";
+  const tab = url.searchParams.get("tab") || "";
+  if (url.searchParams.has("job") || url.searchParams.has("tab")) {
+    url.searchParams.delete("job");
+    url.searchParams.delete("tab");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+  return { job, tab };
+})();
+const DETAIL_TABS = ["resume", "posting", "report", "heatmap", "sent"];
 
 async function request(path, opts = {}) {
   let res;
@@ -26,7 +40,7 @@ async function request(path, opts = {}) {
     if (!(e instanceof TypeError)) throw e;
     // The server isn't answering: say so in words, not the browser's "Failed to fetch". Still a TypeError for the checks below.
     $("#offline").classList.remove("hidden");
-    throw new TypeError("Can't reach the app's server. Start it with oyster run.");
+    throw new TypeError("Can't reach the app's server. Open the Mac app again, or run oyster run from the command line.");
   }
   if (res.status === 401) { $("#auth-error").classList.remove("hidden"); throw new Error("Not authorized"); }
   return res;
@@ -171,7 +185,7 @@ function showTab(name) {
   if (name === "dashboard") renderDashboard();
   if (name in DOCS) DOCS[name].load();
   // Profile's cards load at once; the promise settles when all have (the About button scrolls down after that)
-  if (name === "profile") return Promise.allSettled([loadProfile(), loadAI(), loadFormats(), loadGhostDays(), loadAbout()]);
+  if (name === "profile") return Promise.allSettled([loadProfile(), loadAI(), loadFormats(), loadGhostDays(), loadMenuFit(), loadAbout()]);
 }
 
 // ---- what each action is called ----------------------------------------------------------------
@@ -4564,6 +4578,36 @@ $("#ghosted-form").addEventListener("submit", async (e) => {
   } catch (err) { toast(err.message, true); ghostDaysChanged(); }
 });
 
+// ---- profile: the Mac menu bar (searches.yaml's menu.fit_floor) --------------------------------
+const MF = { saved: null };
+async function loadMenuFit() {
+  try { MF.saved = (await api("/api/menu/settings")).fit_floor; } catch (e) { toast(e.message, true); MF.saved = 7; }
+  $("#menu-fit").value = MF.saved ?? 7;
+  menuFitChanged();
+}
+function menuFitChanged() {
+  const v = $("#menu-fit").value.trim();
+  const n = Number(v);
+  $("#menu-fit-save").disabled = v === "" || n === MF.saved;
+  $("#menu-fit-state").textContent = "";
+  if (Number.isFinite(n) && n >= 1) {
+    $("#menu-fit-what").textContent = `${n} matches fit score of ${n}+ since yesterday or today.`;
+  }
+}
+$("#menu-fit").addEventListener("input", menuFitChanged);
+$("#menu-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("#menu-fit-save");
+  btn.disabled = true;
+  try {
+    const r = await put("/api/menu/settings", { fit_floor: $("#menu-fit").value.trim() });
+    MF.saved = r.fit_floor;
+    $("#menu-fit").value = r.fit_floor;
+    $("#menu-fit-state").textContent = "✓ saved";
+    toast(`Saved. The menu bar lists newest roles at fit score ${r.fit_floor}+.`);
+  } catch (err) { toast(err.message, true); menuFitChanged(); }
+});
+
 // ---- about ------------------------------------------------------------------------------------
 // Profile's About card: the version this copy runs (the Mac app's number, or the commit a checkout is on) and
 // the newest release. The guides and GitHub links are plain links in index.html.
@@ -4583,7 +4627,7 @@ async function loadAbout() {
   if (run.version) {
     parts.push(h("b", {}, `Version ${run.version}`));
     if (latest && newerTag(latest.tag, run.version))
-      parts.push(" · ", rel, " is out. Check for Updates… in the Job Oyster menu gets it.");
+      parts.push(" · ", rel, " is out. Check for Updates… replaces this copy.");
     else if (latest) parts.push(" · the newest release");
   } else {
     parts.push(h("b", {}, run.commit ? "Running from the code" : "Version unknown"));
@@ -5617,6 +5661,8 @@ async function setupInterview(role, pane, redraw) {
   Object.entries(DOCS).forEach(([k, d]) => d.setView(S.docViews[k]));
   await Promise.all([loadSummary(), loadJobs()]);
   setScope("tracker");
+  if (OPEN.tab === "runs") showTab("runs");
+  else if (OPEN.job) openJob(OPEN.job, DETAIL_TABS.includes(OPEN.tab) ? OPEN.tab : undefined);
   api("/api/setup").then((d) => { WIZ.data = d; setupCard(); if (d.show) openSetup(0); }).catch(() => {});
   // An open document also picks up changes made elsewhere, e.g. notes Claude adds to interview prep.
   setInterval(() => { if (!document.hidden) { loadSummary(); if (S.tab in DOCS) DOCS[S.tab].load(); } }, 5000);

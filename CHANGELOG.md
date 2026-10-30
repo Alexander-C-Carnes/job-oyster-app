@@ -2,6 +2,27 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-30
+
+### Mac app
+- A menu-bar item while the app is open, with the Dock icon still there (quitting either quits the app)
+- The menu lists runs going or waiting, recently finished runs (about 45 seconds), résumés ready to send, and
+  newest roles at a fit-score floor since yesterday; click a row to open it in the browser
+- The number on the item is how many runs are going or waiting; a middle dot means résumés ready or new high
+  fits with no runs
+- On macOS Tahoe and later, if the oyster is missing from the menu bar, turn Job Oyster on under
+  System Settings → Menu Bar → Allow in the Menu Bar
+- **Check for Updates…** in the menu bar downloads a signed release and replaces this copy of the app; the
+  profile folder (`~/JobOyster`) is left as it is. An unsigned release still opens the releases page
+
+### Profile
+- A **Menu Bar Settings** card sets the fit floor for newest roles in the menu bar (1–9, 7 by default;
+  `menu.fit_floor` in `searches.yaml`). 7 matches Fit 7+ in the job list
+- When the page can't reach the server, it says to open the Mac app again, or `oyster run` from the command line
+
+### Running from code
+- `oyster run` still starts the server and opens the browser only; it does not open the Mac app or the menu bar
+
 ## 2026-10-29
 
 ### Profile

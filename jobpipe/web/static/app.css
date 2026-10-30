@@ -731,6 +731,8 @@ button.ref-chip:hover { border-color: var(--link); }
 .pcard { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px 6px; }
 .pcard h2 { font-size: 14px; margin-bottom: 8px; }
 .pcard > p.muted { margin: -4px 0 10px; max-width: 70ch; }
+.tracker-card > p.muted,
+.menu-card > p.muted { max-width: none; }
 details.pcard { padding-bottom: 14px; }
 details.pcard summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 details.pcard[open] summary { margin-bottom: 10px; }
@@ -1067,8 +1069,17 @@ dialog h2 + p { margin: -6px 0 12px; }
 /* Profile › Tracker: how long a role waits at Applied or Interviewing before it moves to Ghosted */
 .ghosted-form { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; }
 .ghosted-form label.inline { color: var(--ink); font-size: 13px; }
-.ghosted-form label.inline input { width: 72px; }
-.ghosted-form #ghosted-what { flex: 1 1 240px; font-size: 12px; }
+.ghosted-form label.inline input { width: 80px; padding-right: 4px; }
+/* Chrome/Safari hide number steppers until hover; keep them on for these Profile prefs. */
+.ghosted-form input[type=number]::-webkit-inner-spin-button,
+.ghosted-form input[type=number]::-webkit-outer-spin-button {
+  opacity: 1;
+  display: inline-block;
+  height: 1.4em;
+  margin-left: 2px;
+}
+.ghosted-form #ghosted-what,
+.ghosted-form #menu-fit-what { flex: 1 1 240px; font-size: 12px; }
 .about-card { margin-top: 14px; }
 .about-version { margin: 0 0 10px; font-size: 13px; }
 .about-version:empty { display: none; }

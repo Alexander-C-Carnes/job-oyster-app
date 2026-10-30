@@ -96,6 +96,10 @@ tracker:
   # back). Pick any other status for it if you do. 0 = never. Profile › Tracker sets this too.
   ghost_after_days: 60
 
+menu:
+  # Mac menu bar "Newest at fit score N+" (found or scored yesterday or today). Profile › Menu Bar Settings sets this too.
+  fit_floor: 7
+
 models:
   # Which AI does the work (the app's Profile tab sets all of this). backend: claude-code runs every
   # step through the Claude Code CLI (`claude -p`), which uses your Claude subscription (Pro/Max): no
