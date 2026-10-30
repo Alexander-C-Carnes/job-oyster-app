@@ -5266,7 +5266,7 @@ $("#fact-update").addEventListener("click", async () => {
     const res = await post(`/api/jobs/${encodeURIComponent(pending.id)}/resume/from-fact`, { text: pending.text });
     S.details.delete(pending.id);
     showFactBox(false);
-    toast(res.proposal ? "Review the diff, then accept or discard it." : (res.reply || "That fact doesn't change this résumé."));
+    toast(res.proposal ? "Review the diff, then accept or discard it." : "That fact doesn't change this résumé. The note is in the chat.");
     openJob(pending.id, "resume");
   } catch (err) { toast(err.message, true); }
   finally { btn.disabled = false; btn.textContent = "Update this résumé"; }
