@@ -173,6 +173,40 @@ def test_the_desktop_apps_bundled_cli_is_found_newest_first(tmp_path, monkeypatc
     assert ClaudeCodeRunner().bin == str(store / "2.1.295/9d6405864fdc/claude.app/Contents/MacOS/claude")
 
 
+def test_a_cli_removed_while_the_app_runs_is_found_again(tmp_path, monkeypatch):
+    """The CLI found at start-up can disappear (a Homebrew uninstall): the next call finds the one that's there now
+    instead of failing with "No such file or directory". A CLI the settings name is never swapped."""
+    old_dir, new_dir = tmp_path / "old", tmp_path / "new"
+    old_dir.mkdir(), new_dir.mkdir()
+    old, _ = fake_claude(old_dir, [result(OK)])
+    new, log = fake_claude(new_dir, [result(OK)])
+    monkeypatch.delenv("CLAUDE_BIN", raising=False)
+    monkeypatch.setattr(llm, "find_claude", lambda: old)
+    runner = ClaudeCodeRunner()
+    os.remove(old)
+    monkeypatch.setattr(llm, "find_claude", lambda: new)
+    asyncio.run(runner.run(call()))
+    assert runner.bin == new and log.exists()
+
+    pinned = ClaudeCodeRunner(claude_bin=str(tmp_path / "gone" / "claude"))
+    with pytest.raises(OSError):
+        asyncio.run(pinned.run(call()))
+
+
+def test_claude_status_reads_version_and_sign_in(tmp_path):
+    def cli(name, auth):
+        return str(script(tmp_path / name / "claude", f"""\
+            if sys.argv[1:] == ["--version"]: print("2.1.309 (Claude Code)")
+            else: print({auth!r})
+        """))
+    assert llm.claude_status(cli("in", '{"loggedIn": true, "email": "me@example.com"}')) == \
+        {"version": "2.1.309", "signed_in": True, "account": "me@example.com"}
+    assert llm.claude_status(cli("out", '{"loggedIn": false, "authMethod": "none"}')) == \
+        {"version": "2.1.309", "signed_in": False, "account": None}
+    assert llm.claude_status(cli("old", "error: unknown command auth"))["signed_in"] is None
+    with pytest.raises(RuntimeError, match="doesn't start"):
+        llm.claude_status(str(tmp_path / "missing" / "claude"))
+
 def test_crash_and_expired_login_say_what_happened(tmp_path):
     crashed = script(tmp_path / "c" / "claude", CRASH)
     with pytest.raises(AgentError, match=r"exited 1 without a result: TypeError: Cannot read properties"):

@@ -3511,6 +3511,8 @@ function searchCard(s) {
     h("div", { class: "tags" }, ...(s.titles || []).map((t) => h("span", { class: "tag" }, t))),
     h("div", { class: "facts" }, searchFacts(s)),
     (s.exclude_titles || []).length ? h("div", { class: "muted" }, "Excludes: ", s.exclude_titles.join(", ")) : null,
+    (s.companies || []).length ? h("div", { class: "muted" }, "Only at: ", s.companies.join(", ")) : null,
+    (s.exclude_companies || []).length ? h("div", { class: "muted" }, "Never at: ", s.exclude_companies.join(", ")) : null,
     req ? h("div", { class: "req" }, h("div", { class: "hint" }, "Sent to JobsPipe as POST /v1/jobs/search, with the defaults filled in. Showing it costs nothing."),
             h("pre", {}, typeof req === "string" ? req : JSON.stringify(req, null, 2))) : null,
     h("footer", {},
@@ -3594,6 +3596,7 @@ cafeForm.addEventListener("submit", async (e) => {
 const searchDialog = $("#search-dialog"), searchForm = $("#search-form");
 const sField = (name) => searchForm.elements.namedItem(name);
 const lines = (v) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+const SEARCH_LISTS = ["titles", "locations", "exclude_titles", "companies", "exclude_companies"];
 function openSearch(s, mode) {
   const df = S.defaults;
   searchDialog._base = s || {};
@@ -3603,12 +3606,13 @@ function openSearch(s, mode) {
   $("h2", searchForm).textContent = mode === "edit" ? "Edit filter" : "New filter";
   s = s || { remote: true };
   sField("name").value = s.name || "";
-  for (const k of ["titles", "locations", "exclude_titles"]) sField(k).value = (s[k] || []).join("\n");
+  for (const k of SEARCH_LISTS) sField(k).value = (s[k] || []).join("\n");
   for (const k of ["min_salary_usd", "posted_within_days", "limit"]) {
     sField(k).value = s[k] ?? "";
     sField(k).placeholder = df[k] ?? "";
   }
   sField("exclude_titles").placeholder = (df.exclude_titles || []).join("\n");
+  sField("exclude_companies").placeholder = (df.exclude_companies || []).join("\n");
   const wa = s.work_arrangement || [];
   const modeSel = sField("mode");
   $("option[value=keep]", modeSel)?.remove();
@@ -3627,7 +3631,7 @@ sField("where_codes").addEventListener("input", whereNote);
 $("[data-act=cancel]", searchForm).addEventListener("click", () => searchDialog.close());
 function searchBody() {
   const body = { ...searchDialog._base, name: sField("name").value.trim() };
-  for (const k of ["titles", "locations", "exclude_titles"]) body[k] = lines(sField(k).value);
+  for (const k of SEARCH_LISTS) body[k] = lines(sField(k).value);
   for (const k of ["min_salary_usd", "posted_within_days", "limit"]) body[k] = sField(k).value;
   const mode = sField("mode").value;
   if (mode !== "keep") { delete body.remote; delete body.work_arrangement; }
@@ -4944,6 +4948,7 @@ async function checkAI(quiet = false) {
       if (!box.value && d.models.length) box.value = d.models.includes(pick) ? pick : d.models[0];
     }
     setModels(d.models);
+    if (s.backend === "claude-code") claudeStatus();
     state.textContent = isClaude(s.backend) ? "" : typed
       ? `The key works: ${plural(d.models.length, "model")} available. Pick one for each step, then Save AI settings to keep it.`
       : `Connected: ${plural(d.models.length, "model")} available. Pick one for each step.`;
@@ -4955,19 +4960,30 @@ function aiChanged() {
   $("#ai-save").disabled = !dirty;
   if (dirty && !$("#ai-state").textContent) $("#ai-state").textContent = "Unsaved changes";
 }
+// Whether Claude Code is here and signed in: a green check when it's ready, else what's missing.
 async function claudeStatus() {
   const st = $("#ai-claude-state"), btn = $("#ai-claude-login");
-  st.replaceChildren(spinner());
+  st.classList.remove("ok", "warn");
+  st.replaceChildren(spinner(), " Checking…");
   try {
     const d = await api("/api/ai/claude");
     btn.disabled = !d.found;
-    st.replaceChildren(d.found ? "Opens Terminal: type /login there and sign in with your Claude account."
-      : h("span", {}, "Claude Code isn't installed. ", extLink("https://claude.ai/download", "Install the Claude app"), ", then reopen this tab."));
+    btn.textContent = d.signed_in ? "Sign in again…" : "Sign in to Claude…";
+    st.classList.toggle("ok", !!d.signed_in);
+    st.classList.toggle("warn", !d.found || d.signed_in === false);
+    st.replaceChildren(!d.found
+      ? h("span", {}, "Claude Code isn't installed. ", extLink("https://claude.ai/download", "Install the Claude app"), ", then reopen this tab.")
+      : d.signed_in ? `✓ Ready: signed in${d.account ? ` as ${d.account}` : ""}, Claude Code ${d.version}.`
+      : d.signed_in === false ? "Not signed in, or the sign-in expired. Click Sign in to Claude…, then type /login in Terminal."
+      : "Opens Terminal: type /login there and sign in with your Claude account.");
   } catch (e) { st.textContent = e.message; }
 }
 $("#ai-claude-login").addEventListener("click", async () => {
-  try { await post("/api/ai/claude-login"); toast("Terminal is open: type /login, sign in, then close it."); }
-  catch (e) { toast(e.message, true); }
+  try {
+    await post("/api/ai/claude-login");
+    toast("Terminal is open: type /login, sign in, then close it.");
+    window.addEventListener("focus", claudeStatus, { once: true });   // back from Terminal: show whether it worked
+  } catch (e) { toast(e.message, true); }
 });
 aField("backend").addEventListener("change", () => aiProviderShown(true));
 aForm.addEventListener("input", (e) => {
@@ -5424,9 +5440,11 @@ const SETUP_RENDER = {
       if (isClaude(d.backend) && d.backend === "claude-code") claude = await api("/api/ai/claude");
     } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
     const p = d.providers.find((x) => x.id === d.backend) || { label: d.backend };
-    const ready = claude ? !!claude.found : p.local || p.key_set;
-    const how = claude ? (claude.found ? "It runs on your Claude subscription, through Claude Code. If you haven't signed in to Claude Code yet, do that first."
-                                       : "Claude Code isn't installed, so the app can't reach Claude yet.")
+    const ready = claude ? !!claude.found && claude.signed_in !== false : p.local || p.key_set;
+    const how = claude ? (!claude.found ? "Claude Code isn't installed, so the app can't reach Claude yet."
+      : claude.signed_in ? `It runs on your Claude subscription, through Claude Code, signed in${claude.account ? ` as ${claude.account}` : ""}.`
+      : claude.signed_in === false ? "It runs on your Claude subscription, through Claude Code, but Claude Code isn't signed in (or the sign-in expired). Sign in first."
+      : "It runs on your Claude subscription, through Claude Code. If you haven't signed in to Claude Code yet, do that first.")
       : p.local ? "It runs on this computer." : p.key_set ? "Its key is saved in your profile folder." : "Its key isn't saved yet.";
     const change = h("button", { type: "button", class: "ghost", onclick: () => {
       setupDialog.close();

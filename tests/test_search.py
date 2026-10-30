@@ -2,7 +2,7 @@ import jobspipe
 import pytest
 
 from jobpipe import config
-from jobpipe.jobs_api import JobsClient, post_filter, salary_text, usd_range
+from jobpipe.jobs_api import JobsClient, company_matches, post_filter, salary_text, usd_range
 from jobpipe.store import Store, canonical_url, safe_id
 from conftest import FakeJobsAPI, jobspipe_client, make_job
 
@@ -84,6 +84,19 @@ def test_post_filter():
     assert keep and flags == ["pay not stated"]
     assert post_filter(make_job(closed_at="2026-09-01"), remote, True)[0] is False
 
+
+
+def test_a_filter_keeps_to_its_companies_and_drops_excluded_ones():
+    s = config._search({"id": "s", "titles": ["TPM"], "companies": ["Acme", "Initech"]},
+                       {"exclude_companies": ["Globex"]})
+    assert s.request_body()["company_name_partial_match_or"] == ["Acme", "Initech"]
+    assert "company_name_partial_match_or" not in config._search({"id": "s", "titles": ["TPM"]}, {}).request_body()
+    assert post_filter(make_job(company="Acme, Inc."), s, True) == (True, [])
+    assert post_filter(make_job(company="Acmetech"), s, True) == (False, ["not one of this filter's companies"])
+    never = config._search({"id": "s", "titles": ["TPM"]}, {"exclude_companies": ["Globex", "Meta"]})
+    assert post_filter(make_job(company="globex corp"), never, True) == (False, ["excluded company"])
+    assert post_filter(make_job(company="Metabase"), never, True)[0] is True
+    assert company_matches("AT&T", ["at&t"]) and not company_matches("Acme", ["", " "])
 
 def test_canonical_url_drops_tracking():
     assert canonical_url("https://Boards.greenhouse.io/acme/jobs/1?gh_src=abc&utm_source=x#top") == \

@@ -910,6 +910,12 @@ def test_searches_edit_round_trip(env):
     assert 'country: ["EU", "Schengen"]' in env["searches"].read_text()
     assert len(c.get("/api/searches/requests", headers=H).json()["em-eu"]["job_country_code_or"]) == 31
     assert c.get("/api/searches", headers=H).json()["searches"][-1]["country"] == ["EU", "Schengen"]
+    # Companies: only these, sent to JobsPipe; never these, dropped after
+    ss.append({"id": "tpm-co", "name": "TPM at", "titles": ["TPM"], "companies": ["Acme", ""], "exclude_companies": ["Globex"]})
+    assert c.put("/api/searches", headers=H, json={"searches": ss}).status_code == 200
+    assert 'companies: ["Acme"]' in env["searches"].read_text()
+    assert config.load(env["searches"]).search("tpm-co").exclude_companies == ["Globex"]
+    assert c.get("/api/searches/requests", headers=H).json()["tpm-co"]["company_name_partial_match_or"] == ["Acme"]
     narnia = [{"id": "x", "titles": ["x"], "country": "Narnia"}]
     assert "Where" in c.put("/api/searches", headers=H, json={"searches": narnia}).json()["detail"]
 
@@ -2012,6 +2018,9 @@ def test_claude_sign_in_helper(env, monkeypatch):
     assert "Install the Claude app" in c.post("/api/ai/claude-login", headers=H).json()["detail"]
 
     monkeypatch.setattr(llm, "find_claude", lambda: "/Apps/Claude Code/claude")
+    monkeypatch.setattr(llm, "claude_status", lambda b: {"version": "2.1.309", "signed_in": False, "account": None})
+    assert c.get("/api/ai/claude", headers=H).json() == \
+        {"found": "/Apps/Claude Code/claude", "version": "2.1.309", "signed_in": False, "account": None}
     opened = []
     monkeypatch.setattr(subprocess, "run", lambda args, **kw: opened.append(args))
     monkeypatch.setattr(sys, "platform", "darwin")
