@@ -93,6 +93,12 @@ class Marks:
             _write(self.file.path, data)
             return rec
 
+    def drop(self, key: str) -> None:
+        with self._lock:
+            data = dict(self.file.read())
+            if data.pop(key, None) is not None:
+                _write(self.file.path, data)
+
 
 def clean_url(raw: Any) -> str:
     """A referral link as typed: '' clears it, a bare domain gets https://. Raises ValueError."""
@@ -239,7 +245,7 @@ class JobBoard:
         slim = {"title": job.get("job_title") or "", "company": job.get("company") or "",
                 "location": job.get("location") or "", "mode": "Remote" if remote else "Hybrid" if mode == "Remote" else mode,
                 "remote": remote, "pay": salary_text(job), "pay_usd": hi or lo or None,   # the number the list sorts by
-                "url": posting_url(job), "posted": job.get("date_posted") or "",
+                "url": posting_url(job), "listing_url": job.get("listing_url") or "", "posted": job.get("date_posted") or "",
                 "no_posting": not (job.get("description") or "").strip(),   # Run full score and Make résumé wait for it
                 "company_domain": job.get("company_domain") or "", "funding": job.get("funding"),
                 "source": job.get("source") or ("Himalayas" if "himalayas.app/" in posting_url(job) else ""),
@@ -269,7 +275,7 @@ class JobBoard:
             out.append({
                 "id": jid, "title": job["title"] or st.get("exact_title") or "", "company": job["company"],
                 "location": job["location"], "mode": job["mode"], "remote": job["remote"], "pay": job["pay"], "pay_usd": job["pay_usd"],
-                "url": job["url"], "source": job.get("source", ""), "funding": self._funding(job),
+                "url": job["url"], "listing_url": job.get("listing_url", ""), "source": job.get("source", ""), "funding": self._funding(job),
                 "regions": job["regions"], "place": job.get("place", ""), "no_posting": job.get("no_posting", False),
                 "fit": tri.get("fit_score") if tri else None, "one_line": tri.get("one_line", ""),
                 "searches": st.get("searches", []), "tailored": bool(st.get("run_dir")),

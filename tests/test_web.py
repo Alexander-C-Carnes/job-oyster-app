@@ -19,6 +19,7 @@ from jobpipe.llm import AgentResult
 from jobpipe.notion import NotionTracker, TrackerEntry
 from jobpipe.store import Store, safe_id
 from jobpipe.tracker import LocalTracker
+from jobpipe.web import linked
 from jobpipe.web.board import Marks
 from jobpipe.web.runs import Busy, Run, RunManager
 from jobpipe.web.server import create_app
@@ -1547,6 +1548,27 @@ def test_track_and_dismiss_found_jobs(env):
     c.get("/api/jobs?refresh=1", headers=H)
     assert notion.rows["p1"]["properties"]["Status"]["status"]["name"] == "In progress"
     assert c.post("/api/jobs/nope/track", headers=H).status_code == 404
+
+
+def test_delete_a_dismissed_job_you_never_tracked(env):
+    c = env["client"]
+    assert c.delete("/api/jobs/j2", headers=H).status_code == 400            # dismiss it first
+    c.post("/api/jobs/j2/dismiss", headers=H, json={"dismissed": True})
+    c.patch("/api/jobs/j2", headers=H, json={"starred": True})
+    upload = linked.job_dir("uploads", "j2", Store().root)
+    upload.mkdir(parents=True)
+    (upload / "resume-final.md").write_text("# Jordan Rivera\n")
+    assert c.delete("/api/jobs/j2", headers=H).json() == {"ok": True}
+    assert not upload.exists()
+    assert "j2" not in {j["id"] for j in c.get("/api/jobs", headers=H).json()["jobs"]}
+    store = Store()
+    assert store.job("j2") == {} and "j2" not in store.state()
+    assert "j2" not in json.loads((store.root / "marks.json").read_text())
+    # a tracked job keeps its row, and an unknown one is unknown
+    c.post("/api/jobs/j1/dismiss", headers=H, json={"dismissed": True})
+    r = c.delete("/api/jobs/j1", headers=H)
+    assert r.status_code == 400 and "tracked" in r.json()["detail"] and store.job("j1")
+    assert c.delete("/api/jobs/nope", headers=H).status_code == 404
 
 
 def test_run_output_streams_while_running():

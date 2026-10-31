@@ -1520,9 +1520,13 @@ function renderBatch() {
   if (picked.length) {
     const ok = picked.filter(canScore), full = ok.filter((j) => !j.tailored), sig = ok.filter((j) => j.impact_score == null);
     const make = picked.filter((j) => j.local && !j.tailored && !RUNP.jobs.has(j.id));
+    const restore = S.findFilter === "dismissed", hide = picked.filter((j) => j.local && !j.tracker_id && j.dismissed === restore);
     parts.push(h("span", {}, h("b", {}, picked.length), " selected"),
       ...(S.scope === "find" ? [h("button", { class: "primary small", title: "Adds them to your tracker as Not started. You stay here.",
-        onclick: () => trackJobs(picked.map((j) => j.id)) }, "Track")] : []),
+        onclick: () => trackJobs(picked.map((j) => j.id)) }, "Track"),
+        h("button", { class: "ghost small", disabled: !hide.length,
+          title: restore ? "Puts them back in New." : "Moves them to Dismissed. Restore brings them back.",
+          onclick: () => dismissJobs(hide.map((j) => j.id), !restore) }, restore ? "Restore" : "Dismiss")] : []),
       h("button", { class: "ghost small", disabled: !sig.length, title: `${ACTIONS.signal.what} ${actionTime("signal")} each; roles with a full score are skipped.`,
         onclick: () => scoreJobs(sig.map((j) => j.id), "signal") }, "Signal score"),
       h("button", { class: "ghost small", disabled: !full.length, title: `${ACTIONS.full.what} ${actionTime("full")} each, one at a time.`,
@@ -1976,6 +1980,18 @@ async function trackJobs(ids) {
   stepPast(ids, at);
   loadJobs({ wait: true });
 }
+// The checked roles in Find jobs, dismissed (or restored) in one go.
+async function dismissJobs(ids, dismissed) {
+  const at = S.visible.findIndex((j) => ids.includes(j.id));
+  let done = 0;
+  try {
+    for (const id of ids) { await post(`/api/jobs/${encodeURIComponent(id)}/dismiss`, { dismissed }); done++; S.picks.delete(id); }
+  } catch (e) { toast(e.message, true); }
+  if (!done) return;
+  toast(dismissed ? `Dismissed ${plural(done, "role")}. They're under Dismissed if you change your mind.` : `Put ${plural(done, "role")} back in New.`);
+  await loadJobs();
+  stepPast(ids, at);
+}
 // After tracking, the open role left Find jobs: open the one that took its place in the list.
 function stepPast(ids, at) {
   if (S.scope !== "find" || (S.selected && !ids.includes(S.selected))) return;
@@ -1993,11 +2009,24 @@ async function dismissJob(j, dismissed) {
   j._el = j._card = null;
   setScope("find");       // moves on to the next role when this one left the list
 }
+// Only a dismissed role you never tracked: a tracked one has a tracker row (and maybe a Notion page) to keep.
+async function deleteJob(j) {
+  if (!confirm(`Delete ${j.title || "this job"}${j.company ? ` at ${j.company}` : ""}? Its posting text and scores are removed `
+    + "from Job Oyster. If a search finds it again, it comes back as a new job.")) return;
+  try {
+    await request(`/api/jobs/${encodeURIComponent(j.id)}`, { method: "DELETE" });
+  } catch (e) { toast(e.message, true); return; }
+  S.details.delete(j.id);
+  toast("Deleted.");
+  await loadJobs();
+  setScope("find");
+}
 function statusControl(j) {
   if (!j.tracker_id) {
     return h("span", { class: "actions-inline" },
       h("button", { class: "primary", onclick: () => trackJob(j) }, "Track"),
-      h("button", { class: "ghost", onclick: () => dismissJob(j, !j.dismissed) }, j.dismissed ? "Restore" : "Dismiss"));
+      h("button", { class: "ghost", onclick: () => dismissJob(j, !j.dismissed) }, j.dismissed ? "Restore" : "Dismiss"),
+      j.dismissed && j.local && h("button", { class: "ghost danger", title: "Remove this job from Job Oyster", onclick: () => deleteJob(j) }, "Delete"));
   }
   const sel = h("select", { class: "status-select", "data-stage": j.status, "aria-label": "Status" },
     ...(S.summary?.statuses || [j.status]).map((s) => h("option", { value: s, selected: s === j.status }, s)));
@@ -2051,7 +2080,6 @@ function detailHead(j) {
         h("button", { class: "icon-btn fold-btn", title: "Fold this header to one line", "aria-label": "Fold the header",
           "aria-expanded": "true", onclick: () => setFold("head", true) }, icon("up")),
         h("button", { class: "icon-btn drawer-close", title: "Close", "aria-label": "Close", onclick: closeDrawer }, icon("close")))),
-    noPosting(j) && postingNeeded(j),
     h("div", { class: "bar" },
       statusControl(j),
       refToggle(j),
@@ -2174,7 +2202,7 @@ function drawDetail() {
   else if (tab === "heatmap") panel.append(
     h("iframe", { class: "heatmap", sandbox: "allow-scripts", src: fileUrl(`/api/jobs/${encodeURIComponent(d.id)}/heatmap`) }));
   if (tab === "posting") panel.append(h("div", { class: "posting-split" },
-    h("div", { class: "posting-pane" }, postingMeta(j, d), postingBody(d.description)),
+    h("div", { class: "posting-pane" }, postingMeta(j, d), noPosting(j) ? postingNeeded(j) : postingBody(d.description)),
     h("aside", { class: "score-pane" }, scoreBlock(j, d))));
 }
 
@@ -2313,7 +2341,7 @@ const BULLET = /^\s*(?:[-*•·–]|\d+[.)])\s+/;
 function postingBody(text) {
   const lines = (text || "").split("\n").map((l) => l.trim());
   const box = h("div", { class: "posting-body" });
-  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Use Fetch posting above, or paste the description from its page, to score it and make its résumé.")); return box; }
+  if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Paste the description from its page to score it and make its résumé.")); return box; }
   const next = (i) => lines.slice(i + 1).find(Boolean) || "";
   let list = null;
   lines.forEach((line, i) => {
@@ -2337,11 +2365,11 @@ function postingMeta(j, d) {
   return h("div", { class: "posting-meta" },
     posted && !isNaN(posted) && h("span", {}, "Posted ", posted.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })),
     found.length ? h("span", {}, "Found by ", found.join(", ")) : null,
-    j.source && h("span", { class: "source-note" }, "Listed on ", extLink(j.url, j.source)),
-    extLink(j.url, "Open the original"),
+    j.source && h("span", { class: "source-note" }, "Listed on ", extLink(j.listing_url || j.url, j.source)),
+    (!j.source || j.listing_url && j.listing_url !== j.url) && extLink(j.url, "Open the original"),
     d.description_pasted && h("span", {}, d.description_read ? "Added from its link " : "Pasted by you ", fmtDate(d.description_pasted)),
     !d.description_pasted && d.posting_kept && h("span", { title: "Kept because you applied: it stays here after the posting comes down." }, "Saved when you applied ", fmtDate(d.posting_kept)),
-    h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
+    !noPosting(j) && h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
       d.description_pasted ? "Replace the pasted text…" : "Paste the description…"));
 }
 
@@ -2351,7 +2379,7 @@ const FETCHING = new Map();
 async function fetchPosting(j, auto = false) {
   if (FETCHING.get(j.id) === "busy") return;
   FETCHING.set(j.id, "busy");
-  if (S.selected === j.id) renderDetailHead();
+  if (S.selected === j.id) renderPostingNeeded();
   try {
     await post(`/api/jobs/${encodeURIComponent(j.id)}/fetch-posting`, {});
     FETCHING.set(j.id, "");
@@ -2361,19 +2389,31 @@ async function fetchPosting(j, auto = false) {
     if (!auto) toast("Posting added from its link.");
   } catch (e) {
     FETCHING.set(j.id, e.message);
-    if (S.selected === j.id) renderDetailHead();
+    if (S.selected === j.id) renderPostingNeeded();
   }
 }
-// Under the job's header while it has no posting text: why Run full score and Make résumé are off, and the two ways on.
+// In the posting pane while the job has no posting text: why Run full score and Make résumé are off, and the two ways on.
+// A closed one leads with that: pasting is the way on, since its page is gone.
 function postingNeeded(j) {
   const st = FETCHING.get(j.id);
   if (st === "busy") return h("div", { class: "needs-posting", role: "status" }, spinner(), h("span", {}, "Reading the posting from its link…"));
+  const closed = !!j.closed || /^This posting has closed/.test(st || "");
+  const paste = h("button", { class: closed ? "primary small" : "ghost small", onclick: () => openDescribe(j) }, "Paste the description…");
+  const fetch = j.url && h("button", { class: closed ? "ghost small" : "primary small", onclick: () => fetchPosting(j) },
+    closed ? "Try fetching again" : "Fetch posting");
   return h("div", { class: "needs-posting", role: "status" },
-    h("div", { class: "needs-why" }, h("p", {}, h("b", {}, "No posting text yet,"), " so Run full score and Make résumé are off."),
-      st && h("p", { class: "form-error" }, st)),
-    h("div", { class: "actions-inline" },
-      j.url && h("button", { class: "primary small", onclick: () => fetchPosting(j) }, "Fetch posting"),
-      h("button", { class: "ghost small", onclick: () => openDescribe(j) }, "Paste the description…")));
+    h("div", { class: "needs-why" },
+      closed ? h("p", {}, h("b", {}, "This posting has closed."), " The employer took it down before its text was saved. "
+          + "To score this job or make its résumé, paste the description if you have a copy.")
+        : h("p", {}, h("b", {}, "No posting text yet."), j.url ? " Fetch it from the job's link, or paste the description, to score this job and make its résumé."
+          : " Paste the description to score this job and make its résumé."),
+      st && !closed && h("p", { class: "form-error" }, st)),
+    h("div", { class: "actions-inline" }, ...(closed ? [paste, fetch] : [fetch, paste])));
+}
+
+function renderPostingNeeded() {
+  const j = S.byId.get(S.selected), old = $("#job-detail .needs-posting");
+  if (j && old) old.replaceWith(postingNeeded(j));
 }
 
 // The posting text pasted onto a role, for one whose stored text is missing, cut short or wrong.

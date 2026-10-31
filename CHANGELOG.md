@@ -4,6 +4,14 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-31
 
+### Finding jobs
+- Dismiss or restore the checked roles in one go
+- Delete a dismissed job you never tracked
+
+### Job details
+- The fetch-posting box sits in the Posting tab, and a closed posting says so
+- HiringCafe's listing and the original posting have their own links
+
 ### Setup
 - No more MIT license
 

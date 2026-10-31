@@ -572,6 +572,23 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         store.update(jid, dismissed=bool(body.get("dismissed", True)))
         return {"ok": True}
 
+    @app.delete("/api/jobs/{jid}")
+    def delete_job(jid: str):
+        """Remove a dismissed job you never tracked: its posting, scores, marks and uploaded résumé. A search
+        that finds it again brings it back as a new job."""
+        row = board.row(jid)
+        if not row or not row["local"]:
+            raise HTTPException(404, "Unknown job")
+        if row["tracker_id"]:
+            raise HTTPException(400, "This job is tracked, so it can't be deleted.")
+        if not row["dismissed"]:
+            raise HTTPException(400, "Dismiss the job before deleting it.")
+        store.forget(jid)
+        marks.drop(jid)
+        for kind in ("linked", "uploads"):   # a search that finds it again gets the same id: nothing of it may come back
+            shutil.rmtree(linked.job_dir(kind, jid, store.root), ignore_errors=True)
+        return {"ok": True}
+
     @app.patch("/api/jobs/{jid}")
     def mark_job(jid: str, body: dict):
         """Star a job or set its referral (kept in data/marks.json). referral_url is a link or an email
