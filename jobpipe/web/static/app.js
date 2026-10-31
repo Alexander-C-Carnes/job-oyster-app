@@ -1609,6 +1609,7 @@ function rowEl(j) {
           !j.tracker_id && j.posted && h("span", { class: "tag" }, `Posted ${fmtDate(j.posted.length === 10 ? j.posted + "T12:00" : j.posted)}`),
           j.pending && h("span", { class: "tag", title: "Saved here. It will be sent to Notion on the next sync." }, "To sync"),
           j.closed ? h("span", { class: "tag warn-tag", title: `Its posting had closed when the app checked on ${fmtDate(j.closed)}` }, "Closed")
+            : j.dismissed && j.low_fit ? h("span", { class: "tag", title: "Dismissed on its own: its signal score was at or below your setting in Profile › Tracker. A job you restore won't be dismissed again." }, "Low fit")
             : j.dismissed && h("span", { class: "tag" }, "Dismissed"),
           !j.local && h("span", { class: "tag", title: "None of your filters found it. Paste its description on the role, or a signal score reads it from its page." }, "No posting stored"))),
       rowEnd(j));
@@ -4572,13 +4573,36 @@ $("#pin-save").addEventListener("click", async () => {
 // ---- résumé format: the Profile's one default (jobpipe/formats.py). Choosing one can redraw every résumé
 // already made; one that would go over the new format's page limit keeps its format until it's trimmed.
 const F = { data: null, pick: null };
-// ---- profile: the tracker (searches.yaml's tracker.ghost_after_days) ----------------------------------------
-const GH = { saved: null };
+// ---- profile: the tracker (searches.yaml's tracker.ghost_after_days and pipeline.dismiss_at_or_below_fit) ------
+const GH = { saved: null, fit: null };
 async function loadGhostDays() {
-  try { GH.saved = (await api("/api/tracker/settings")).ghost_after_days; } catch (e) { toast(e.message, true); return; }
+  let r;
+  try { r = await api("/api/tracker/settings"); } catch (e) { toast(e.message, true); return; }
+  GH.saved = r.ghost_after_days;
+  GH.fit = r.dismiss_at_or_below_fit;
   $("#ghosted-days").value = GH.saved;
+  $("#lowfit-fit").value = GH.fit ?? "";
+  $("#lowfit-fit").max = r.dismiss_max;   // below the score that makes a résumé or tracks a job on its own
   ghostDaysChanged();
+  lowFitChanged();
 }
+function lowFitChanged() {
+  $("#lowfit-save").disabled = $("#lowfit-fit").value.trim() === String(GH.fit ?? "");
+  $("#lowfit-state").textContent = "";
+}
+$("#lowfit-fit").addEventListener("input", lowFitChanged);
+$("#lowfit-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("#lowfit-save").disabled = true;
+  try {
+    const r = await put("/api/tracker/settings", { dismiss_at_or_below_fit: $("#lowfit-fit").value.trim() });
+    GH.fit = r.dismiss_at_or_below_fit;
+    $("#lowfit-fit").value = GH.fit ?? "";
+    $("#lowfit-state").textContent = GH.fit == null ? "✓ off" : "✓ saved";
+    toast(GH.fit == null ? "Jobs won't be dismissed by their score."
+      : `Saved. Jobs scored from now on at ${GH.fit} or less move to Dismissed.`);
+  } catch (err) { toast(err.message, true); lowFitChanged(); }
+});
 function ghostDaysChanged() {
   const v = $("#ghosted-days").value.trim();
   $("#ghosted-save").disabled = v === "" || Number(v) === GH.saved;

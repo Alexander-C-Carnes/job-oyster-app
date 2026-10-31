@@ -282,7 +282,7 @@ class JobBoard:
                 "impact_score": st.get("impact_score"), "resume_score": st.get("resume_score"),
                 "ats_total": st.get("ats_total"), "posted": job["posted"], "first_seen": st.get("first_seen") or "",
                 "status": n["status"] if n else "", "local": True, "dismissed": bool(st.get("dismissed")),
-                "closed": st.get("closed_at") or "",
+                "closed": st.get("closed_at") or "", "low_fit": st.get("low_fit") or "",
                 **_tracker_fields(n),
                 **_mark_fields(m),
                 "sent_resume": self._sent_name(n),

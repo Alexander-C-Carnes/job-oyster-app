@@ -351,6 +351,12 @@
             <span id="ghosted-state" class="muted"></span>
             <button class="primary small" id="ghosted-save" disabled>Save</button>
           </form>
+          <form id="lowfit-form" class="ghosted-form" novalidate>
+            <label class="inline">Dismiss new jobs that score <input id="lowfit-fit" type="number" min="1" max="9" step="1" inputmode="numeric" placeholder="off" aria-describedby="lowfit-what"> or less</label>
+            <span class="muted" id="lowfit-what">right after they're scored. They move to Dismissed, tagged Low fit. A job you restore won't be dismissed again. Leave blank to turn this off.</span>
+            <span id="lowfit-state" class="muted"></span>
+            <button class="primary small" id="lowfit-save" disabled>Save</button>
+          </form>
         </section>
 
         <form id="profile-form" class="pview" autocomplete="off" novalidate>

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from jobpipe import cli, config
 from jobpipe.config import HiringCafeSearch, Search
 from jobpipe.hiringcafe import (ORIGIN, HiringCafe, LinkError, Page, Unreadable, describe, links, listing_url,
-                                search_url, to_job)
+                                page_props, search_url, to_job)
 from jobpipe.jobs_api import JobsClient
 from jobpipe.pipeline import Pipeline
 from jobpipe.store import Store
@@ -29,19 +29,28 @@ TOKEN = "test-token"
 H = {"X-Jobpipe-Token": TOKEN}
 
 
+ACME_POSTING = "<p>About the role</p><ul><li>Run Acme Robotics' release trains.</li></ul>" + "<p>More about Acme.</p>" * 40
+
+
+def listing_page(job: dict) -> str:
+    return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps({"props": {"pageProps": {"job": job}}})}</script>'
+
+
 class FakeCafe:
     """HiringCafe's pages by address; `blocked` answers as its bot check does."""
 
-    def __init__(self, blocked=False):
+    def __init__(self, blocked=False, checked=()):
         self.blocked = blocked
+        self.checked = set(checked)     # pages the bot check answers for
         self.asked: list[str] = []
         self.pages = {search_url(STATE, 0): (FIX / "search-page-0.html").read_text(),
                       search_url(STATE, 1): (FIX / "search-page-1.html").read_text(),
-                      f"{ORIGIN}/job/rq0004example": (FIX / "listing.html").read_text()}
+                      f"{ORIGIN}/job/rq0004example": (FIX / "listing.html").read_text(),
+                      f"{ORIGIN}/job/rq0001example": listing_page({"job_information": {"description": ACME_POSTING}})}
 
     def __call__(self, url: str, follow: bool = True) -> Page:
         self.asked.append(url)
-        if self.blocked:
+        if self.blocked or url in self.checked:
             return Page(403, "<title>Just a moment...</title>", challenged=True)
         if url == f"{ORIGIN}/s/Ab12Cd34" and not follow:     # a share link leads to the search page it names
             return Page(307, location=search_url(STATE).removeprefix(ORIGIN))
@@ -51,7 +60,7 @@ class FakeCafe:
 
 
 def cafe(fake=None, **kw) -> HiringCafe:
-    return HiringCafe(fetch=fake or FakeCafe(), pause=0, **kw)
+    return HiringCafe(fetch=fake or FakeCafe(), pause=0, listing_pause=0, **kw)
 
 
 def saved(sid="hc-tpm", paused=False) -> HiringCafeSearch:
@@ -75,23 +84,46 @@ def test_a_share_link_is_read_once_for_its_search_and_a_search_link_needs_no_req
         cafe(FakeCafe(blocked=True)).resolve(SHARE)
 
 
-def test_a_search_reads_each_page_and_fills_in_a_result_with_no_apply_link():
+def test_a_search_reads_each_page_and_each_results_listing_for_its_posting():
     fake = FakeCafe()
     jobs = cafe(fake).search(saved())
-    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1), f"{ORIGIN}/job/rq0004example"]
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1),
+                          *(f"{ORIGIN}/job/rq000{n}example" for n in (1, 2, 4, 5))]      # not expired Globex's
     assert [j["company"] for j in jobs] == ["Acme Robotics", "Northwind Data", "Initech", "Acme"]   # Globex's expired
     acme = jobs[0]
     assert acme["url"] == acme["apply_url"] == "https://job-boards.greenhouse.io/acmerobotics/jobs/4001"
     assert acme["source"] == "HiringCafe" and acme["listing_url"] == f"{ORIGIN}/job/rq0001example"
     assert (acme["remote"], acme["hybrid"], acme["country_codes"], acme["date_posted"]) == (True, False, ["US"], "2026-10-15")
     assert (acme["salary_string"], acme["min_annual_salary_usd"], acme["max_annual_salary_usd"]) == ("USD 180k–220k", 180000, 220000)
-    assert acme["description"].startswith("Lead technical programs at Acme Robotics")     # the short summary
-    north = jobs[1]
+    assert "Run Acme Robotics' release trains." in acme["description"] and "<li>" not in acme["description"]
+    north = jobs[1]         # its listing couldn't be read: no posting text, never the result's short summary
+    assert north["description"] == ""
     assert north["hybrid"] and not north["remote"] and north["salary_string"] == "" and "max_annual_salary_usd" not in north
     initech = jobs[2]       # its listing page gave the apply link and the whole posting
     assert initech["url"] == "https://initech.example.com/jobs/4" and initech["salary_string"] == "USD 150k"
     assert "Run Initech's platform programs" in initech["description"] and "<li>" not in initech["description"]
     assert len(cafe(max_pages=1).search(saved())) == 2
+    fake.asked.clear()      # a result the app has the posting for isn't read again, with an apply link or without
+    cafe(fake).search(saved(), lambda job: False)
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
+
+
+def test_once_the_bot_check_turns_a_listing_away_no_more_are_read_until_the_next_run():
+    fake = FakeCafe(checked=[f"{ORIGIN}/job/rq0001example"])
+    lines = []
+    hc = cafe(fake, log=lines.append)
+    jobs = hc.search(saved())
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1), f"{ORIGIN}/job/rq0001example"]
+    assert len(jobs) == 4 and all(j["description"] == "" for j in jobs)
+    assert any("no more listings are read this run" in line for line in lines)
+    initech = next(j for j in jobs if j["company"] == "Initech")       # its link stays its HiringCafe page
+    assert initech["url"] == listing_url({"requisition_id": "rq0004example"})
+    fake.checked.clear()
+    fake.asked.clear()
+    hc.search(saved())                                                  # still this run: listings stay unread
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
+    hc.reset()                                                          # the next run reads them again
+    assert "Run Acme Robotics' release trains." in hc.search(saved())[0]["description"]
 
 
 def test_a_result_whose_listing_cant_be_read_keeps_its_hiringcafe_page():
@@ -112,8 +144,9 @@ def test_a_run_joins_a_result_to_the_jobspipe_job_at_the_same_posting(tmp_dirs):
     store = Store()
     tpm = Search(id="tpm", name="TPM", titles=["Technical Program Manager"], remote=True)
     fake_api = FakeJobsAPI({"Technical Program Manager": [make_job("jp1")]})
+    fake = FakeCafe()
     p = Pipeline(cfg, store=store, jobs=JobsClient(cfg, store, client=jobspipe_client(fake_api)), runner=FakeRunner({}),
-                 use_notion=False, log=lambda s: None, fetch_pages=False, hiringcafe=cafe())
+                 use_notion=False, log=lambda s: None, fetch_pages=False, hiringcafe=cafe(fake))
     cands, _ = p.search([tpm], [saved()])
     assert sorted(c.meta.company for c in cands) == ["Acme", "Acme Robotics", "Initech", "Northwind Data"]
     jp1 = store.job("jp1")       # one job: JobsPipe's, which HiringCafe's search found as well
@@ -122,9 +155,23 @@ def test_a_run_joins_a_result_to_the_jobspipe_job_at_the_same_posting(tmp_dirs):
     check = store.hiringcafe_checks()["hc-tpm"]
     assert (check["found"], check["new"]) == (4, 3) and check["at"]
 
+    fake.asked.clear()
     cands, _ = p.search([], [saved()])                   # the next run: nothing new
     assert len(cands) == 4 and store.hiringcafe_checks()["hc-tpm"]["new"] == 0 and len(store.state()) == 4
+    # Initech's result has no apply link: its stored job is found by its listing, which has its posting already
+    assert f"{ORIGIN}/job/rq0004example" not in fake.asked and f"{ORIGIN}/job/rq0001example" not in fake.asked
 
+
+def test_a_run_fills_in_a_stored_job_that_only_had_hiringcafes_summary(tmp_dirs):
+    store = Store()
+    acme, north = map(to_job, page_props((FIX / "search-page-0.html").read_text())["ssrHits"][:2])
+    store.save_job({**acme, "description": "Lead technical programs at Acme Robotics."}, "hc-tpm")
+    store.save_job({**north, "description": "Pasted by you. " * 30, "description_pasted": "2026-10-20"}, "hc-tpm")
+    p = Pipeline(config.load(), store=store, jobs=JobsClient(config.load(), store, client=jobspipe_client(FakeJobsAPI({}))),
+                 runner=FakeRunner({}), use_notion=False, log=lambda s: None, fetch_pages=False, hiringcafe=cafe())
+    p.search([], [saved()])
+    assert "Run Acme Robotics' release trains." in store.job(acme["id"])["description"]
+    assert store.job(north["id"])["description"] == "Pasted by you. " * 30
 
 
 def test_a_run_drops_hiringcafe_results_at_the_defaults_excluded_companies(tmp_dirs):
@@ -134,6 +181,7 @@ def test_a_run_drops_hiringcafe_results_at_the_defaults_excluded_companies(tmp_d
                  runner=FakeRunner({}), use_notion=False, log=lambda s: None, fetch_pages=False, hiringcafe=cafe())
     cands, skipped = p.search([], [saved()])
     assert "Initech" not in [c.meta.company for c in cands] and any("Initech: excluded company" in s for s in skipped)
+
 
 def test_a_search_the_bot_check_turns_away_is_recorded_and_the_run_goes_on(tmp_dirs):
     cfg = config.load()

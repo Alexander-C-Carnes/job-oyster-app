@@ -289,6 +289,35 @@ def save_resume_format(path: Path, fid: str) -> None:
 GHOST_DAYS_MAX = 3650
 
 
+def save_low_fit(path: Path, fit: Any, top: int = 9) -> Optional[int]:
+    """Set `pipeline.dismiss_at_or_below_fit` (blank: off), keeping the file's comments. `top` is the highest it may
+    be (lowfit.highest: below the score that makes a résumé or tracks a job on its own). Returns the fit or None."""
+    raw = "" if fit is None else str(fit).strip()
+    if top < 1:
+        if raw:
+            raise SearchError("Every score already makes a résumé or goes to the tracker, so none can be dismissed.")
+        fit = None
+    else:
+        bad = f"Enter a whole number from 1 to {top}, or leave it blank to turn this off."
+        try:
+            fit = int(raw) if raw else None
+        except ValueError:
+            raise SearchError(bad) from None
+        if fit is not None and not 1 <= fit <= top:
+            raise SearchError(bad + f" A job scoring {top + 1} or more gets a résumé or goes to the tracker on its own.")
+    doc = _yaml().load(path.read_text())
+    m = doc.get("pipeline")
+    if m is None:
+        m = CommentedMap()
+        doc["pipeline"] = m
+    m["dismiss_at_or_below_fit"] = fit
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        _yaml().dump(doc, f)
+    tmp.replace(path)
+    return fit
+
+
 def save_ghost_days(path: Path, days: Any) -> int:
     """Set `tracker.ghost_after_days`, keeping the file's comments (adding the section if needed). Returns the days."""
     try:

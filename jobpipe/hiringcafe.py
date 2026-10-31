@@ -6,10 +6,10 @@ decoded searchState is kept in searches.yaml beside the link, so a run doesn't d
 
 HiringCafe renders its search page on its server: /classic?searchState=…&page=N carries that page's results (40 at
 most) in the page's __NEXT_DATA__ JSON, and each result has the employer's own apply link. That link is the job's
-url, so a job HiringCafe found is the one JobsPipe or Himalayas found at the same posting, and its posting text is
-read from the employer's page, as for theirs. A result with no apply link has its HiringCafe listing (/job/<id>)
-read for one. HiringCafe's robots.txt asks crawlers to keep off search pages; this reads one person's saved searches,
-a page or two each per run.
+url, so a job HiringCafe found is the one JobsPipe or Himalayas found at the same posting. A result carries only a
+short summary, not the posting: a new result's HiringCafe listing (/job/<id>) is read for the whole posting text,
+and a result with no apply link has it read for the link too. HiringCafe's robots.txt asks crawlers to keep off
+search pages (it lets anyone read /job/); this reads one person's saved searches, a page or two each per run.
 
 HiringCafe sits behind Cloudflare's bot check. Plain HTTP clients (httpx, curl) and headless Chromium get its "Just a
 moment…" challenge (403, cf-mitigated: challenge) on every page; curl_cffi, which connects with Chrome's TLS and
@@ -35,7 +35,7 @@ HOST = "hiringcafe.com"
 HOSTS = {HOST, "hiring.cafe"}       # hiring.cafe sends every page on to hiringcafe.com
 ORIGIN = f"https://{HOST}"
 SOURCE = "HiringCafe"
-LINK_FIELDS = ("url", "final_url", "source_url", "apply_url")     # where a stored job keeps its posting's links
+LINK_FIELDS = ("url", "final_url", "source_url", "apply_url", "listing_url")     # where a stored job keeps its posting's links
 
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json"[^>]*>(.*?)</script>', re.S)
 _SHARE = re.compile(r"/s/([A-Za-z0-9_-]+)/?$")
@@ -47,6 +47,10 @@ class LinkError(ValueError):
 
 class Unreadable(RuntimeError):
     """HiringCafe didn't give the page: its bot check, an error status or no connection."""
+
+
+class Blocked(Unreadable):
+    """HiringCafe's bot check, or a 403/429: it's turning this connection away for now, not just that page."""
 
 
 @dataclass
@@ -131,6 +135,12 @@ def describe(state: dict) -> str:
     return " · ".join(p for p in parts if p)
 
 
+def posting_text(raw: dict) -> str:
+    """The whole posting a HiringCafe job carries (its listing page's does; a search result's doesn't), as text."""
+    text = (raw.get("job_information") or {}).get("description") or ""
+    return html_to_text(text) if "<" in text else text
+
+
 def _num(v) -> Optional[float]:
     try:
         return float(v) if v not in (None, "") and float(v) > 0 else None
@@ -152,7 +162,6 @@ def to_job(raw: dict) -> dict:
         pay = f"{cur} {k(lo)}–{k(hi)}" if lo and hi and lo != hi else f"{cur} {k(hi or lo)}"
     posted = (v.get("estimated_publish_date") or "")[:10]
     countries = [c for c in v.get("workplace_countries") or [] if isinstance(c, str)]
-    text = info.get("description") or ""
     job = {
         "id": safe_id(url),         # a stored job at the same posting keeps its own id (Pipeline._hiringcafe)
         "job_title": info.get("title") or v.get("core_job_title") or "",
@@ -165,8 +174,7 @@ def to_job(raw: dict) -> dict:
         "seniority": v.get("seniority_level") or "",
         "employment_statuses": [c for c in v.get("commitment") or [] if isinstance(c, str)],
         "salary_string": pay.strip(),
-        # A result's own text is a short summary: the posting is read from the employer's page when it's scored.
-        "description": html_to_text(text) if "<" in text else text or v.get("requirements_summary") or "",
+        "description": posting_text(raw),       # "" when the listing wasn't read: never the result's short summary
     }
     if cur == "USD":
         job.update(min_annual_salary_usd=lo, max_annual_salary_usd=hi)
@@ -189,18 +197,26 @@ def posting_index(store: Store) -> dict[str, str]:
 
 class HiringCafe:
     def __init__(self, *, fetch: Optional[Fetch] = None, max_pages: int = 3, pause: float = 1.0,
-                 log: Callable[[str], None] = lambda s: None):
+                 listing_pause: float = 3.0, log: Callable[[str], None] = lambda s: None):
         self._fetch = fetch             # made on first use: curl_cffi and the DNS lookup only when there's a search
         self.max_pages = max_pages      # 40 results a page; a search's newest week is rarely more than one
         self.pause = pause              # seconds between pages
+        self.listing_pause = listing_pause      # seconds between listings: ~17 a second apart got the bot check (2026-10-28)
+        self.blocked = False            # the bot check turned a listing away: no more listings until reset()
         self.log = log
+
+    def reset(self) -> None:
+        """A new run: read listings again."""
+        self.blocked = False
 
     def _get(self, url: str, follow: bool = True) -> Page:
         if self._fetch is None:
             self._fetch = browser_fetch()
         p = self._fetch(url, follow)
         if p.challenged:
-            raise Unreadable("HiringCafe's bot check (Cloudflare) turned the request away")
+            raise Blocked("HiringCafe's bot check (Cloudflare) turned the request away")
+        if p.status in (403, 429):
+            raise Blocked(f"HiringCafe answered {p.status}")
         if p.status >= 400:
             raise Unreadable(f"HiringCafe answered {p.status}")
         return p
@@ -243,22 +259,39 @@ class HiringCafe:
         return got
 
     def _listing(self, raw: dict) -> dict:
-        """A result with no apply link, filled in from its listing page (the link and the posting text)."""
+        """A result filled in from its listing page: the posting text, and the apply link when it had none."""
         url = listing_url(raw)
+        if self.blocked or not url:
+            return raw
+        time.sleep(self.listing_pause)
         try:
-            job = page_props(self._get(url).text).get("job") if url else None
+            job = page_props(self._get(url).text).get("job")
+        except Blocked as e:
+            self.blocked = True
+            self.log(f"  HiringCafe: {e} at {url}, so no more listings are read this run")
+            return raw
         except Unreadable as e:
             self.log(f"  HiringCafe: couldn't read {url} ({e})")
             return raw
         return {**raw, **job} if isinstance(job, dict) else raw
 
-    def search(self, s: HiringCafeSearch) -> list[dict]:
-        """The search's open results as stored jobs, one per posting."""
+    def listing_text(self, url: str) -> str:
+        """The posting text on a HiringCafe listing page, or "" when it can't be read."""
+        try:
+            job = page_props(self._get(url).text).get("job")
+        except Unreadable:
+            return ""
+        return posting_text(job) if isinstance(job, dict) else ""
+
+    def search(self, s: HiringCafeSearch, wanted: Callable[[dict], bool] = lambda job: True) -> list[dict]:
+        """The search's open results as stored jobs, one per posting. A result's listing is read only when
+        wanted(job) (the app has no posting text for it yet): for the posting, and the apply link when it has none.
+        A stored job is matched by its listing too, so one whose result has no apply link isn't read again."""
         jobs: dict[str, dict] = {}
         for raw in self.results(s.search_state):
             if raw.get("is_expired"):
                 continue
-            if not raw.get("apply_url"):
+            if (not raw.get("apply_url") or not posting_text(raw)) and wanted(to_job(raw)):
                 raw = self._listing(raw)
             job = to_job(raw)
             if job["url"] and job["job_title"]:

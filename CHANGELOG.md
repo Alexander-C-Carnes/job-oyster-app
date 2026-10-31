@@ -5,8 +5,10 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 ## 2026-10-31
 
 ### Finding jobs
+- Dismiss jobs that score too low, as soon as they're scored
 - Dismiss or restore the checked roles in one go
 - Delete a dismissed job you never tracked
+- HiringCafe jobs come with their whole posting
 
 ### Job details
 - The fetch-posting box sits in the Posting tab, and a closed posting says so

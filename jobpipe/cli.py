@@ -13,6 +13,7 @@
   startups roles ID    A startup's open roles from its careers board; --add stores the matching ones as jobs
   startups enrich ID   Look up a startup's latest round (needs FUNDABLE_API_KEY or PDL_API_KEY)
   check-postings       Re-check that roles are still open; closed ones in Search Jobs go to Dismissed, tracked ones are tagged Closed
+  dismiss-low-fit      Dismiss the scored jobs at pipeline.dismiss_at_or_below_fit or less
   credits              JobsPipe credit ledger
   serve                Local web app (job board, searches, runs, résumé review and edits)
   show-request         Print the request body each saved search would send (free)
@@ -280,6 +281,16 @@ def _tracked() -> dict[str, str]:
         return {r[0]: r[1] for r in con.execute("SELECT job_id, status FROM tracker WHERE job_id IS NOT NULL")}
 
 
+def cmd_dismiss_low_fit(cfg, args):
+    from .lowfit import dismiss_low_fit
+    from .store import Store
+    if cfg.dismiss_at_or_below_fit is None:
+        print("Set pipeline.dismiss_at_or_below_fit in searches.yaml first (e.g. 4).")
+        return
+    if not dismiss_low_fit(cfg, Store(), log=print):
+        print(f"No scored jobs at {cfg.dismiss_at_or_below_fit} or less to dismiss.")
+
+
 def cmd_check_postings(cfg, args):
     from .postings import check_closed
     from .store import Store
@@ -347,6 +358,9 @@ def main(argv=None) -> None:
 
     sub.add_parser("jobs").set_defaults(fn=cmd_jobs)
     sub.add_parser("credits").set_defaults(fn=cmd_credits)
+
+    sub.add_parser("dismiss-low-fit", help="dismiss the scored jobs at pipeline.dismiss_at_or_below_fit or less "
+                   "(new scores are dismissed as they come in)").set_defaults(fn=cmd_dismiss_low_fit)
 
     p = sub.add_parser("check-postings", help="move roles in Search Jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
     p.add_argument("--limit", type=int, default=200)

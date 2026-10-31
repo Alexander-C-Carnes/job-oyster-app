@@ -12,9 +12,10 @@ from . import config
 from .config import Config, HiringCafeSearch, Search
 from .hiringcafe import HiringCafe, Unreadable, links, posting_index
 from .himalayas import Himalayas
-from .jd import build_jd, posting_url
+from .jd import MIN_DESCRIPTION_CHARS, build_jd, posting_url
 from .jobs_api import BudgetExhausted, JobsClient, company_matches, post_filter, salary_text, work_mode
 from .llm import PROVIDERS, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner, Runner
+from .lowfit import dismiss_low_fit
 from .notion import APPLIED_STATUSES, NotionTracker, TrackerEntry
 from .startups import funding_line
 from .store import Store, canonical_url, slug
@@ -240,25 +241,34 @@ class Pipeline:
 
     def _hiringcafe(self, searches: Sequence[HiringCafeSearch]) -> list[tuple[dict, HiringCafeSearch]]:
         """Each HiringCafe search's jobs (free). A result at a posting already stored, from any source, is that job,
-        as it's stored: it only gains this search. Each check is recorded with how many jobs were new."""
+        as it's stored: it only gains this search, and the posting text when it had none. Each check is recorded
+        with how many jobs were new."""
         if not searches:
             return []
         self.hiringcafe = self.hiringcafe or HiringCafe(log=self.log)
+        self.hiringcafe.reset()
         known = posting_index(self.store)
+        stored_as = lambda job: next((known[k] for k in sorted(links(job)) if k in known), None)
+
+        def wanted(job: dict) -> bool:          # a listing is read only for a job without its posting text
+            jid = stored_as(job)
+            have = self.store.job(jid) if jid else {}
+            return not have.get("description_pasted") and len((have.get("description") or "").strip()) < MIN_DESCRIPTION_CHARS
         out = []
         for s in searches:
             try:
-                found = self.hiringcafe.search(s)
+                found = self.hiringcafe.search(s, wanted)
             except Unreadable as e:
                 self.log(f"{s.id}: HiringCafe search not read: {e}")
                 self.store.record_hiringcafe_check(s.id, error=str(e))
                 continue
             new = 0
             for job in found:
-                jid = next((known[k] for k in sorted(links(job)) if k in known), None)
+                jid = stored_as(job)
                 stored = self.store.job(jid) if jid else {}
                 if stored:
-                    job = stored
+                    longer = len(job["description"]) > len((stored.get("description") or "").strip())
+                    job = {**stored, "description": job["description"]} if longer and not stored.get("description_pasted") else stored
                 else:
                     new += 1
                 self.store.save_job(job, s.id)
@@ -306,6 +316,7 @@ class Pipeline:
                 self.store.update(c.id, triage=r.__dict__, triaged_at=self.today)
             elif r is not None:
                 c.error = f"triage failed: {r}"
+        dismiss_low_fit(self.cfg, self.store, [c.id for c in cands if isinstance(results.get(c.id), Triage)], self.log)
 
     def shortlist(self, cands: list[Candidate], top: int) -> list[Candidate]:
         ok = [c for c in cands if c.triage and c.triage.fit_score >= self.cfg.shortlist_min_fit]

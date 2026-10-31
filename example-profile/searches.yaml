@@ -72,6 +72,11 @@ pipeline:
   # resume-job-fit pipeline (3 analysts, matcher, 3 writers, merge, PDF, report)
   # on the best ones.
   shortlist_min_fit: 7
+  # A job whose signal score is at or below this is dismissed right after it's scored, tagged Low fit. It stays
+  # below shortlist_min_fit and the track_min_fit settings: a score that makes a résumé or tracks a job never
+  # dismisses it. Tracked and starred jobs are left alone, and a job you restore won't be dismissed again. null = off.
+  # Profile › Tracker sets this too. `python -m jobpipe dismiss-low-fit` applies it to jobs scored before.
+  dismiss_at_or_below_fit: null
   tailor_top: 3
   # Salary floor enforced locally too. Jobs that do not state pay are kept and
   # flagged, since JobsPipe may still have matched them on a parsed salary.

@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from . import jd
+from . import hiringcafe, jd
 from .jd import MIN_DESCRIPTION_CHARS, MIN_PASTED_CHARS, linkedin_job_id, posting_url
 from .notion import APPLIED_STATUSES
 from .store import canonical_url, now_iso
@@ -156,19 +156,27 @@ def mark_if_closed(store: Any, jid: str, client: Optional[httpx.Client] = None) 
 
 
 def fetch_posting(store: Any, jid: str, read: Optional[Callable[[str], dict]] = None,
-                  client: Optional[httpx.Client] = None) -> str:
+                  client: Optional[httpx.Client] = None, listing: Optional[Callable[[str], str]] = None) -> str:
     """Read a stored job's posting from its link, as Add job does, and keep it when it holds more than the job
-    has (marked read from the link, so a later search or refresh doesn't replace it). Returns "" when the job
-    has its posting now, else why it couldn't be read (a posting found closed is tagged so)."""
+    has (marked read from the link, so a later search or refresh doesn't replace it). A job HiringCafe found is
+    read from its HiringCafe listing first, then the employer's page. Returns "" when the job has its posting now,
+    else why it couldn't be read (a posting found closed is tagged so)."""
     job = store.job(jid)
     url = posting_url(job) if job else ""
     if not url:
         return "This job has no link to read its posting from. Paste the description from its page."
-    try:
-        found = (read or jd.read_posting)(url)
-    except Exception:  # noqa: BLE001 - a page that can't be read is reported, not raised
-        found = {}
-    text = (found.get("description") or "").strip()
+    text, found = "", {}
+    if hiringcafe.is_link(job.get("listing_url") or ""):
+        try:
+            text = (listing or (lambda u: hiringcafe.HiringCafe().listing_text(u)))(job["listing_url"]).strip()
+        except Exception:  # noqa: BLE001 - curl_cffi missing or no connection: the employer's page is next
+            text = ""
+    if len(text) < MIN_PASTED_CHARS:
+        try:
+            found = (read or jd.read_posting)(url)
+        except Exception:  # noqa: BLE001 - a page that can't be read is reported, not raised
+            found = {}
+        text = (found.get("description") or "").strip()
     if len(text) < MIN_PASTED_CHARS:
         if found.get("browser_check"):
             return (f"{found['browser_check']} only shows its pages to a person's browser, so the app can't read "

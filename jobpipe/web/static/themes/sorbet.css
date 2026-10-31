@@ -560,7 +560,7 @@ html[data-theme="sorbet"] .ghosted-note { border-left: 0; border-radius: 16px; p
 html[data-theme="sorbet"] .ghosted-note b { font: 600 13.5px var(--display); }
 html[data-theme="sorbet"] .ghosted-form label.inline { font: 600 15px var(--display); }
 html[data-theme="sorbet"] .ghosted-form input { border-radius: 999px; text-align: center; font: 700 16px var(--display); }
-html[data-theme="sorbet"] #ghosted-state { display: inline-block; color: var(--good); font-weight: 700; }
+html[data-theme="sorbet"] #ghosted-state, html[data-theme="sorbet"] #lowfit-state { display: inline-block; color: var(--good); font-weight: 700; }
 html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: sorbet-pop 930ms var(--open); }
 @media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] #ghosted-state:not(:empty) { animation: none; } }
 
