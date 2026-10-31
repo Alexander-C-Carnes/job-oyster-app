@@ -77,6 +77,7 @@ const ICONS = {
   right: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5.5L12 10l-4.5 4.5"/></svg>',
   resume: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.8h6.6L15.2 6.4v10.8H5z"/><path d="M11.4 2.8v3.8h3.8M7.6 10h4.8M7.6 13h4.8"/></svg>',
   palette: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5a7.5 7.5 0 1 0 0 15c1.3 0 1.9-.8 1.9-1.6 0-.9-.6-1.2-.6-2 0-.9.7-1.4 1.6-1.4h1.4c1.8 0 3.2-1.3 3.2-3.1C17.5 5.6 14.1 2.5 10 2.5z"/><circle cx="6.5" cy="9" r="1.1"/><circle cx="9" cy="5.8" r="1.1"/><circle cx="13" cy="6.2" r="1.1"/></svg>',
+  pay: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.8v14.4"/><path d="M13.6 6.8C13.2 5.2 11.8 4.4 10 4.4 7.8 4.4 6.4 5.6 6.4 7.2S7.8 9.6 10 10.2c2.4.6 3.8 1.4 3.8 3 0 1.6-1.6 2.8-3.8 2.8s-3.2-.8-3.6-2.2"/></svg>',
 };
 function icon(name) {
   const s = h("span", { class: "ico" });
@@ -459,7 +460,7 @@ function renderSync() {
 }
 
 // ---- jobs: filters --------------------------------------------------------------------------
-const FLAGS = { starred: (j) => j.starred, referral: (j) => !!j.referral_url, remote: (j) => j.remote, tailored: (j) => j.tailored };
+const FLAGS = { starred: (j) => j.starred, referral: (j) => !!j.referral_url, remote: (j) => j.remote, tailored: (j) => j.tailored, paid: (j) => !!known(j.pay) };
 // Filters with a choice of values, where a role matches any value picked: the score it shows (the full score
 // where there is one, else the signal score), its kind of company (a startup is one whose round is known), and
 // where it is (the server reads its country and location; "London or New York" is in the US and the UK).
@@ -664,7 +665,7 @@ function setView(view) {
 // Three parts fold on their own so the selected role, and above all its résumé and the chat, get the room:
 // the filters to one strip, the list to a rail of scores, the role's header to one line.
 const FOLDS = ["filters", "list", "head"];
-const FLAG_NAMES = { starred: "Starred", referral: "Has referral", remote: "Remote", tailored: "Has résumé" };
+const FLAG_NAMES = { starred: "Starred", referral: "Has referral", remote: "Remote", tailored: "Has résumé", paid: "Has pay" };
 const allFolded = () => FOLDS.every((k) => S.fold[k]);
 function applyFolds() {
   const tab = $("#tab-jobs");

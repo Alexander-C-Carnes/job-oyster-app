@@ -9,6 +9,7 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ### Tracker
 - Ready to send, above the list
+- Added a "Has pay" filter on both Tracker and Search Jobs tabs, shows only roles that state a salary
 
 ### Mac app
 - A notification when a résumé finishes
