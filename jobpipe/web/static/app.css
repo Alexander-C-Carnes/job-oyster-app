@@ -135,7 +135,8 @@ h1, h2, h3, p { margin: 0; }
 .pill.live { border-color: var(--link); color: var(--link); background: var(--panel); }
 .banner { background: #fff4e5; color: #6b3e00; padding: 10px 16px; border-bottom: 1px solid #f3d19c; }
 .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--panel);
-  padding: 9px 14px; border-radius: 8px; z-index: 60; max-width: 80vw; box-shadow: var(--shadow); }
+  padding: 9px 14px; border-radius: 8px; z-index: 60; max-width: min(42rem, 80vw); max-height: 8.5rem;
+  overflow: auto; box-shadow: var(--shadow); }
 .toast.error { background: var(--bad); color: #fff; }
 
 main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -818,6 +819,9 @@ details.pcard[open] summary { margin-bottom: 10px; }
 .fact-box p { margin: 2px 0 8px; font-size: 13px; max-width: 90ch; }
 .fact-box textarea { width: 100%; }
 .fact-box .actions { margin-top: 8px; justify-content: flex-start; }
+.fact-box.offered .fact-fields { display: none; }
+.fact-box .fact-offer p { max-width: 70ch; }
+.report-next { margin: 18px 0 4px; }
 .doc-body { display: grid; grid-template-columns: 230px minmax(0, 1fr) minmax(0, 1fr); flex: 1; min-height: 0; }
 .doc-body[data-view="edit"] { grid-template-columns: 230px minmax(0, 1fr); }
 .doc-body[data-view="edit"] .doc-preview { display: none; }

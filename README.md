@@ -53,7 +53,7 @@ Then pick a job and try the three actions:
 | **Full score** | Every requirement checked against your record, with a heat map and gaps to fill | a few minutes |
 | **Make résumé** | A tailored, checked résumé PDF and a fit report | ~25 minutes |
 
-The fit report ends with questions about anything you haven't shown yet. Answer them with **Add a confirmed fact** in the **Impact record** (under **Profile**), and the next résumé can use what you said.
+The fit report ends with questions about anything you haven't shown yet. Answer them with **Add a confirmed fact** in the **Impact record** (under **Profile**). If that job's résumé is open, **Update this résumé** rewrites only the lines the fact unlocks, checks them, and shows a diff you accept. Making a résumé again is for a first version.
 
 ## What it costs
 

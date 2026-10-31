@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-31
 
+### Résumés
+- Update a résumé from a confirmed fact without remaking it
+
 ### Tracker
 - Ready to send, above the list
 

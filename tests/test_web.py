@@ -31,14 +31,24 @@ JOB_URL = "https://boards.greenhouse.io/acme/jobs/j1"
 
 
 class EditRunner:
-    """Claude in the résumé chat: a message ending in "?" gets an answer and no edit; anything else an edit."""
+    """Claude in the résumé chat: a message ending in "?" gets an answer and no edit; anything else an edit.
+    A fact update is one rewrite pass (resume-fact), or no rewrite when fact_same is set."""
     def __init__(self, reply=None):
         self.calls = []
         self.reply = reply
+        self.fact_same = False
         self.pipeline = FakeRunner()    # triage and the tailoring stages
 
     async def run(self, call):
         self.calls.append(call)
+        if call.label == "resume-fact":
+            if self.fact_same:
+                return AgentResult(files={"reply.md": "That fact doesn't unlock a line on this résumé."}, summary="")
+            md = _resume().replace("Technical Program Manager with 9+ years",
+                                   "Technical Program Manager with 9+ years who cut page volume by 99%,")
+            return AgentResult(files={"resume-edited.md": md,
+                                     "reply.md": "- Summary: named a 99% page-volume cut, from the confirmed fact."},
+                               summary="ok")
         if call.label != "resume-edit":
             return await self.pipeline.run(call)
         if call.tail.split("new message:\n", 1)[1].split("\n")[0].endswith("?"):
@@ -1500,6 +1510,54 @@ def test_confirmed_facts(env):
     # a record changed since the app opened it isn't added to unseen
     r = c.post("/api/impact-record/facts", headers=H, json={"text": "x y z", "version": v})
     assert r.status_code == 409 and r.json()["current"]["version"] == d["version"]
+
+
+def test_update_resume_from_a_confirmed_fact(env):
+    """One pass rewrites from the fact, checks figures and keywords, and waits for accept.
+    It does not re-rate every requirement or run the three-draft pipeline."""
+    c, run_dir, runner = env["client"], env["run_dir"], env["runner"]
+    _ratings(run_dir)
+    fact = "I ran the vendor migration at Northwind. I did not manage the vendor's team."
+    before = (run_dir / "resume-final.md").read_text()
+    # only a fact the record holds as confirmed: a typed claim can't be passed off as one
+    r = c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"text": fact})
+    assert r.status_code == 400 and "Confirmed facts" in r.json()["detail"] and not runner.calls
+    v = c.get("/api/impact-record", headers=H).json()["version"]
+    c.post("/api/impact-record/facts", headers=H, json={"text": fact, "version": v})
+    r = c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"text": fact})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    p = body["proposal"]
+    assert p["kind"] == "fact" and p["instruction"] == fact and p["rerated"] is False
+    assert p["check"]["passed"] is True and p["keywords_pct"] == 100.0
+    assert p["ats_parts"]["keywords"] == 100.0          # measured on this draft; skills were not re-rated
+    assert any("99" in (line["why"] + line["line"]) for line in p["honesty"]["lines"])
+    assert p["honesty"]["flagged"] >= 1 and "figure" in p["honesty"]["note"]
+    assert any(o["op"] != "same" and "99" in (o.get("new") or "") for o in p["diff"])
+    assert "99%" in p["changes_html"]
+    call = runner.calls[-1]
+    assert call.label == "resume-fact" and call.model == env["cfg"].writer_model
+    assert call.documents["confirmed-fact.md"] == fact and "only the lines" in call.instructions
+    assert not any(x.label != "resume-fact" for x in runner.calls)
+    assert (run_dir / "resume-final.md").read_text() == before          # nothing saved yet
+
+    h = c.post("/api/jobs/j1/edit/accept", headers=H).json()
+    assert h["current"] == 2 and h["versions"][-1]["source"] == "fact"
+    assert "99%" in (run_dir / "resume-final.md").read_text()
+    assert "update from a confirmed fact as v2" in c.get("/api/jobs/j1/chat", headers=H).json()["chat"][-1]["text"]
+
+    runner.fact_same = True
+    same = c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"text": fact}).json()
+    assert same["proposal"] is None and "doesn't unlock" in same["reply"]
+    assert (run_dir / "resume-final.md").read_text().count("99%") == 1   # the accepted line, not a new draft
+
+    runner.fact_same = False
+    c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "Tighten the summary"})
+    waiting = c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"text": fact})
+    assert waiting.status_code == 409 and "proposed edit is waiting" in waiting.json()["detail"]
+    assert c.get("/api/jobs/j1/edit", headers=H).json()["proposal"]["instruction"] == "Tighten the summary"
+    assert c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"text": "  "}).status_code == 400
+    assert c.post("/api/jobs/j2/resume/from-fact", headers=H, json={"text": fact}).status_code == 404
 
 
 def test_add_confirmed_fact():

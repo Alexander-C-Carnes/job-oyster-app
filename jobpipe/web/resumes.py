@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .. import config, formats, render
+from .. import config, evidence, formats, render
 from ..config import Config, ModelCfg
 from ..llm import AgentCall, Runner, brief
 from ..tailor import VALUE, exact_title, normalize_keywords, run_script, scorecard
@@ -63,6 +63,19 @@ Rules for everything you change on your own (his instruction overrides them):
 4. Keep to the length limit at the end of this brief.
 5. Change only what he asks for. Keep the posting's own wording where the evidence supports it.
 """
+FACT_BRIEF = """# Update the résumé from one confirmed fact
+
+{name} just confirmed a fact that was not available when this résumé was written. The current résumé, the posting, and the match brief are below. The new fact is in confirmed-fact.md.
+
+This is one pass, not a new résumé. Rewrite only the lines this fact unlocks: a line that had to stay vague, a bullet the résumé left out because the evidence was missing, or a posting phrase the fact now lets you use. Every other line stays word for word, including the headline, the dates, and any section the fact does not touch.
+
+1. The fact is user-confirmed evidence. Use it at exactly the scope it states. Do not widen a verb, add a figure it does not state, or invent a tool, a title, or a team.
+2. Follow the Do-not-claim list in 04-match.md. The fact does not unlock a claim that list forbids.
+3. If the fact does not change what the résumé can honestly say, do not write resume-edited.md. Say so in reply.md.
+4. When lines do change, write resume-edited.md (the complete résumé) and reply.md: which lines changed, and the words of the fact behind each.
+5. Keep the exact markdown shape of the writer brief (headings, job lines, italic date lines, CORE SKILLS, plain characters only).
+6. Keep to the length limit at the end of this brief.
+"""
 CHAT_TURNS = 24     # earlier messages sent with each new one
 TAILORED = "Tailored resume"    # the tailored résumé's source name in ratings-final.json
 
@@ -81,6 +94,10 @@ SCORE_KEYS = ("ats", "ats_parts", "resume_score", "ratings", "rerated", "rating"
 
 class EditError(RuntimeError):
     pass
+
+
+class PendingEdit(EditError):
+    """A proposal is already waiting, so a fact update must not replace it unseen."""
 
 
 def _now() -> str:
@@ -417,6 +434,75 @@ class ResumeWorkspace:
         self._say("claude", reply, proposal=True, **tag)
         return {"reply": reply, "proposal": {**proposal, "diff": diff(current, new_md)}}
 
+    async def update_from_fact(self, fact: str, runner: Runner, cfg: Config) -> dict:
+        """One pass over the current résumé from a fact just confirmed. Rewrites only the lines that fact
+        unlocks, then checks figures and the keyword score. The result is a proposal, accepted like any edit.
+        The three-draft pipeline is not run."""
+        if not self.editable():
+            raise EditError("This résumé was saved without its posting and match brief, so it can't be updated "
+                            "from a fact here.")
+        fact = re.sub(r"\s*\n\s*", " ", fact).strip()
+        if not fact:
+            raise EditError("Write the fact to update from.")
+        if len(fact) > 2000:
+            raise EditError("That fact is too long to apply in one pass.")
+        h = await asyncio.to_thread(self.history)
+        if h.get("proposal"):
+            raise PendingEdit("A proposed edit is waiting. Accept or discard it, then update from this fact.")
+        current = self.md(h["current"])
+        cand = config.candidate()
+        target = self.format
+        docs = {"jd.md": (self.run_dir / "jd.md").read_text(),
+                "04-match.md": (self.run_dir / "04-match.md").read_text(),
+                f"resume-current.md (v{h['current']})": current,
+                "writer brief (for the resume shape)": brief("05-resume-writer.md"),
+                "confirmed-fact.md": fact}
+        title = self.title()
+        call = AgentCall(label="resume-fact", model=cfg.writer_model,
+                         instructions=cand.personalize(FACT_BRIEF) + "\n" + formats.length_rules(target),
+                         documents=docs, expect=["reply.md"], prose_file="reply.md",
+                         tail="Apply confirmed-fact.md. Change only the lines it unlocks."
+                         + (f"\n\nThe posting's exact job title: {title}" if title else ""))
+        self._say("note", "Updating the résumé from a confirmed fact.")
+        try:
+            return await self._from_fact(fact, runner, call, h, current, target)
+        except BaseException:
+            self._say("note", "That update didn't finish. Try it again.")
+            raise
+
+    async def _from_fact(self, fact: str, runner: Runner, call: AgentCall, h: dict, current: str,
+                         target: formats.Format) -> dict:
+        res = await runner.run(call)
+        reply = res.files.get("reply.md", "").strip() or "Nothing in the résumé changed."
+        new_md = res.files.get("resume-edited.md", "")
+        if not new_md.strip() or new_md.strip() == current.strip():
+            self._say("claude", reply)
+            return {"reply": reply, "proposal": None}
+        prop_md = self.vdir / "proposal.md"
+        prop_md.write_text(new_md)
+        prior = self.prior(h)
+        (pages, pdf_text), check, honesty = await asyncio.gather(
+            asyncio.to_thread(render.render_pdf, new_md, self.vdir / "proposal.pdf", None, target, self.pdf_title),
+            asyncio.to_thread(self.check, prop_md, target),
+            asyncio.to_thread(self._honesty, new_md, fact))
+        scores = (self.scores(prior["ratings"], prior["score"], pdf_text or new_md, rerated=False)
+                  if prior else {})
+        proposal = {"created": _now(), "kind": "fact", "instruction": fact, "changes": reply,
+                    "pages": pages, "check": check, "honesty": honesty, "format": target.id,
+                    "keywords_pct": self.keyword_pct(new_md), "base": h["current"], **scores}
+        h["proposal"] = proposal
+        self._save(h)
+        self._say("claude", reply, proposal=True)
+        return {"reply": reply, "proposal": {**proposal, "diff": diff(current, new_md)}}
+
+    def _honesty(self, md: str, fact: str) -> dict:
+        """Figures in the draft against the impact record, the other résumés, and this fact.
+        The support models stay out of the web process."""
+        trace = self.run_dir / "trace-final.md"
+        match = self.run_dir / "04-match.md"
+        return honesty_report(md, trace.read_text() if trace.exists() else "",
+                              match.read_text() if match.exists() else "", fact)
+
     def accept(self) -> dict:
         h = self.history()
         p = h.get("proposal")
@@ -428,13 +514,16 @@ class ResumeWorkspace:
         (self.vdir / "proposal.md").rename(self.vdir / f"v{n}.md")
         (self.vdir / "proposal.pdf").rename(self.vdir / f"v{n}.pdf")
         fid = p.get("format") or h.get("format") or self._drawn_in()
-        h["versions"].append({"n": n, "created": _now(), "source": "edit", "instruction": p["instruction"],
-                              "changes": p["changes"], "keywords_pct": p["keywords_pct"], "check": p["check"],
-                              "format": fid, **{k: p[k] for k in SCORE_KEYS if k in p}})
+        from_fact = p.get("kind") == "fact"
+        h["versions"].append({"n": n, "created": _now(), "source": "fact" if from_fact else "edit",
+                              "instruction": p["instruction"], "changes": p["changes"],
+                              "keywords_pct": p["keywords_pct"], "check": p["check"], "format": fid,
+                              **{k: p[k] for k in SCORE_KEYS if k in p}})
         h["current"], h["proposal"], h["format"] = n, None, fid
         self._save(h)
         self._export(n)
-        self._say("note", f"Accepted the proposed edit as v{n}.")
+        word = "update from a confirmed fact" if from_fact else "proposed edit"
+        self._say("note", f"Accepted the {word} as v{n}.")
         return h
 
     def current_scores(self) -> dict:
@@ -690,6 +779,26 @@ def apply_page_edits(md: str, edits: list[dict]) -> tuple[str, int]:
             continue
         lines[n] = lines[n][:m.start(2)] + _patch(m.group(2), old, new) + lines[n][m.end(2):]
     return "\n".join(l for k, l in enumerate(lines) if k not in gone), changed
+
+
+def honesty_report(md: str, trace_md: str, match_md: str, fact: str) -> dict:
+    """The figure check for one draft: every number has to appear in the impact record, the other résumés,
+    or this fact. Support models are not loaded here."""
+    passages = list(evidence.candidate_passages())
+    fact = fact.strip()
+    if fact:
+        passages.extend(evidence.split_markdown("Confirmed facts", fact) or [evidence.Passage("Confirmed facts", fact)])
+    checks = evidence.check_lines(md, trace_md, match_md, passages)
+    flagged = [c for c in checks if c.flagged]
+    lines = []
+    for c in flagged[:8]:
+        why = []
+        if c.missing_figures:
+            why.append("figures not in the evidence: " + ", ".join(c.missing_figures))
+        lines.append({"line": c.line, "why": "; ".join(why)})
+    return {"checked": len(checks), "flagged": len(flagged), "lines": lines,
+            "note": "Every figure was checked against the impact record, your other résumés, and this fact. "
+                    "A flagged line states a number that evidence does not. The support models are not run on this pass."}
 
 
 def diff(old: str, new: str) -> list[dict]:
