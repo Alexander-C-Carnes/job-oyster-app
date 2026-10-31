@@ -245,6 +245,13 @@ def no_evidence_models():
 
 
 @pytest.fixture(autouse=True)
+def no_pay_watcher(monkeypatch):
+    """The app's background pay reader would call the model for every new job; tests run a reading themselves."""
+    from jobpipe import pay_parse
+    monkeypatch.setattr(pay_parse, "WATCH", False)
+
+
+@pytest.fixture(autouse=True)
 def no_posting_keeper(monkeypatch):
     """The app's background keeper of applied postings would read pages from the web mid-test; it's off,
     and a test that wants it calls PostingKeeper.run_once() itself."""

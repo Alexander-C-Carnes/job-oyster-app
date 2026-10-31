@@ -112,6 +112,8 @@ class Store:
         old = {} if is_new else self.job(jid)
         if old.get("description_pasted") and not job.get("description_pasted"):
             job = {**job, **{k: old[k] for k in ("description", "description_pasted", "description_read", "description_before_paste") if k in old}}
+        from . import pay_parse
+        job = pay_parse.merge_save(old, job)
         _write(path, job)
         with self._locked():
             state = self.state()
@@ -129,17 +131,38 @@ class Store:
         """Keep the posting text you pasted for a stored job (`read`: the app read it from the job's link, as
         Add job does); scoring and tailoring read it first. The text it replaces is kept beside it."""
         job = self.job(jid)
+        old = job.get("description") or ""
         if not job.get("description_pasted"):
-            job["description_before_paste"] = job.get("description") or ""
+            job["description_before_paste"] = old
         job.update(description=text, description_pasted=now_iso(), description_read=read)
+        if text.strip() != old.strip():
+            from . import pay_parse
+            pay_parse.note_change(job)
         _write(self.jobs_dir / f"{jid}.json", job)
 
     def keep_posting(self, jid: str, text: str) -> None:
         """Keep the posting text read from a stored job's page (a job you applied to, whose listing text was
         short), so it can be read after the page comes down."""
         job = self.job(jid)
+        old = job.get("description") or ""
         job.update(description=text, posting_kept=now_iso())
+        if text.strip() != old.strip():
+            from . import pay_parse
+            pay_parse.note_change(job)
         _write(self.jobs_dir / f"{jid}.json", job)
+
+    def update_job(self, jid: str, **fields: Any) -> dict:
+        """Merge fields into the stored job. None removes a field."""
+        job = self.job(jid)
+        if not job:
+            raise KeyError(jid)
+        for k, v in fields.items():
+            if v is None:
+                job.pop(k, None)
+            else:
+                job[k] = v
+        _write(self.jobs_dir / f"{jid}.json", job)
+        return job
 
     def forget(self, jid: str) -> None:
         """Remove a job: its file and its entry (scores, searches, dismissed) in the state."""

@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import traceback
+from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -27,13 +28,13 @@ from typing import Any, Optional
 
 import httpx
 import markdown as md_lib
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
+from .. import formats, jd, onboarding, own_formats, pay_parse, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from .. import lowfit
 from . import about, follow
@@ -190,7 +191,21 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     impact_path = impact_path or config.REFERENCES / "impact-record.md"
     prep_path = prep_path or store.root / "interview-prep.md"   # personal notes, in the profile's data/
     allowed = allowed_hosts or {"127.0.0.1", "localhost"}
-    app = FastAPI(title="jobpipe", docs_url=None, redoc_url=None, openapi_url=None)
+    pay_hold: dict[str, Any] = {}
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        task = None
+        if pay_parse.WATCH and pay_hold:
+            task = asyncio.create_task(pay_parse.watch(
+                pay_hold["store"], pay_hold["runner"], pay_hold["model"], pay_hold["status"]))
+        yield
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(title="jobpipe", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     state: dict[str, Any] = {"runner": None, "edit_locks": {}, "reports": {}, "chatting": set(),
                              "chat_runners": {}, "model_lists": {}}
     # The tracker lives in data/tracker.db. Given a NotionTracker (or none), it is wrapped here; the first
@@ -266,6 +281,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 raise HTTPException(400, str(e)) from None
             state["chat_runners"][backend] = (sig, r)
         return state["chat_runners"][backend][1], ModelCfg(model, chat.effort), via
+
+    pay_status = pay_parse.Status()
+    state["pay"] = pay_status
+    pay_hold.update(store=store, runner=get_runner, model=cfg.triage_model, status=pay_status)
 
     # ---- security ----------------------------------------------------------------
     @app.middleware("http")
@@ -460,7 +479,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 "statuses": list(STATUSES), "active_runs": [{**r.public(len(r.lines)), "progress": progress.of(r),
                                  "queue_position": runs.queue_position(r)} for r in (*runs.running(), *runs.waiting)],
                 "max_runs": runs.max_runs,
-                "scoring": scorer.public(), "startups": startups_summary(), "durations": progress.durations()}
+                "scoring": scorer.public(), "pay_parse": pay_status.public(),
+                "startups": startups_summary(), "durations": progress.durations()}
 
     @app.get("/api/jobs")
     def jobs(request: Request, refresh: bool = False, wait: bool = False):
@@ -768,6 +788,24 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         store.paste_description(jid, text)
         return {"id": jid}
 
+    @app.post("/api/jobs/{jid}/parse-pay")
+    async def parse_pay(jid: str):
+        """Find pay in the stored posting. Runs even when a reading already finished, and does not replace
+        pay the listing itself gave."""
+        if not store.job(jid):
+            raise HTTPException(404, "Unknown job")
+
+        async def once():
+            return await pay_parse.parse_job(store, get_runner(), cfg.triage_model, jid, force=True)
+
+        try:
+            return await pay_parse.run_locked(pay_status, jid, once)
+        except pay_parse.NoPosting as e:
+            raise HTTPException(400, str(e)) from None
+        except Exception as e:  # noqa: BLE001 - the model failing is the answer, and the flag stays due
+            raise HTTPException(502, "Couldn't read pay from the posting: "
+                                + (str(e).splitlines()[0][:200] if str(e) else "no reply")) from None
+
     @app.post("/api/jobs/{jid}/fetch-posting")
     async def fetch_job_posting(jid: str):
         """Read a stored job's posting from its link, as Add job does, for one that came without its text
@@ -809,6 +847,16 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if row["tailored"]:
             raise HTTPException(400, "Make résumé already scored every requirement for this job. "
                                      "Make its résumé again to refresh that score.")
+        async def read_pay():
+            return await pay_parse.parse_job(store, get_runner(), cfg.triage_model, jid)
+
+        try:
+            got = await pay_parse.run_locked(pay_status, jid, read_pay)
+        except Exception:  # noqa: BLE001 - a pay reading that fails still leaves the score to run
+            got = {"error": True}
+        if not got.get("skipped") and not got.get("error"):
+            job = store.job(jid) or job
+            jd_md, _ = build_jd(job, fetch=False)
         meta = Candidate(job, "manual").meta
         out_dir = config.OUTPUTS / date.today().isoformat()
         run_dir = out_dir / "runs" / slug(meta.company, meta.title, jid)   # where a tailoring run will look
@@ -902,6 +950,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                                   "description": job.get("description") or "", "description_pasted": job.get("description_pasted") or "",
                                   "description_read": bool(job.get("description_read")),
                                   "posting_kept": job.get("posting_kept") or "",
+                                  "pay_parse": job.get("pay_parse"),
                                   "has_heatmap": bool(heatmap_path(jid))}
         if row["tailored"]:
             ws = workspace(jid)

@@ -141,7 +141,8 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
             scope: "tracker", sel: { tracker: null, find: null }, findFilter: "new",
             // Folded parts of the jobs tab, so the selected role (above all its résumé) gets the room.
             fold: { filters: !!prefs.fold?.filters, list: !!prefs.fold?.list, head: !!prefs.fold?.head },
-            selected: null, drawer: false, detailTab: "resume", detailTabJob: null, details: new Map(), scoring: new Map(), scoreErrors: new Map(), scoreFinished: null, picks: new Set(),
+            selected: null, drawer: false, detailTab: "resume", detailTabJob: null, details: new Map(), scoring: new Map(), scoreErrors: new Map(), scoreFinished: null,
+            payParseActive: new Set(), payParseFinished: null, picks: new Set(),
             summary: null, searches: [], defaults: {}, picked: null, runId: null, runSince: 0, tab: "tracker",
             dashRange: ["14", "30", "all"].includes(prefs.dashRange) ? prefs.dashRange : "30",
             trend: ["ats", "keywords", "skills", "experience"].includes(prefs.trend) ? prefs.trend : "ats",
@@ -329,6 +330,7 @@ async function loadSummary() {
     loadJobs().then(() => { if (S.selected && !S.details.has(S.selected) && S.byId.get(S.selected)?.local) loadDetail(S.selected); });
   }
   applyScoring(S.summary.scoring);
+  applyPayParse(S.summary.pay_parse);
   const c = S.summary.credits;
   $("#credits").textContent = `${c.used} / ${c.allowance} credits`;
   $("#backend").textContent = "AI: " + (S.summary.backend_label || S.summary.backend);
@@ -1585,6 +1587,38 @@ function applyScoring(sc) {
   clearTimeout(applyScoring._t);
   if (S.scoring.size) applyScoring._t = setTimeout(loadSummary, 1500);   // follow the queue closely while it runs
 }
+// Find pay, on its own or from a job just stored. PAY_BUSY is a click still in flight; the summary's
+// active set is a reading the app started.
+const PAY_BUSY = new Set();
+const payBusy = (id) => PAY_BUSY.has(id) || S.payParseActive.has(id);
+function applyPayParse(p) {
+  if (!p) return;
+  const before = S.payParseActive;
+  S.payParseActive = new Set(p.active || []);
+  const finished = S.payParseFinished != null && p.finished !== S.payParseFinished;
+  S.payParseFinished = p.finished;
+  if ((before.has(S.selected) || S.payParseActive.has(S.selected)) && S.selected) renderDetail();
+  if (!finished) return;
+  const open = S.selected;
+  loadJobs().then(() => {
+    if (open && S.selected === open && S.byId.get(open)?.local) { S.details.delete(open); loadDetail(open); }
+  });
+}
+async function findPay(j) {
+  if (payBusy(j.id)) return;
+  PAY_BUSY.add(j.id);
+  if (S.selected === j.id) renderDetail();
+  try {
+    const res = await post(`/api/jobs/${encodeURIComponent(j.id)}/parse-pay`, {});
+    S.details.delete(j.id);
+    await loadJobs();
+    if (S.selected === j.id) loadDetail(j.id);
+    if (res.kept_source) toast("This job already has pay from its source, so that was left as is.");
+    else if (res.stated) toast(`Pay is ${res.pay}.`);
+    else toast("No pay stated in the posting.");
+  } catch (e) { toast(e.message, true); }
+  finally { PAY_BUSY.delete(j.id); if (S.selected === j.id) renderDetail(); }
+}
 async function scoreJobs(ids, kind = "signal") {
   ids = ids.filter((id) => !S.scoring.has(id));
   if (!ids.length) return;
@@ -2325,7 +2359,6 @@ function drawDetail() {
     h("div", { class: "posting-pane" }, postingMeta(j, d), noPosting(j) ? postingNeeded(j) : postingBody(d.description)),
     h("aside", { class: "score-pane" }, scoreBlock(j, d))));
 }
-
 // What a Résumé, Fit report or Heat map tab says before the run that fills it.
 function emptyTab(j, d, tab) {
   const tailor = makeResumeButton(j);
@@ -2489,6 +2522,9 @@ function postingMeta(j, d) {
     (!j.source || j.listing_url && j.listing_url !== j.url) && extLink(j.url, "Open the original"),
     d.description_pasted && h("span", {}, d.description_read ? "Added from its link " : "Pasted by you ", fmtDate(d.description_pasted)),
     !d.description_pasted && d.posting_kept && h("span", { title: "Kept because you applied: it stays here after the posting comes down." }, "Saved when you applied ", fmtDate(d.posting_kept)),
+    !noPosting(j) && h("button", { class: "link-btn", disabled: payBusy(j.id), onclick: () => findPay(j) },
+      payBusy(j.id) ? "Finding pay…" : "Find pay"),
+    d.pay_parse && d.pay_parse.stated === false && h("span", {}, "No pay stated in the posting."),
     !noPosting(j) && h("button", { class: "link-btn", onclick: () => openDescribe(j, d.description_pasted ? d.description : "") },
       d.description_pasted ? "Replace the pasted text…" : "Paste the description…"));
 }
