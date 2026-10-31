@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-10-31
+
+### Setup
+- No more MIT license
+
 ## 2026-10-29
 
 ### Profile

@@ -100,7 +100,3 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 ## Buy me a coffee
 
 Job Oyster is free. If it helped you, especially if it helped you land a job, you can [buy me a coffee](https://buy.stripe.com/bJe6oI8zu7mX8tN74u3F600). You choose the amount, it's paid through Stripe, and it doesn't unlock anything: everyone gets the same app.
-
-## License
-
-[MIT](LICENSE)

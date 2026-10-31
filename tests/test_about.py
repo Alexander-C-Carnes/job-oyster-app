@@ -54,7 +54,7 @@ def test_the_about_links_point_at_the_public_repo_and_its_guides():
     links = re.findall(r'href="(https://github\.com/[^"]+)"', html)
     assert links and all(u.startswith(about.REPO_URL) for u in links)
     docs = re.findall(re.escape(about.REPO_URL) + r"/blob/main/([^\"#]+)", html)
-    assert "docs/setup-from-code.md" in docs and "LICENSE" in docs
+    assert "docs/setup-from-code.md" in docs
     for d in docs:
         assert (config.ROOT / d).is_file(), d
         assert d != "docs/ci.md"                            # private: the public copy leaves it out
