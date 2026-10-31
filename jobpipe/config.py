@@ -368,6 +368,7 @@ class Config:
     notion_project_page_id: str = ""
     notion_log_triaged_min_fit: Optional[int] = None
     ghost_after_days: int = 60      # a job at Applied or Interviewing this long with no change moves to Ghosted; 0 = never
+    menu_fit_floor: int = 7         # Mac menu bar "Newest at fit N+": same green band as Fit 7+ by default
     triage_model: ModelCfg = field(default_factory=lambda: ModelCfg(effort="low"))
     analysis_model: ModelCfg = field(default_factory=ModelCfg)
     writer_model: ModelCfg = field(default_factory=lambda: ModelCfg(effort="high"))
@@ -498,6 +499,7 @@ def load(path: Optional[Path] = None) -> Config:
     yc = su.get("yc") or {}
     ev = raw.get("evidence") or {}
     tracker = raw.get("tracker") or {}
+    menu = raw.get("menu") or {}
     _list = lambda v: [str(x) for x in (v or [])] if isinstance(v, (list, tuple)) else ([str(v)] if v else [])
     startups = StartupsCfg(
         days=int(su.get("days", 90)),
@@ -535,6 +537,7 @@ def load(path: Optional[Path] = None) -> Config:
         notion_project_page_id=notion.get("project_page_id", ""),
         notion_log_triaged_min_fit=notion.get("log_triaged_min_fit"),
         ghost_after_days=max(0, int(tracker.get("ghost_after_days", 60) or 0)),
+        menu_fit_floor=min(9, max(1, int(menu.get("fit_floor", 7) or 7))),
         triage_model=_model(models.get("triage"), ModelCfg(effort="low")),
         analysis_model=_model(models.get("analysis"), ModelCfg(effort="medium")),
         writer_model=_model(models.get("writer"), ModelCfg(effort="high")),

@@ -45,10 +45,10 @@
   </header>
 
   <div id="auth-error" class="banner hidden">
-    Open this app with <code>oyster run</code>, or the link it prints (it includes your access token).
+    Open the Mac app, or this page with <code>oyster run</code> (the link it prints includes your access token).
   </div>
   <div id="offline" class="banner hidden">
-    The app can't reach its server, so what you see may be out of date. If it isn't running, start it with <code>oyster run</code>. This page reconnects by itself within a few seconds.
+    The app can't reach its server, so what you see may be out of date. If it isn't running, open the Mac app again, or start it from the command line with <code>oyster run</code>. This page reconnects by itself within a few seconds.
   </div>
   <div id="toast" class="toast hidden" role="status"></div>
 
@@ -366,6 +366,17 @@
             <span class="muted" id="lowfit-what">right after they're scored. They move to Dismissed, tagged Low fit. A job you restore won't be dismissed again. Leave blank to turn this off.</span>
             <span id="lowfit-state" class="muted"></span>
             <button class="primary small" id="lowfit-save" disabled>Save</button>
+          </form>
+        </section>
+
+        <section class="pcard look-card menu-card" id="menu-card">
+          <h2>Menu Bar Settings</h2>
+          <p class="muted">The Mac app's menu-bar item lists new roles at this fit score or higher.</p>
+          <form id="menu-form" class="ghosted-form" novalidate>
+            <label class="inline">Show roles at fit score <input id="menu-fit" type="number" min="1" max="9" step="1" inputmode="numeric" value="7" aria-describedby="menu-fit-what"> or higher</label>
+            <span class="muted" id="menu-fit-what">Roles at fit 7+ found or scored yesterday or today.</span>
+            <span id="menu-fit-state" class="muted"></span>
+            <button class="primary small" id="menu-fit-save" disabled>Save</button>
           </form>
         </section>
 

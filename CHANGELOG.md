@@ -23,6 +23,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 - The fetch-posting box sits in the Posting tab, and a closed posting says so
 - HiringCafe's listing and the original posting have their own links
 
+### Mac app
+- A menu-bar item while the app is open
+
 ### Setup
 - No more MIT license
 

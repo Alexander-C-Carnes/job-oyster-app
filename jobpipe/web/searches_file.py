@@ -342,6 +342,36 @@ def save_ghost_days(path: Path, days: Any) -> int:
     return days
 
 
+MENU_FIT_FLOOR_MIN, MENU_FIT_FLOOR_MAX = 1, 9   # same top end as Score filters in Tracker / Find jobs
+
+
+def save_menu_fit_floor(path: Path, floor: Any) -> int:
+    """Set `menu.fit_floor` (Mac menu bar Newest at fit N+). Returns the floor."""
+    try:
+        floor = int(str(floor).strip() or 7)
+    except ValueError:
+        raise SearchError(f"Enter a whole number from {MENU_FIT_FLOOR_MIN} to {MENU_FIT_FLOOR_MAX}.") from None
+    if not MENU_FIT_FLOOR_MIN <= floor <= MENU_FIT_FLOOR_MAX:
+        raise SearchError(f"Enter a fit from {MENU_FIT_FLOOR_MIN} to {MENU_FIT_FLOOR_MAX}.")
+    doc = _yaml().load(path.read_text())
+    m = doc.get("menu")
+    if m is None:
+        m = CommentedMap()
+        keys = list(doc)
+        at = keys.index("tracker") + 1 if "tracker" in keys else (
+            keys.index("notion") + 1 if "notion" in keys else len(keys))
+        doc.insert(at, "menu", m)
+        doc.yaml_set_comment_before_after_key(
+            "menu", before="The Mac menu bar (Profile › Menu Bar Settings). Newest roles at this fit score or higher "
+                           "(found or scored yesterday or today).")
+    m["fit_floor"] = floor
+    tmp = path.with_suffix(".yaml.tmp")
+    with tmp.open("w") as f:
+        _yaml().dump(doc, f)
+    tmp.replace(path)
+    return floor
+
+
 def save_candidate(path: Path, cand: dict) -> None:
     """Write the `candidate:` section, keeping the file's comments (adding the section at the top if needed)."""
     doc = _yaml().load(path.read_text())

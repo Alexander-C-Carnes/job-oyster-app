@@ -3,24 +3,90 @@
 // The app's files are read-only inside the bundle; everything personal is in the profile folder
 // (~/JobOyster, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
 // and with it any runs going (a search, Make résumé); it asks first when there are some.
+// Dock icon plus a menu-bar item. The item lists runs going, recently finished, résumés ready to send, and
+// roles at the Profile › Menu Bar Settings fit floor (7 by default) since yesterday; choosing one opens it in the browser.
 // Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
-// Check for Updates… in the menu does so any time. When a résumé finishes, it posts a notification; opening
+// Check for Updates… in the menus does so any time. When a résumé finishes, it posts a notification; opening
 // that notification shows the role.
 import AppKit
 import Foundation
 import UserNotifications
 
+/// Where a menu-bar row opens: a role, Logs, or just the app.
+final class MenuOpen: NSObject {
+    let job: String
+    let tab: String
+    init(job: String = "", tab: String = "") { self.job = job; self.tab = tab }
+}
+
+struct MenuSnap {
+    struct RunItem {
+        var id: String          // pipeline run number, or "score:<job id>"
+        var label: String
+        var status: String
+        var jobId: String
+    }
+    struct Role {
+        var id: String
+        var title: String
+        var company: String
+        var fit: Double?
+    }
+    var runs: [RunItem] = []
+    var ready: [Role] = []
+    var newRoles: [Role] = []
+    var fitFloor = 7
+
+    static func parse(_ obj: [String: Any]) -> MenuSnap {
+        var snap = MenuSnap()
+        if let n = obj["fit_floor"] as? Int, n > 0 { snap.fitFloor = n }
+        snap.runs = (obj["runs"] as? [[String: Any]] ?? []).compactMap { row in
+            guard let status = row["status"] as? String else { return nil }
+            let id: String
+            if let n = row["id"] as? Int { id = String(n) }
+            else if let s = row["id"] as? String { id = s }
+            else { return nil }
+            return RunItem(id: id, label: row["label"] as? String ?? "", status: status, jobId: row["job_id"] as? String ?? "")
+        }
+        snap.ready = roles(obj["ready"])
+        snap.newRoles = roles(obj["new_roles"], withFit: true)
+        return snap
+    }
+
+    static func roles(_ raw: Any?, withFit: Bool = false) -> [Role] {
+        (raw as? [[String: Any]] ?? []).compactMap { row in
+            guard let id = row["id"] as? String else { return nil }
+            var fit: Double?
+            if withFit {
+                if let n = row["fit"] as? Double { fit = n }
+                else if let n = row["fit"] as? Int { fit = Double(n) }
+            }
+            return Role(id: id, title: row["title"] as? String ?? "", company: row["company"] as? String ?? "", fit: fit)
+        }
+    }
+}
+
 let defaultPort = 8765
 
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     var server: Process?
     var url: URL?
     var logURL: URL!
     var quitting = false
     let info = Bundle.main.infoDictionary ?? [:]
+    var statusItem: NSStatusItem?
+    var statusMenu: NSMenu?
+    var menuTimer: Timer?
+    var snap = MenuSnap()
+    var menuLoaded = false
+    var menuError: String?          // last /api/menu failure; nil when the snap is good
+    var knownRuns: [MenuSnap.RunItem] = []   // last good runs list, for "recently finished"
+    var recentRuns: [(item: MenuSnap.RunItem, ended: Date)] = []
+    let recentFor: TimeInterval = 45
 
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenu()
+        installStatusItem()
         let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Job Oyster")
         try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         logURL = logs.appendingPathComponent("server.log")
@@ -50,14 +116,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return a.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 
-    // "2 runs are going and 1 is waiting their turn", or nil when none are (or the server doesn't answer).
-    func runsGoing() -> String? {
+    // A call to this app's own server. The token is the one in the page URL.
+    func apiRequest(_ path: String, timeout: TimeInterval = 5) -> URLRequest? {
         guard let u = url, let comps = URLComponents(url: u, resolvingAgainstBaseURL: false),
               let token = comps.queryItems?.first(where: { $0.name == "token" })?.value,
-              let api = URL(string: "http://127.0.0.1:\(comps.port ?? defaultPort)/api/runs/going") else { return nil }
+              let api = URL(string: "http://127.0.0.1:\(comps.port ?? defaultPort)\(path)") else { return nil }
         var req = URLRequest(url: api)
-        req.timeoutInterval = 3
+        req.timeoutInterval = timeout
         req.setValue(token, forHTTPHeaderField: "X-Jobpipe-Token")
+        return req
+    }
+
+    // "2 runs are going and 1 is waiting their turn", or nil when none are (or the server doesn't answer).
+    func runsGoing() -> String? {
+        guard let req = apiRequest("/api/runs/going", timeout: 3) else { return nil }
         let done = DispatchSemaphore(value: 0)
         var text: String?
         URLSession.shared.dataTask(with: req) { data, resp, _ in
@@ -153,15 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return "\(title) at \(company)"
     }
 
-    func openJob(_ id: String) {
-        guard let u = url, !id.isEmpty,
-              let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let dest = URL(string: u.absoluteString + "#job=\(encoded)&tab=resume") else {
-            openInBrowser(nil)
-            return
-        }
-        NSWorkspace.shared.open(dest)
-    }
+    func openJob(_ id: String) { openApp(job: id, tab: "resume") }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
@@ -184,12 +248,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func start() {
         let res = Bundle.main.resourceURL!
-        let python = res.appendingPathComponent("python/bin/python3")
+        var python = res.appendingPathComponent("python/bin/python3")
+        var appDir = res.appendingPathComponent("app")
         let port = Int(ProcessInfo.processInfo.environment["OYSTER_PORT"] ?? ProcessInfo.processInfo.environment["JOBSEARCH_PORT"] ?? "") ?? defaultPort
 
-        if answers(port: port) {                     // already running (another copy of the app, or `oyster run`)
+        // Already running (another copy of the app, or `oyster run`). One too old for the menu bar still opens;
+        // the menu says it's too old.
+        if answers(port: port) {
             waitForURL(fromLog: nil, port: port)
             return
+        }
+        // Full builds ship python + app under Resources. A launcher-only bundle in a checkout's build/ folder
+        // (for trying the launcher while developing) has neither: use the checkout's .venv.
+        if !FileManager.default.isExecutableFile(atPath: python.path) {
+            guard let repo = checkoutRoot(),
+                  FileManager.default.isExecutableFile(atPath: repo.appendingPathComponent(".venv/bin/python3").path) else {
+                fail("Job Oyster couldn't start its server: this copy has no bundled Python. "
+                     + "Run `oyster` from the checkout first, or open a full build (mac/build.sh).")
+                return
+            }
+            python = repo.appendingPathComponent(".venv/bin/python3")
+            appDir = repo
         }
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let log = try! FileHandle(forWritingTo: logURL)
@@ -197,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let p = Process()
         p.executableURL = python
         p.arguments = ["-m", "jobpipe", "serve", "--port", String(port), "--no-open"]
-        p.currentDirectoryURL = res.appendingPathComponent("app")
+        p.currentDirectoryURL = appDir
         var env = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         // Apps start with a bare PATH; add where Claude Code and Homebrew live.
@@ -205,7 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                        env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"].joined(separator: ":")
         env["PYTHONDONTWRITEBYTECODE"] = "1"       // the bundle is read-only (and signed)
         env["PYTHONUNBUFFERED"] = "1"
-        env["PLAYWRIGHT_BROWSERS_PATH"] = res.appendingPathComponent("ms-playwright").path
+        let browsers = res.appendingPathComponent("ms-playwright")
+        if FileManager.default.fileExists(atPath: browsers.path) {
+            env["PLAYWRIGHT_BROWSERS_PATH"] = browsers.path
+        }
         env["OYSTER_APP_VERSION"] = info["CFBundleShortVersionString"] as? String ?? ""
         p.environment = env
         p.standardOutput = log
@@ -221,6 +303,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         waitForURL(fromLog: logURL, port: port)
     }
 
+    // build/Job Oyster Menu.app → the repo that contains jobpipe/ and .venv/
+    func checkoutRoot() -> URL? {
+        let repo = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: repo.appendingPathComponent("jobpipe").path) else { return nil }
+        return repo
+    }
+
     // The server prints "running at http://127.0.0.1:PORT/?token=…" once it's up; open that.
     func waitForURL(fromLog log: URL?, port: Int) {
         let deadline = Date().addingTimeInterval(120)
@@ -228,7 +317,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self = self else { return }
             while Date() < deadline {
                 if let found = self.urlFromLog(log, port: port) {
-                    DispatchQueue.main.async { self.url = found; self.openInBrowser(nil); self.watchFinishedRuns() }
+                    DispatchQueue.main.async {
+                        self.url = found; self.openInBrowser(nil); self.fetchMenu(); self.watchFinishedRuns()
+                    }
                     return
                 }
                 if let s = self.server, !s.isRunning { return }
@@ -245,13 +336,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             else { return nil }
             return URL(string: String(text[r]))
         }
-        // Someone else's server: its token is in the profile's data folder.
-        let env = ProcessInfo.processInfo.environment
-        let home = profileFolder().path
-        let data = env["JOBPIPE_DATA_DIR"].map { ($0 as NSString).expandingTildeInPath } ?? home + "/data"
-        let token = (try? String(contentsOfFile: data + "/web-token", encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return URL(string: "http://127.0.0.1:\(port)/?token=\(token)")
+        // Someone else's server: use a token that server accepts (not only $JOBPIPE_HOME, which may be stale).
+        return URL(string: "http://127.0.0.1:\(port)/?token=\(menuToken(port: port))")
     }
 
     func answers(port: Int) -> Bool {
@@ -318,18 +404,428 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    // MARK: menu bar
+
+    func installStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "JobOysterMenu"   // keeps Command-drag position across launches
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = self
+        item.menu = menu
+        if let button = item.button {
+            button.image = menuBarIcon()
+            button.imagePosition = .imageLeft
+        }
+        statusItem = item
+        statusMenu = menu
+        applyStatusButton()
+        scheduleMenuPoll()
+    }
+
+    // The app icon's Side Clam (mac/make_icon.swift) as a one-colour template, 16pt tall: the cup, the lid swung
+    // open on the hinge, and the pearl with a gap around it so it stands apart from the shell without its colour.
+    func menuBarIcon() -> NSImage {
+        func bowl(_ y: CGFloat, bulge: CGFloat) -> NSBezierPath {
+            let p = NSBezierPath()
+            p.move(to: NSPoint(x: 250, y: y))
+            p.curve(to: NSPoint(x: 800, y: y),
+                    controlPoint1: NSPoint(x: 250 + 2.0 / 3 * 270, y: y + 2.0 / 3 * bulge),
+                    controlPoint2: NSPoint(x: 800 - 2.0 / 3 * 280, y: y + 2.0 / 3 * bulge))
+            p.close()
+            return p
+        }
+        let cup = bowl(560, bulge: 270)
+        let lid = bowl(536, bulge: -270)
+        var hinge = AffineTransform(translationByX: 250, byY: 548)
+        hinge.rotate(byDegrees: -24)
+        hinge.translate(x: -250, y: -548)
+        lid.transform(using: hinge)
+        let pearl = NSBezierPath(ovalIn: NSRect(x: 540, y: 450, width: 120, height: 120))
+        let gap = NSBezierPath(ovalIn: NSRect(x: 510, y: 420, width: 180, height: 180))
+        let box = cup.bounds.union(lid.bounds).union(pearl.bounds)
+        let scale = 16 / box.height
+        let img = NSImage(size: NSSize(width: (box.width * scale).rounded(.up), height: 16), flipped: true) { _ in
+            let t = NSAffineTransform()
+            t.scale(by: scale)
+            t.translateX(by: -box.minX, yBy: -box.minY)
+            t.concat()
+            NSColor.black.setFill()
+            cup.fill()
+            lid.fill()
+            NSGraphicsContext.current?.compositingOperation = .clear
+            gap.fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            pearl.fill()
+            return true
+        }
+        img.isTemplate = true
+        img.accessibilityDescription = "Job Oyster"
+        return img
+    }
+
+    // Idle: every 15s. Busy (runs going or waiting): every 4s so short HiringCafe checks still show.
+    func scheduleMenuPoll() {
+        menuTimer?.invalidate()
+        let secs: TimeInterval = snap.runs.isEmpty && menuError == nil ? 15 : 4
+        menuTimer = Timer.scheduledTimer(withTimeInterval: secs, repeats: false) { [weak self] _ in
+            self?.fetchMenu()
+            self?.scheduleMenuPoll()
+        }
+    }
+
+    func fetchMenu(wait: Bool = false) {
+        guard let req = apiRequest("/api/menu") else {
+            applyMenuFailure("Job Oyster isn’t responding", reschedule: !wait)
+            return
+        }
+        let done = wait ? DispatchSemaphore(value: 0) : nil
+        var next: MenuSnap?
+        var err: String?
+        URLSession.shared.dataTask(with: req) { data, resp, error in
+            defer { done?.signal() }
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            if error != nil || code == -1 {
+                err = "Job Oyster isn’t responding"
+            } else if code == 401 {
+                err = "Job Oyster isn’t responding (wrong token)"
+            } else if code == 404 {
+                err = "This server is too old for the menu"
+            } else if code == 200, let data = data,
+                      let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                next = MenuSnap.parse(obj)
+            } else {
+                err = "Job Oyster isn’t responding"
+            }
+            if wait { return }
+            DispatchQueue.main.async {
+                if let parsed = next {
+                    self.acceptMenu(parsed)
+                } else {
+                    self.applyMenuFailure(err ?? "Job Oyster isn’t responding", reschedule: false)
+                }
+                self.scheduleMenuPoll()
+            }
+        }.resume()
+        if let done = done {
+            _ = done.wait(timeout: .now() + 2)
+            if let next = next {
+                acceptMenu(next)
+            } else {
+                applyMenuFailure(err ?? "Job Oyster isn’t responding", reschedule: false)
+            }
+        }
+    }
+
+    func acceptMenu(_ parsed: MenuSnap) {
+        noteFinished(from: knownRuns, to: parsed.runs)
+        knownRuns = parsed.runs
+        snap = parsed
+        menuLoaded = true
+        menuError = nil
+        applyStatusButton()
+    }
+
+    func applyMenuFailure(_ message: String, reschedule: Bool) {
+        let apply = {
+            self.menuError = message
+            self.menuLoaded = true
+            self.applyStatusButton()
+            if reschedule { self.scheduleMenuPoll() }
+        }
+        if Thread.isMainThread { apply() } else { DispatchQueue.main.async(execute: apply) }
+    }
+
+    // Token the server on `port` accepts. Tries each candidate profile's web-token against /api/menu
+    // so a leftover JOBPIPE_HOME does not blank the menu when ~/JobOyster is the real profile.
+    func menuToken(port: Int = defaultPort) -> String {
+        for token in tokenCandidates() {
+            if menuAccepts(token: token, port: port) { return token }
+        }
+        return tokenCandidates().first ?? ""
+    }
+
+    func tokenCandidates() -> [String] {
+        let env = ProcessInfo.processInfo.environment
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var dirs: [String] = []
+        if let d = env["JOBPIPE_DATA_DIR"], !d.isEmpty {
+            dirs.append((d as NSString).expandingTildeInPath)
+        }
+        // Default profiles first: a stale JOBPIPE_HOME is tried after these.
+        for name in ["JobOyster", "JobSearch"] {
+            dirs.append(home.appendingPathComponent(name).appendingPathComponent("data").path)
+        }
+        dirs.append(profileFolder().appendingPathComponent("data").path)
+        var seen = Set<String>(), out: [String] = []
+        for data in dirs where seen.insert(data).inserted {
+            let path = (data as NSString).appendingPathComponent("web-token")
+            if let raw = try? String(contentsOfFile: path, encoding: .utf8) {
+                let token = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !token.isEmpty, !out.contains(token) { out.append(token) }
+            }
+        }
+        return out
+    }
+
+    func menuAccepts(token: String, port: Int) -> Bool {
+        guard let api = URL(string: "http://127.0.0.1:\(port)/api/menu") else { return false }
+        var req = URLRequest(url: api)
+        req.timeoutInterval = 2
+        req.setValue(token, forHTTPHeaderField: "X-Jobpipe-Token")
+        let done = DispatchSemaphore(value: 0)
+        var ok = false
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            done.signal()
+        }.resume()
+        _ = done.wait(timeout: .now() + 3)
+        return ok
+    }
+
+    // Open a folder in Finder by bundle, never via NSWorkspace.open(path) — a folder named
+    // "Job Oyster" can be matched to this app and reopen the browser.
+    func openInFinder(_ folder: URL) {
+        DispatchQueue.main.async {
+            let finder = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
+            NSWorkspace.shared.open([folder], withApplicationAt: finder, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
+    func applyStatusButton() {
+        guard let button = statusItem?.button else { return }
+        if let err = menuError {
+            button.title = ""
+            button.toolTip = "Job Oyster: \(err)"
+            button.setAccessibilityLabel("Job Oyster, \(err)")
+            return
+        }
+        let going = snap.runs.filter { $0.status == "running" }.count
+        let waiting = snap.runs.filter { $0.status == "queued" }.count
+        // Run count when something is going/waiting (99+ if somehow more); else a middle dot if ready/new.
+        if !snap.runs.isEmpty {
+            let n = snap.runs.count
+            button.title = n > 99 ? " 99+" : " \(n)"
+        } else if !snap.ready.isEmpty || !snap.newRoles.isEmpty {
+            button.title = " ·"
+        } else {
+            button.title = ""
+        }
+        var bits: [String] = []
+        if going > 0 { bits.append("\(going) going") }
+        if waiting > 0 { bits.append("\(waiting) in queue") }
+        if !snap.ready.isEmpty { bits.append("\(snap.ready.count) ready to send") }
+        if !snap.newRoles.isEmpty { bits.append("\(snap.newRoles.count) new at fit score \(snap.fitFloor) or higher") }
+        let detail = bits.isEmpty ? "all quiet" : bits.joined(separator: ", ")
+        button.toolTip = "Job Oyster: \(detail)"
+        button.setAccessibilityLabel("Job Oyster, \(detail)")
+    }
+
+    // Runs that left the live list in the last `recentFor` seconds (for a short "Recently finished" section).
+    func noteFinished(from previous: [MenuSnap.RunItem], to current: [MenuSnap.RunItem]) {
+        let nowIds = Set(current.map(\.id))
+        let now = Date()
+        for item in previous where !nowIds.contains(item.id) {
+            recentRuns.removeAll { $0.item.id == item.id }
+            recentRuns.append((item, now))
+        }
+        recentRuns.removeAll { nowIds.contains($0.item.id) || now.timeIntervalSince($0.ended) >= recentFor }
+    }
+
+    func stillRecent() -> [MenuSnap.RunItem] {
+        let now = Date()
+        recentRuns.removeAll { now.timeIntervalSince($0.ended) >= recentFor }
+        return recentRuns.map(\.item)
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === statusMenu else { return }
+        fetchMenu(wait: true)          // scores and runs as of this open, not the last 15s poll
+        menu.removeAllItems()
+        if url == nil {
+            addNote("Starting Job Oyster…", to: menu)
+            menu.addItem(.separator())
+            addQuit(to: menu)
+            return
+        }
+        addLink("Open Job Oyster", to: menu)
+        menu.addItem(.separator())
+        if let err = menuError {
+            addNote(err, to: menu)
+            let logItem = NSMenuItem(title: "Show Log", action: #selector(showLog(_:)), keyEquivalent: "")
+            logItem.target = self
+            menu.addItem(logItem)
+            menu.addItem(.separator())
+            addQuit(to: menu)
+            return
+        }
+        addHeader("Runs", to: menu)
+        if !menuLoaded {
+            addNote("Updating…", to: menu)
+        } else if snap.runs.isEmpty {
+            addNote("Nothing running right now", to: menu)
+        } else {
+            for run in snap.runs.prefix(8) { addRunLink(run, to: menu) }
+            if snap.runs.count > 8 { addLink("And \(snap.runs.count - 8) more", tab: "runs", to: menu) }
+        }
+        let recent = stillRecent()
+        if !recent.isEmpty {
+            menu.addItem(.separator())
+            addHeader("Recently finished", to: menu)
+            for run in recent.prefix(8) { addRunLink(run, done: true, to: menu) }
+        }
+        menu.addItem(.separator())
+        addHeader("Ready to send", to: menu)
+        addRoles(snap.ready, tab: "resume", empty: "Nothing ready to send", to: menu)
+        menu.addItem(.separator())
+        addHeader("Newest at fit score \(snap.fitFloor)+ since yesterday", to: menu)
+        addRoles(snap.newRoles, tab: "posting", empty: "No roles at fit score \(snap.fitFloor)+ since yesterday", showFit: true, to: menu)
+        menu.addItem(.separator())
+        let check = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        check.target = self
+        menu.addItem(check)
+        let profile = NSMenuItem(title: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
+        profile.target = self
+        menu.addItem(profile)
+        let logItem = NSMenuItem(title: "Show Log", action: #selector(showLog(_:)), keyEquivalent: "")
+        logItem.target = self
+        menu.addItem(logItem)
+        menu.addItem(.separator())
+        addQuit(to: menu)
+    }
+
+    func addHeader(_ title: String, to menu: NSMenu) {
+        if #available(macOS 14.0, *) {
+            menu.addItem(.sectionHeader(title: title))
+        } else {
+            addNote(title, to: menu)
+        }
+    }
+
+    func addNote(_ title: String, to menu: NSMenu) {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        menu.addItem(item)
+    }
+
+    func addLink(_ title: String, job: String = "", tab: String = "", to menu: NSMenu) {
+        let item = NSMenuItem(title: title, action: #selector(openFromMenu(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = MenuOpen(job: job, tab: tab)
+        menu.addItem(item)
+    }
+
+    // Scores open the role's posting; Make résumé opens the résumé; other Logs runs open Logs.
+    func addRunLink(_ run: MenuSnap.RunItem, done: Bool = false, to menu: NSMenu) {
+        var title = run.label
+        if !done, run.status == "queued" { title += " · in queue" }
+        title = clip(title)
+        if run.id.hasPrefix("score:"), !run.jobId.isEmpty {
+            addLink(title, job: run.jobId, tab: "posting", to: menu)
+        } else if !run.jobId.isEmpty {
+            addLink(title, job: run.jobId, tab: "resume", to: menu)
+        } else {
+            addLink(title, tab: "runs", to: menu)
+        }
+    }
+
+    func addQuit(to menu: NSMenu) {
+        let item = NSMenuItem(title: "Quit Job Oyster", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        item.target = NSApp
+        menu.addItem(item)
+    }
+
+    func addRoles(_ roles: [MenuSnap.Role], tab: String, empty: String, showFit: Bool = false,
+                   limit: Int = 8, to menu: NSMenu) {
+        if !menuLoaded { addNote("Updating…", to: menu); return }
+        if roles.isEmpty { addNote(empty, to: menu); return }
+        for role in roles.prefix(limit) { addLink(roleLine(role, showFit: showFit), job: role.id, tab: tab, to: menu) }
+        if roles.count > limit { addLink("And \(roles.count - limit) more", to: menu) }
+    }
+
+    // About 60 characters. Shrink the title first; only then the company. Fit stays whole.
+    // With a fit: "8 · Founding Senior Platf… · Broccoli AI".
+    func roleLine(_ role: MenuSnap.Role, showFit: Bool) -> String {
+        let limit = 60
+        let title = role.title.isEmpty ? "Untitled" : role.title
+        var prefix = ""
+        if showFit, let fit = role.fit { prefix = fitText(fit) + " · " }
+        let company = role.company
+        var suffix = company.isEmpty ? "" : " · " + company
+        var room = max(1, limit - prefix.count - suffix.count)
+        var mid = title.count <= room ? title : String(title.prefix(max(1, room - 1))) + "…"
+        var line = prefix + mid + suffix
+        if line.count > limit, !company.isEmpty {
+            let companyRoom = max(1, limit - prefix.count - mid.count - 3)  // " · "
+            let co = company.count <= companyRoom ? company : String(company.prefix(max(1, companyRoom - 1))) + "…"
+            suffix = " · " + co
+            room = max(1, limit - prefix.count - suffix.count)
+            mid = title.count <= room ? title : String(title.prefix(max(1, room - 1))) + "…"
+            line = prefix + mid + suffix
+        }
+        return line
+    }
+
+    func fitText(_ n: Double) -> String {
+        n == n.rounded() ? String(Int(n.rounded())) : String(format: "%.1f", n)
+    }
+
+    func clip(_ text: String, _ limit: Int = 90) -> String {
+        text.count <= limit ? text : String(text.prefix(limit - 1)) + "…"
+    }
+
     // MARK: menu actions
 
-    @objc func openInBrowser(_ sender: Any?) {
-        if let u = url { NSWorkspace.shared.open(u) }
+    @objc func openFromMenu(_ sender: NSMenuItem) {
+        let open = sender.representedObject as? MenuOpen
+        openApp(job: open?.job ?? "", tab: open?.tab ?? "")
     }
 
+    // The page, or a role in it through #job=<id>&tab=<tab> (notifications use it too); #tab=runs opens Logs.
+    func openApp(job: String = "", tab: String = "") {
+        guard let u = url else { return }
+        var hash: [String] = []
+        if !job.isEmpty, let id = job.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) { hash.append("job=\(id)") }
+        if !tab.isEmpty { hash.append("tab=\(tab)") }
+        if let page = hash.isEmpty ? u : URL(string: u.absoluteString + "#" + hash.joined(separator: "&")) {
+            NSWorkspace.shared.open(page)
+        }
+    }
+
+    @objc func openInBrowser(_ sender: Any?) { openApp() }
+
+    // Reveal the profile folder in Finder. Ask Finder by bundle id — NSWorkspace.open on a folder
+    // named "Job Oyster" can match this app instead, and activateFileViewerSelecting does little
+    // for a directory alone.
     @objc func showProfile(_ sender: Any?) {
-        NSWorkspace.shared.open(profileFolder())
+        let folder = profileFolder()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        openInFinder(folder)
     }
 
+    // Open the server log. When this app started the server it writes server.log; an `oyster start`
+    // in the background writes app.log instead. After a menu-bar click, yield so the viewer can
+    // come forward. Never NSWorkspace.open the parent folder named "Job Oyster" — Launch Services
+    // can match that name to this app and reopen it, which opens the browser.
     @objc func showLog(_ sender: Any?) {
-        NSWorkspace.shared.activateFileViewerSelecting([logURL])
+        let log = logToShow()
+        if !FileManager.default.fileExists(atPath: log.path) {
+            FileManager.default.createFile(atPath: log.path, contents: Data())
+        }
+        DispatchQueue.main.async {
+            NSWorkspace.shared.activateFileViewerSelecting([log])
+            NSWorkspace.shared.open(log)
+        }
+    }
+
+    func logToShow() -> URL {
+        let appLog = logURL.deletingLastPathComponent().appendingPathComponent("app.log")
+        if server == nil,
+           let n = try? FileManager.default.attributesOfItem(atPath: appLog.path)[.size] as? NSNumber,
+           n.intValue > 0 {
+            return appLog
+        }
+        return logURL
     }
 
     func buildMenu() {
@@ -337,20 +833,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let appItem = NSMenuItem()
         main.addItem(appItem)
         let m = NSMenu()
-        m.addItem(withTitle: "Open Job Oyster", action: #selector(openInBrowser(_:)), keyEquivalent: "o")
-        m.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        m.addItem(menuItem("Open Job Oyster", #selector(openInBrowser(_:)), key: "o"))
+        m.addItem(menuItem("Check for Updates…", #selector(checkForUpdates(_:))))
         m.addItem(.separator())
-        m.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
-        m.addItem(withTitle: "Show Log", action: #selector(showLog(_:)), keyEquivalent: "")
+        m.addItem(menuItem("Show Profile Folder", #selector(showProfile(_:))))
+        m.addItem(menuItem("Show Log", #selector(showLog(_:))))
         m.addItem(.separator())
-        m.addItem(withTitle: "Quit Job Oyster", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        m.addItem(menuItem("Quit Job Oyster", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         appItem.submenu = m
         NSApp.mainMenu = main
         let dock = NSMenu()
-        dock.addItem(withTitle: "Open Job Oyster", action: #selector(openInBrowser(_:)), keyEquivalent: "")
-        dock.addItem(withTitle: "Show Profile Folder", action: #selector(showProfile(_:)), keyEquivalent: "")
-        dock.addItem(withTitle: "Check for Updates…", action: #selector(checkForUpdates(_:)), keyEquivalent: "")
+        dock.addItem(menuItem("Open Job Oyster", #selector(openInBrowser(_:))))
+        dock.addItem(menuItem("Show Profile Folder", #selector(showProfile(_:))))
+        dock.addItem(menuItem("Check for Updates…", #selector(checkForUpdates(_:))))
         dockMenu = dock
+    }
+
+    func menuItem(_ title: String, _ action: Selector, key: String = "", target: AnyObject? = nil) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = target ?? self
+        return item
     }
 
     var dockMenu: NSMenu?
@@ -452,5 +954,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-app.setActivationPolicy(.regular)
+app.setActivationPolicy(.regular)     // Dock icon; menu-bar item stays too
 app.run()

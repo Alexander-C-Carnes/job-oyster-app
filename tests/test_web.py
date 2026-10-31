@@ -1149,6 +1149,48 @@ def test_the_app_says_what_quitting_would_stop_and_restarting_keeps(env, monkeyp
     assert c.get("/api/runs/going", headers=H).json()["running"] == 0
 
 
+def test_the_menu_bar_lists_runs_resumes_ready_and_new_high_fits(env):
+    c, store, runs = env["client"], env["store"], env["runs"]
+    assert c.get("/api/menu").status_code == 401
+    store.update("j1", first_seen="2020-01-01T00:00:00+00:00", triaged_at="2020-01-01", full_scored_at="2020-01-01")
+    today = date.today().isoformat()
+    store.save_job(make_job("j-new", title="Staff Engineer", company="Newco"), "tpm-remote")
+    store.update("j-new", triage={"fit_score": 9, "one_line": "yes"}, triaged_at=today,
+                 first_seen="2020-01-01T00:00:00+00:00")
+    store.save_job(make_job("j-old", title="Old Role", company="Oldco"), "tpm-remote")
+    store.update("j-old", triage={"fit_score": 9, "one_line": "old"}, triaged_at="2020-01-01",
+                 first_seen="2020-01-01T00:00:00+00:00")
+    store.save_job(make_job("j-hide", title="Hidden", company="Hideco"), "tpm-remote")
+    store.update("j-hide", triage={"fit_score": 9, "one_line": "hidden"}, triaged_at=today, dismissed=True)
+    store.save_job(make_job("j-sent", title="Sent Role", company="Sentco"), "tpm-remote")
+    store.update("j-sent", triage={"fit_score": 9, "one_line": "sent"}, triaged_at=today)
+    assert c.post("/api/jobs/j-sent/track", headers=H).json()["action"] == "created"
+    sent = next(j for j in c.get("/api/jobs", headers=H).json()["jobs"] if j["id"] == "j-sent")
+    assert c.post(f"/api/tracker/{sent['tracker_id']}/status", headers=H, json={"status": "Applied"}).json() == {"ok": True}
+
+    class Alive:
+        pass
+
+    runs.runs[7] = Run(7, "Make résumé: Acme", ["tailor", "j1"], "t", proc=Alive())
+    waiting = Run(8, "Search + signal score", ["run"], "t", queued=True)
+    runs.runs[8] = waiting
+    runs.waiting.append(waiting)
+
+    body = c.get("/api/menu", headers=H).json()
+    assert [(r["id"], r["status"], r["job_id"]) for r in body["runs"]] == [(7, "running", "j1"), (8, "queued", "")]
+    assert [r["id"] for r in body["ready"]] == ["j1"]
+    assert [(r["id"], r["fit"]) for r in body["new_roles"]] == [("j-new", 9)]
+    assert body["fit_floor"] == 7
+    assert c.get("/api/menu/settings", headers=H).json() == {"fit_floor": 7}
+    for bad in ("high", 0, 10):
+        assert c.put("/api/menu/settings", headers=H, json={"fit_floor": bad}).status_code == 400
+    assert c.put("/api/menu/settings", headers=H, json={"fit_floor": 9}).json() == {"fit_floor": 9}
+    assert "fit_floor: 9" in env["searches"].read_text() and config.load(env["searches"]).menu_fit_floor == 9
+    body9 = c.get("/api/menu", headers=H).json()
+    assert body9["fit_floor"] == 9
+    assert [(r["id"], r["fit"]) for r in body9["new_roles"]] == [("j-new", 9)]
+
+
 def test_run_lines_get_times_in_an_older_database(tmp_path):
     import sqlite3
     db = tmp_path / "tracker.db"
