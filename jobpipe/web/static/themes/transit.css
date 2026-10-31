@@ -455,6 +455,13 @@ html[data-theme="transit"] .wysiwyg .ProseMirror h1, html[data-theme="transit"] 
 /* Ghosted: the note on a role moved there on its own, as a service notice */
 html[data-theme="transit"] .ghosted-note { border-left: 6px solid var(--st-ghosted); border-radius: 0 var(--radius) var(--radius) 0; background: var(--tint); color: var(--ink); }
 html[data-theme="transit"] .ghosted-note b { font-family: var(--display); font-weight: 700; font-size: 14px; }
+/* Ready to send: a departures board strip, a line per role */
+html[data-theme="transit"] .ready { border-bottom: 1.5px solid var(--line); background: var(--panel); }
+html[data-theme="transit"] .ready-head { background: var(--tint); padding-block: 7px; }
+html[data-theme="transit"] .ready-head b { font-family: var(--display); font-weight: 700; font-size: 15px; letter-spacing: .02em; text-transform: uppercase; }
+html[data-theme="transit"] .ready-item { border-top: 1.5px solid var(--line); }
+html[data-theme="transit"] .ready-q { border-left: 6px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0; background: var(--tint); }
+html[data-theme="transit"] button.tag.ready-qtag { background: #E3EEFA; color: #0B4A8A; }
 
 /* Profile › Pinned résumé section */
 html[data-theme="transit"] .pin-sheet { border: 1.5px solid var(--line); border-radius: 4px; }

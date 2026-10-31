@@ -10,7 +10,7 @@ const TOKEN = (() => {
   } catch (_) { /* storage blocked: keep the token in the URL */ }
   if (url.searchParams.has("token")) {
     url.searchParams.delete("token");
-    history.replaceState(null, "", url.pathname + url.search);
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
   }
   return t || "";
 })();
@@ -130,7 +130,7 @@ const prefs = (() => {
   try { return JSON.parse(localStorage.getItem("jobpipe-ui") || "{}"); } catch (_) { return {}; }
 })();
 function savePrefs() {
-  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split, ghostSeen: [...S.ghostSeen] })); }
+  try { localStorage.setItem("jobpipe-ui", JSON.stringify({ view: S.view, sort: S.sort, group: S.group, collapsed: [...S.collapsed], docViews: S.docViews, dashRange: S.dashRange, fold: S.fold, trend: S.trend, split: S.split, ghostSeen: [...S.ghostSeen], readyFold: S.readyFold })); }
   catch (_) { /* optional */ }
 }
 const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, syncing: false, notionError: "",
@@ -147,6 +147,7 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
             trend: ["ats", "keywords", "skills", "experience"].includes(prefs.trend) ? prefs.trend : "ats",
             split: prefs.split > 0.1 && prefs.split < 0.9 ? prefs.split : null,    // the PDF's share of the résumé workspace
             ghostSeen: new Set(Array.isArray(prefs.ghostSeen) ? prefs.ghostSeen : []),   // moves to Ghosted already announced
+            ready: null, readySig: "", readyFold: !!prefs.readyFold, readyOpen: new Set(),   // the Ready to send list
             docViews: Object.fromEntries(["impact", "prep"].map((k) => {
               const v = prefs.docViews?.[k] ?? (k === "impact" ? prefs.impactView : null);   // impactView: before Interview prep
               return [k, ["formatted", "edit", "split"].includes(v) ? v : "formatted"];
@@ -411,6 +412,8 @@ function applyJobs(data) {
   if (S.tab === "searches") renderSearches();
   if (S.tab === "dashboard") renderDashboard();
   announceGhosted();
+  loadReady();
+  openFromHash();
 }
 // Roles the app moved to Ghosted on its own (tracker.ghost_after_days): said once, in a toast.
 function announceGhosted() {
@@ -564,6 +567,7 @@ function setScope(scope) {
   applyLayout();
   renderNotionLink();
   renderJobs();
+  renderReady();
   // Keep this list's own selection if it's still shown; otherwise open its first role.
   const keep = S.visible.find((j) => j.id === S.sel[scope]);
   const next = keep || (boardMode() ? null : S.visible.find((j) => j.tailored) || S.visible[0]);
@@ -1434,6 +1438,115 @@ function renderJobs() {
   renderBatch();
   renderFoldStrip();
   renderRail();
+}
+
+// ---- ready to send -------------------------------------------------------------------------------
+// Résumés that haven't gone out, fit-report questions still open, referrals at To ask, and postings
+// that closed after the résumé was made. The Mac app notifies when a résumé run finishes; this is the list.
+function readySummary(c) {
+  const parts = [];
+  if (c.ready) parts.push(plural(c.ready, "résumé"));
+  if (c.questions) parts.push(plural(c.questions, "question"));
+  if (c.referral) parts.push(c.referral === 1 ? "1 referral to ask" : `${c.referral} referrals to ask`);
+  if (c.closed) parts.push(c.closed === 1 ? "1 posting closed" : `${c.closed} postings closed`);
+  return parts.join(" · ");
+}
+async function loadReady() {
+  let d;
+  try { d = await api("/api/ready"); }
+  catch { return; }   // the jobs banner says when the server is down
+  const sig = JSON.stringify(d);
+  if (sig === S.readySig) return;
+  if (document.activeElement?.closest?.("#ready textarea")) return;   // a half-typed answer stays put
+  S.ready = d;
+  S.readySig = sig;
+  renderReady();
+}
+function openReady(id, tab, referral = false) {
+  openJob(id, tab);
+  if (referral) {
+    const j = S.byId.get(id);
+    if (j) openReferral(j);
+  }
+}
+async function answerQuestion(id, key, fact) {
+  try {
+    const d = await post(`/api/ready/${encodeURIComponent(id)}/answer`, fact ? { key, fact } : { key });
+    S.ready = d;
+    S.readySig = JSON.stringify(d);
+    renderReady();
+    toast(fact ? "Added to your impact record." : "Marked as already in your impact record.");
+    if (S.tab === "impact") DOCS.impact.load();
+  } catch (e) { toast(e.message, true); }
+}
+// `unfold` is the role whose questions were just opened: only they spring open (Sorbet), not every redraw.
+function renderReady(unfold = "") {
+  const box = $("#ready");
+  const items = S.scope === "tracker" && S.ready ? S.ready.items : [];
+  box.classList.toggle("hidden", !items.length);
+  box.classList.toggle("folded", S.readyFold);
+  if (!items.length) { box.replaceChildren(); return; }
+  const c = S.ready.counts;
+  const head = h("div", { class: "ready-head" },
+    h("button", { class: "icon-btn fold-btn", type: "button", title: S.readyFold ? "Show the list" : "Fold the list",
+      "aria-expanded": String(!S.readyFold), "aria-label": S.readyFold ? "Show Ready to send" : "Fold Ready to send",
+      onclick: () => { S.readyFold = !S.readyFold; savePrefs(); renderReady(); } }, icon(S.readyFold ? "down" : "up")),
+    h("b", {}, "Ready to send"),
+    h("span", { class: "ready-sum" }, readySummary(c)));
+  const list = h("ul", { class: "ready-list" });
+  for (const it of items) {
+    const reasons = new Set(it.reasons);
+    const tags = [];
+    if (reasons.has("closed")) tags.push(h("span", { class: "tag warn-tag" }, "Posting closed"));
+    if (reasons.has("questions")) tags.push(h("button", { class: "tag ready-qtag", type: "button",
+      title: "Show the questions the fit report still asks", "aria-expanded": String(S.readyOpen.has(it.id)),
+      onclick: () => {
+        if (S.readyOpen.delete(it.id)) renderReady();
+        else { S.readyOpen.add(it.id); renderReady(it.id); }
+      } },
+      plural(it.questions.length, "question")));
+    if (reasons.has("referral")) tags.push(h("span", { class: "tag ref" }, "Referral to ask"));
+    if (reasons.has("ready")) tags.push(h("span", { class: "tag ok" }, "Résumé ready"));
+    const buttons = [];
+    if (reasons.has("closed")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "posting") }, "Open"));
+    else if (reasons.has("ready") || reasons.has("questions")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "resume") }, "Résumé"));
+    if (reasons.has("questions")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "report") }, "Fit report"));
+    if (reasons.has("referral")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "resume", true) }, it.referral_name ? `Ask ${it.referral_name}` : "Ask them"));
+    const questions = reasons.has("questions") && S.readyOpen.has(it.id) && h("div", { class: `ready-qs${it.id === unfold ? " unfold" : ""}` },
+      ...it.questions.map((q) => {
+        const area = h("textarea", { rows: "2", placeholder: "What you can confirm, in your own words" });
+        return h("div", { class: "ready-q" },
+          h("p", {}, q.text),
+          area,
+          h("div", { class: "ready-actions" },
+            h("button", { class: "primary small", type: "button", onclick: () => {
+              const fact = area.value.trim();
+              if (!fact) { toast("Write what you can confirm.", true); area.focus(); return; }
+              answerQuestion(it.id, q.key, fact);
+            } }, "Add to my impact record"),
+            h("button", { class: "ghost small", type: "button", title: "You already wrote this down, so take the question off the list",
+              onclick: () => answerQuestion(it.id, q.key, "") }, "Already in my record")));
+      }));
+    list.append(h("li", { class: "ready-item" },
+      h("span", { class: `fit ${fitClass(it.fit)}` }, it.fit ?? "–"),
+      h("div", { class: "ready-main" },
+        h("div", { class: "ready-line" },
+          h("span", { class: "who" }, h("b", {}, it.title || "(untitled)"), it.company ? ` · ${it.company}` : ""),
+          ...tags),
+        reasons.has("closed") && h("p", { class: "muted" },
+          it.closed ? `Its posting had closed when the app checked on ${fmtDate(it.closed)}.` : "Its posting has closed."),
+        questions),
+      h("div", { class: "ready-actions" }, ...buttons)));
+  }
+  box.replaceChildren(head, list);
+}
+// A notification (or a link) opens one role: #job=<id>&tab=resume. Left in place until the role is in the list.
+function openFromHash() {
+  const q = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const id = q.get("job");
+  if (!id || !S.byId.has(id)) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  openReady(id, q.get("tab") || "resume", q.get("referral") === "1");
 }
 
 // ---- jobs: scoring (signal = one quick call; full = every requirement rated) ---------------------
@@ -5683,7 +5796,7 @@ async function setupInterview(role, pane, redraw) {
   setScope("tracker");
   api("/api/setup").then((d) => { WIZ.data = d; setupCard(); if (d.show) openSetup(0); }).catch(() => {});
   // An open document also picks up changes made elsewhere, e.g. notes Claude adds to interview prep.
-  setInterval(() => { if (!document.hidden) { loadSummary(); if (S.tab in DOCS) DOCS[S.tab].load(); } }, 5000);
+  setInterval(() => { if (!document.hidden) { loadSummary(); if (S.tab === "tracker") loadReady(); if (S.tab in DOCS) DOCS[S.tab].load(); } }, 5000);
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) { loadSummary(); loadJobs(); if (S.tab in DOCS) DOCS[S.tab].load(); }
   });

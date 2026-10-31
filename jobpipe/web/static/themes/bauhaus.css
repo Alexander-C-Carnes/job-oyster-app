@@ -451,6 +451,16 @@ html[data-theme="bauhaus"] :is(.split-handle:hover, .split-handle:focus-visible,
 /* Ghosted: the note on a role moved there on its own */
 html[data-theme="bauhaus"] .ghosted-note { border-left: 8px solid var(--st-ghosted); border-radius: 0; background: var(--grey-soft); color: var(--black); }
 html[data-theme="bauhaus"] .ghosted-note b { color: var(--black); font-weight: 700; }
+/* Ready to send: a ruled block with a yellow head; each question a grey slab with a black edge */
+html[data-theme="bauhaus"] .ready { border-bottom: var(--rule); background: var(--white); }
+html[data-theme="bauhaus"] .ready-head { background: var(--yellow); border-bottom: var(--rule); color: var(--black); }
+html[data-theme="bauhaus"] .ready-head b { font-family: var(--display); font-weight: 400; text-transform: uppercase; letter-spacing: .02em; }
+html[data-theme="bauhaus"] .ready-head .ready-sum { color: var(--black); }
+html[data-theme="bauhaus"] .ready-item { border-top: 1px solid var(--black); }
+html[data-theme="bauhaus"] .ready-list > .ready-item:first-child { border-top: 0; }
+html[data-theme="bauhaus"] .ready-q { border: 0; border-left: 8px solid var(--black); border-radius: 0; background: var(--grey-soft); }
+html[data-theme="bauhaus"] .ready-q textarea { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] button.tag.ready-qtag { background: var(--blue); color: var(--white); border-color: var(--black); }
 
 /* Profile › Pinned résumé section */
 html[data-theme="bauhaus"] .pin-sheet { border: var(--rule); border-radius: 0; }

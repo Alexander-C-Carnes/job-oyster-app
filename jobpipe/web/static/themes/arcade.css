@@ -469,6 +469,15 @@ html[data-theme="arcade"] :is(.split-handle:hover, .split-handle:focus-visible, 
 /* Ghosted: the note on a role moved there on its own, in a pixel frame */
 html[data-theme="arcade"] .ghosted-note { border: var(--px) solid var(--ink); border-left-width: 8px; border-left-color: var(--st-ghosted); border-radius: 0; background: var(--panel); color: var(--ink); }
 html[data-theme="arcade"] .ghosted-note b { color: var(--ink); font-weight: 700; }
+/* Ready to send: a pixel panel with a hard shadow; the head in the arcade's pixel type */
+html[data-theme="arcade"] .ready { margin: 4px 12px 10px; border: var(--px) solid var(--ink); box-shadow: var(--shadow); background: var(--panel); }
+html[data-theme="arcade"] .ready-head { background: var(--sel); border-bottom: var(--px) solid var(--ink); }
+html[data-theme="arcade"] .ready-head b { font-family: var(--pixel); font-size: 10px; font-weight: 400; text-transform: uppercase; }
+html[data-theme="arcade"] .ready-item { border-top: 2px dashed var(--line); }
+html[data-theme="arcade"] .ready-list > .ready-item:first-child { border-top: 0; }
+html[data-theme="arcade"] .ready-q { border: 2px solid var(--ink); border-radius: 0; background: var(--panel-2); }
+html[data-theme="arcade"] .ready-q textarea { border: 2px solid var(--ink); border-radius: 0; }
+html[data-theme="arcade"] button.tag.ready-qtag { border-color: var(--link); color: var(--link); background: var(--panel); }
 
 /* Profile › Pinned résumé section */
 html[data-theme="arcade"] .pin-sheet { border: 2px solid var(--line); border-radius: 0; }

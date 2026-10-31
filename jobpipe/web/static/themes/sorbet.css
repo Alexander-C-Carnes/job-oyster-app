@@ -558,6 +558,18 @@ html[data-theme="sorbet"] :is(.split-handle:hover, .split-handle:focus-visible, 
 html[data-theme="sorbet"] .ghosted-note { border-left: 0; border-radius: 16px; padding: 8px 14px; color: var(--ink);
   background: color-mix(in srgb, var(--st-ghosted) 26%, white); }
 html[data-theme="sorbet"] .ghosted-note b { font: 600 13.5px var(--display); }
+/* Ready to send: a round card above the list, each role a soft scoop; its questions unfold on the spring */
+html[data-theme="sorbet"] .ready { margin: 2px 20px 8px; border: 0; border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+html[data-theme="sorbet"] .ready-head { padding: 8px 14px 6px 8px; }
+html[data-theme="sorbet"] .ready-head b { font-family: var(--display); font-weight: 600; font-size: 15px; }
+html[data-theme="sorbet"] .ready-list { display: flex; flex-direction: column; gap: 6px; }
+html[data-theme="sorbet"] .ready-item { border-top: 0; border-radius: 14px; background: var(--panel-2); padding: 8px 10px; }
+html[data-theme="sorbet"] .ready-qs { transform-origin: top center; }
+html[data-theme="sorbet"] .ready-qs.unfold { animation: sorbet-unfold 620ms var(--open); }
+html[data-theme="sorbet"] .ready-q { border: 0; border-radius: 14px; background: var(--panel); }
+html[data-theme="sorbet"] .ready-q textarea { border: 2px solid var(--line); border-radius: 12px; }
+html[data-theme="sorbet"] .ready-q textarea:focus { border-color: var(--accent); outline: 0; }
+html[data-theme="sorbet"] button.tag.ready-qtag { background: var(--sel); color: var(--link); border-color: transparent; }
 html[data-theme="sorbet"] .ghosted-form label.inline { font: 600 15px var(--display); }
 html[data-theme="sorbet"] .ghosted-form input { border-radius: 999px; text-align: center; font: 700 16px var(--display); }
 html[data-theme="sorbet"] #ghosted-state, html[data-theme="sorbet"] #lowfit-state { display: inline-block; color: var(--good); font-weight: 700; }

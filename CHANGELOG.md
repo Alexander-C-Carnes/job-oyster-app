@@ -4,6 +4,12 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-10-31
 
+### Tracker
+- Ready to send, above the list
+
+### Mac app
+- A notification when a résumé finishes
+
 ### Finding jobs
 - Dismiss jobs that score too low, as soon as they're scored
 - Dismiss or restore the checked roles in one go

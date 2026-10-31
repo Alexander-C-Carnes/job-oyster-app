@@ -4,13 +4,15 @@
 // (~/JobOyster, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
 // and with it any runs going (a search, Make résumé); it asks first when there are some.
 // Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
-// Check for Updates… in the menu does so any time.
+// Check for Updates… in the menu does so any time. When a résumé finishes, it posts a notification; opening
+// that notification shows the role.
 import AppKit
 import Foundation
+import UserNotifications
 
 let defaultPort = 8765
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var server: Process?
     var url: URL?
     var logURL: URL!
@@ -22,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Job Oyster")
         try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         logURL = logs.appendingPathComponent("server.log")
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         start()
         offerToTrashOldApp()
         checkForUpdate()
@@ -66,6 +70,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
         _ = done.wait(timeout: .now() + 4)
         return text
+    }
+
+    // MARK: résumé finished
+
+    // Polls résumé runs that have ended and posts a notification for each new one. The first look only
+    // remembers the latest id, so opening the app doesn't announce résumés that finished earlier. So does a
+    // look that finds the run history started over (a new data folder), or its new runs would never show.
+    let finishedRunKey = "lastFinishedRunId"
+    var watchingRuns = false
+    var pollBusy = false
+
+    func watchFinishedRuns() {
+        if watchingRuns { return }
+        watchingRuns = true
+        pollFinishedRuns()
+        Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            self?.pollFinishedRuns()
+        }
+    }
+
+    func pollFinishedRuns() {
+        if pollBusy { return }
+        let after = finishedAfter()
+        guard let u = url, let comps = URLComponents(url: u, resolvingAgainstBaseURL: false),
+              let token = comps.queryItems?.first(where: { $0.name == "token" })?.value,
+              let api = URL(string: "http://127.0.0.1:\(comps.port ?? defaultPort)/api/runs/finished?after=\(after)")
+        else { return }
+        var req = URLRequest(url: api)
+        req.timeoutInterval = 8
+        req.setValue(token, forHTTPHeaderField: "X-Jobpipe-Token")
+        pollBusy = true
+        let seeded = UserDefaults.standard.object(forKey: finishedRunKey) != nil
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+            defer { DispatchQueue.main.async { self?.pollBusy = false } }
+            guard let self = self, (resp as? HTTPURLResponse)?.statusCode == 200, let data = data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let runs = obj["runs"] as? [[String: Any]] else { return }
+            let latest = obj["latest"] as? Int ?? 0
+            if !seeded || latest < after {
+                UserDefaults.standard.set(latest, forKey: self.finishedRunKey)
+                return
+            }
+            DispatchQueue.main.async { self.announceFinished(runs) }
+        }.resume()
+    }
+
+    func finishedAfter() -> Int {
+        UserDefaults.standard.object(forKey: finishedRunKey) == nil ? 0 : UserDefaults.standard.integer(forKey: finishedRunKey)
+    }
+
+    func announceFinished(_ runs: [[String: Any]]) {
+        for run in runs {
+            guard let id = run["id"] as? Int, let status = run["status"] as? String else { continue }
+            let jobs = run["jobs"] as? [[String: Any]] ?? []
+            let content = UNMutableNotificationContent()
+            let who = self.who(jobs.first)
+            if status == "done" {
+                content.title = jobs.count > 1 ? "\(jobs.count) résumés ready" : "Résumé ready"
+                if jobs.count > 1 {
+                    content.body = who.isEmpty ? "\(jobs.count) résumés are ready to read." : "\(who), and \(jobs.count - 1) more"
+                } else {
+                    content.body = who.isEmpty ? "A résumé is ready to read." : who
+                }
+            } else {
+                content.title = "Résumé didn't finish"
+                content.body = who.isEmpty ? "A résumé run stopped before it finished." : who
+            }
+            if let job = jobs.first?["id"] as? String, !job.isEmpty { content.userInfo = ["job": job] }
+            content.sound = .default
+            UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "run-\(id)", content: content, trigger: nil))
+            UserDefaults.standard.set(id, forKey: finishedRunKey)
+        }
+    }
+
+    func who(_ job: [String: Any]?) -> String {
+        let title = job?["title"] as? String ?? ""
+        let company = job?["company"] as? String ?? ""
+        if title.isEmpty { return company }
+        if company.isEmpty { return title }
+        return "\(title) at \(company)"
+    }
+
+    func openJob(_ id: String) {
+        guard let u = url, !id.isEmpty,
+              let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let dest = URL(string: u.absoluteString + "#job=\(encoded)&tab=resume") else {
+            openInBrowser(nil)
+            return
+        }
+        NSWorkspace.shared.open(dest)
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let job = response.notification.request.content.userInfo["job"] as? String ?? ""
+        DispatchQueue.main.async { self.openJob(job) }
+        completionHandler()
     }
 
     func applicationWillTerminate(_ note: Notification) {
@@ -121,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             while Date() < deadline {
                 if let found = self.urlFromLog(log, port: port) {
-                    DispatchQueue.main.async { self.url = found; self.openInBrowser(nil) }
+                    DispatchQueue.main.async { self.url = found; self.openInBrowser(nil); self.watchFinishedRuns() }
                     return
                 }
                 if let s = self.server, !s.isRunning { return }
