@@ -225,8 +225,9 @@ function openActionsHelp() {
     h("dl", {},
       row("Signal score", "1–10", "How well your impact record fits the posting, from one quick read."),
       row("Full score", "1–10", "The same question, answered requirement by requirement. It replaces the signal score once a job has one."),
-      row("Résumé", "1–10", "How well the résumé you made covers the posting. Every edit is rated again."),
-      row("ATS", "%", "How much of the posting's skills, experience and keywords an applicant tracking system would find in the résumé.")),
+      row("ATS", "%", `Whether the résumé gets past the screen: the posting's skills (35%), experience (35%) and exact keywords (30%) found in it. ${ATS_TARGET}% is the target. Raise this one first: below it, a recruiter may never see the résumé.`),
+      row("Keywords", "%", "The keyword part of ATS: how many of the posting's terms the résumé has, word for word. The quickest part to raise."),
+      row("Résumé", "1–10", "How a recruiter would rate the résumé you made once they read it. Every edit is rated again.")),
     h("h3", {}, "Logs"),
     h("p", {}, "The Logs tab lists searches and Make résumé, with each one's log. A signal or full score shows on the job instead. Runs carry on when the app restarts (oyster restart); quitting the app stops them, and it asks first."),
     h("div", { class: "actions" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close")));
@@ -1722,7 +1723,7 @@ function rowEl(j) {
           j.status && h("span", { class: "tag stage-tag", "data-stage": j.status }, j.status),
           fundingTag(j),
           sourceTag(j),
-          j.tailored && h("span", { class: "tag ok" }, `Résumé${j.ats_total != null ? " " + pct(j.ats_total) : ""}`),
+          j.tailored && resumeTag(j),
           noSentTag(j),
           referralTag(j),
           !j.tracker_id && j.posted && h("span", { class: "tag" }, `Posted ${fmtDate(j.posted.length === 10 ? j.posted + "T12:00" : j.posted)}`),
@@ -1775,7 +1776,7 @@ function cardEl(j) {
         h("div", { class: "s" }, j.company),
         (j.tailored || j.referral_url || noSent(j) || j.funding) && h("div", { class: "tags" },
           fundingTag(j),
-          j.tailored && h("span", { class: "tag ok" }, `Résumé${j.ats_total != null ? " " + pct(j.ats_total) : ""}`),
+          j.tailored && resumeTag(j),
           noSentTag(j),
           referralTag(j))),
       rowEnd(j));
@@ -2588,7 +2589,7 @@ function fullBlock(j, d) {
           h("h3", {}, "Full score"),
           h("div", { class: "band" }, n == null ? "" : BANDS.find(([min]) => n >= min)[1]),
           h("p", {}, "Make résumé rated every requirement: full score ", h("b", {}, n ?? "–"), "/10, the résumé it made ",
-            h("b", {}, j.resume_score ?? "–"), "/10, ATS ", h("b", {}, pct(j.ats_total)),
+            h("b", {}, j.resume_score ?? "–"), "/10, ATS ", h("b", {}, pct(j.ats_total)), screenWord(j.ats_total),
             ". The résumé and ATS scores follow the current version: every edit is rated again. See Fit report and Heat map."))));
   }
   if (!f) {
@@ -2827,9 +2828,9 @@ function renderResume(d, panel, sent = null) {
   const proposalBox = h("div");
   const metrics = h("div", { class: "card" }, h("h3", {}, `Current version: v${r.current}`),
     cur?.rating && h("p", { class: "muted" }, spinner(), " Re-rating this edit: ATS shows the new keywords; skills and experience follow in a few seconds."),
+    screenVerdict(S.byId.get(d.id), cur, r.missing_keywords),
     scoreMeters(S.byId.get(d.id), cur),
     h("div", { class: "metrics" },
-      h("span", {}, "Keywords ", h("b", {}, pct(cur?.keywords_pct))),
       h("span", {}, "Format check ", checkBadge(cur?.check))));
   const ask = (text) => { if (r.editable === false) return; instr.value = chat.draft = text; instr.focus(); };
   const readOnly = r.editable === false && h("div", { class: "card" }, h("h3", {}, "Chat with Claude isn't available"),
@@ -3084,11 +3085,41 @@ function uploadScoreCard(id, noChat) {
 // The résumé's numbers drawn to scale: fit and résumé out of 10, ATS and keywords out of 100.
 // Résumé and ATS are the version's own (each edit is re-rated), else the tailoring run's.
 const versionAts = (j, v) => v?.ats ?? j?.ats_total;
+// A job's résumé tag: green when its ATS passes the screen target, amber when it's below.
+const resumeTag = (j) => h("span", { class: `tag ${j.ats_total == null || j.ats_total >= ATS_TARGET ? "ok" : "warn-tag"}`,
+  title: j.ats_total == null ? null : `ATS ${pct(j.ats_total)}${screenWord(j.ats_total)}` }, `Résumé${j.ats_total != null ? " " + pct(j.ats_total) : ""}`);
 const versionScore = (j, v) => v?.resume_score ?? j?.resume_score;
+// Whether the résumé gets past the screen: ATS against its target decides it, not the résumé score (how a recruiter
+// rates the page once they read it). Below the target, names the part pulling ATS down most, weighted the way the
+// total is (skills and experience 35% each, keywords 30%), and lists the keywords the page is missing.
+const screenWord = (ats) => (ats == null ? "" : ats >= ATS_TARGET ? " (passes the screen)" : ` (below the ${ATS_TARGET}% screen target)`);
+function screenVerdict(j, cur, missing = []) {
+  const ats = versionAts(j, cur);
+  if (ats == null) return null;
+  const pass = ats >= ATS_TARGET, resume = versionScore(j, cur), parts = cur?.ats_parts || {};
+  const drag = [["keywords", parts.keywords ?? cur?.keywords_pct, 0.30], ["skills", parts.skills, 0.35], ["experience", parts.experience, 0.35]]
+    .filter(([, v]) => v != null).map(([k, v, w]) => [k, w * (100 - v)]).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const fix = {
+    keywords: "Keywords pull it down most, and they're the quickest to fix: use the posting's own words for what you've done.",
+    skills: "Skills pull it down most: show the partial or missing skills with evidence (Heat map has the rows).",
+    experience: "Experience pulls it down most: show the partial or missing experience with its scope and results (Heat map has the rows)." };
+  const shown = missing.slice(0, 15);
+  return h("div", { class: `screen ${pass ? "hi" : ats >= 60 ? "mid" : "lo"}` },
+    h("b", {}, pass ? "Passes the screen" : "Below the screen target"),
+    h("span", {}, pass ? `ATS ${pct(ats)}, at or over the ${ATS_TARGET}% target.`
+      : `ATS ${pct(ats)}, ${Math.ceil(ATS_TARGET - ats)} points under ${ATS_TARGET}%. A recruiter may never see it.`),
+    !pass && drag && h("p", {}, fix[drag]),
+    !pass && shown.length > 0 && h("div", { class: "kw" }, h("span", { class: "muted" }, `Missing keywords (${missing.length}):`),
+      ...shown.map((k) => h("span", { class: "tag" }, k)), missing.length > shown.length && h("span", { class: "muted" }, `+${missing.length - shown.length} more`)),
+    !pass && shown.length > 0 && h("p", {}, "Add only the ones you can back up."),
+    resume != null && h("p", {}, pass
+      ? `The résumé score (${resume}/10) is how a recruiter rates it once they read it.`
+      : `The résumé score (${resume}/10) is how a recruiter rates it once they read it. Raise ATS first: it decides whether they read it.`));
+}
 function scoreMeters(j, cur) {
   const pctBand = (v) => (v >= 80 ? "hi" : v >= 60 ? "mid" : "lo");
-  const rows = [[j?.impact_score != null ? "Full score" : "Signal score", j && score(j), 10, "/10", fitClass], ["Résumé", versionScore(j, cur), 10, "/10", fitClass],
-                ["ATS", versionAts(j, cur), 100, "%", pctBand], ["Keywords", cur?.keywords_pct, 100, "%", pctBand]]
+  const rows = [["ATS", versionAts(j, cur), 100, "%", pctBand], ["Keywords", cur?.keywords_pct, 100, "%", pctBand],
+                ["Résumé", versionScore(j, cur), 10, "/10", fitClass], [j?.impact_score != null ? "Full score" : "Signal score", j && score(j), 10, "/10", fitClass]]
     .filter(([, v]) => v != null);
   if (!rows.length) return null;
   return h("div", { class: "meters" }, ...rows.map(([label, v, max, unit, band]) => h("div", { class: `meter ${band(v)}` },
@@ -3958,7 +3989,7 @@ function renderRunResults(r) {
     h("ul", {}, ...res.map((x) => h("li", {},
       h("span", { class: `fit ${fitClass(x.impact_score ?? x.fit)}` }, x.impact_score ?? x.fit ?? "–"),
       h("span", { class: "what" }, h("b", {}, x.title || "(untitled)"), " · ", x.company || ""),
-      x.tailored && h("span", { class: "tag ok" }, `Résumé${x.ats_total != null ? " " + pct(x.ats_total) : ""}`),
+      x.tailored && resumeTag(x),
       h("span", { class: "actions-inline" },
         x.tailored && h("button", { class: "ghost small", onclick: () => openJob(x.id, "report") }, "Fit report"),
         h("button", { class: "ghost small", onclick: () => openJob(x.id, x.tailored ? "resume" : "posting") }, x.tailored ? "Résumé" : "Open"))))));

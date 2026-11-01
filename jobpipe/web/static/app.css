@@ -1042,6 +1042,13 @@ dialog h2 + p { margin: -6px 0 12px; }
 .meter .val small { font-size: 11px; color: var(--muted); }
 .meter .track { grid-column: 1 / span 2; height: 6px; border-radius: 3px; background: var(--paper); overflow: hidden; }
 .meter .track i { display: block; height: 100%; background: var(--c); border-radius: 3px; transition: width .5s ease; }
+/* the screen verdict above the meters: does ATS clear its target */
+.screen { --c: var(--warn); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-bottom: 10px; padding: 8px 10px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--c) 45%, var(--line)); border-left-width: 4px; border-radius: var(--radius); background: color-mix(in srgb, var(--c) 7%, var(--panel)); }
+.screen.hi { --c: var(--good); } .screen.lo { --c: var(--bad); }
+.screen > b { color: var(--c); }
+.screen p { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.screen .kw { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 12px; }
 #moment-canvas { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 70; }
 .moment-banner { position: fixed; left: 50%; top: 14px; transform: translate(-50%, calc(-100% - 40px)); visibility: hidden; z-index: 80;
   background: var(--st-applied); color: #fff; padding: 12px 22px; border-radius: 10px; font-weight: 700; font-size: 16px; box-shadow: var(--shadow);

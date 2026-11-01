@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-01
+
+### Résumés
+- The Résumé tab says whether your résumé passes the screen
+
 ## 2026-10-31
 
 ### Résumés

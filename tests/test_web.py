@@ -6,7 +6,7 @@ import shutil
 import sys
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import quote
 
 import httpx
@@ -575,6 +575,9 @@ def test_detail_report_and_files(env):
     d = c.get("/api/jobs/j1", headers=H).json()
     assert d["resume"]["current"] == 1 and d["resume"]["versions"][0]["source"] == "pipeline"
     assert d["resume"]["versions"][0]["check"]["passed"] is True
+    kw = json.loads((env["run_dir"] / "keywords.json").read_text())
+    (env["run_dir"] / "keywords.json").write_text(json.dumps({**kw, "Kubernetes": "kubernetes"}))
+    assert c.get("/api/jobs/j1", headers=H).json()["resume"]["missing_keywords"] == ["Kubernetes"]
     assert d["has_report"] is True
     html = c.get("/api/jobs/j1/report", headers=H).json()["html"]
     assert "<script>" not in html and "&lt;script&gt;" in html and "<table>" in html
@@ -1924,8 +1927,9 @@ def test_startups_tab_roles_into_find_jobs_and_the_tracker(env, monkeypatch):
     from jobpipe import startups as su
     c = env["client"]
     store = su.StartupStore(config.DATA / "startups.json")
+    raised = (date.today() - timedelta(days=5)).isoformat()      # inside the "recent" window whatever day the test runs
     store.merge([{"name": "Acme", "website": "https://acme.com", "stage": "Series B", "one_liner": "AI for banks", "hq": "New York, NY",
-                  "round": {"name": "Series B", "stage": "Series B", "amount": 2e7, "currency": "$", "amount_usd": 2e7, "date": "2026-10-01",
+                  "round": {"name": "Series B", "stage": "Series B", "amount": 2e7, "currency": "$", "amount_usd": 2e7, "date": raised,
                             "headline": "Acme Raises $20M in Series B Funding", "url": "https://news.example/acme", "source": "FinSMEs"},
                   "sources": [{"kind": "news", "name": "FinSMEs", "url": "https://news.example/acme", "at": "2026-10-01"}]},
                  {"name": "Zeta", "website": "https://zeta.example", "batch": "Summer 2026", "hiring": True, "yc_stage": "Early"}])

@@ -214,6 +214,14 @@ class ResumeWorkspace:
         kw = normalize_keywords(json.loads(kw_path.read_text()))[0]
         return {k for k, p in kw.items() if re.search(p, text, re.I)}, len(kw)
 
+    def missing_keywords(self, text: str) -> list[str]:
+        """The posting keywords the text doesn't have, in keywords.json's order ([] without keywords.json)."""
+        kw_path = self.run_dir / "keywords.json"
+        if not kw_path.exists():
+            return []
+        kw = normalize_keywords(json.loads(kw_path.read_text()))[0]
+        return [k for k, p in kw.items() if not re.search(p, text, re.I)]
+
     def keyword_pct(self, text: str) -> Optional[float]:
         if (got := self.keyword_hits(text)) is None:
             return None

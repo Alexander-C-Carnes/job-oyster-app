@@ -420,7 +420,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         h = ws.history()
         fmt, default = ws.format, default_format()
         return {"current": h["current"], "versions": h["versions"], "proposal": bool(h.get("proposal")),
-                "title": ws.title(), "pdf_name": resume_filename(board.row(jid), h["current"]),
+                "title": ws.title(), "missing_keywords": ws.missing_keywords(ws.md(h["current"])),
+                "pdf_name": resume_filename(board.row(jid), h["current"]),
                 "pdf_names": resume_filenames(ws, board.row(jid)), "editable": ws.editable(), "chat": chat_payload(ws), "chat_busy": chat_busy(jid),
                 "format": {"id": fmt.id, "name": fmt.name, "max_pages": fmt.max_pages},
                 "default_format": {"id": default.id, "name": default.name, "max_pages": default.max_pages,
