@@ -2810,7 +2810,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             state["pack_tasks"].discard(jid)
 
     async def build_research(jid: str) -> None:
-        """One chat-model call for company background. Questions, stories, and the debrief are not written."""
+        """One chat-model call for company research. Questions, stories, and the debrief are not written."""
         try:
             row = board.row(jid) or {}
             try:
@@ -2863,7 +2863,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.post("/api/jobs/{jid}/interview-pack/research")
     async def start_company_research(jid: str, background: BackgroundTasks, body: Optional[dict] = None):
-        """Company background, only when asked. A saved research is left as it is unless `again` is true,
+        """Company research, only when asked. A saved research is left as it is unless `again` is true,
         which replaces the research and leaves the questions, stories, and debrief."""
         row = known_job(jid)
         again = bool((body or {}).get("again"))

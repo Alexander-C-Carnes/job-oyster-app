@@ -63,7 +63,7 @@ posting.md is the job. company.md is the funding and startup record already stor
 
 Write research.md in short sections. Each section starts with ## and a heading. Cover what helps in an interview: history, mission, values, culture, challenges, how the company defines success and its next few years, management style, diversity and inclusion, growth and how performance is measured, recent news, market position, products, funding history, growth, layoffs, and review themes. Use a heading when you have something to say about it. End with ## Why this role and ## Questions to ask, a few lines {first} could use.
 
-This is background for the interview, not a fact from {first}'s files. A round amount, a layoff count, a review score, or any other precise figure may be stated only when that figure is written in posting.md or company.md. You may still discuss a topic the documents don't quantify: say what to listen for or what to ask, and do not invent the number or say the posting stated it."""
+A round amount, a layoff count, a review score, or any other precise figure may be stated only when that figure is written in posting.md or company.md. You may still discuss a topic the documents don't quantify: say what to listen for or what to ask, and do not invent the number or say the posting stated it."""
 
 _NONE = {"", "none", "n/a", "-", "—"}
 _FIELD = re.compile(r"^(ask|story|cite):\s*(.*)$", re.I)
@@ -307,7 +307,7 @@ async def make(runner: Runner, model: ModelCfg, brief: str, materials: Materials
 
 
 async def research(runner: Runner, model: ModelCfg, brief: str, posting: str, company: str) -> dict:
-    """One chat-model call for company background. Returns {"sections"}. Does not build the role pack."""
+    """One chat-model call for company research. Returns {"sections"}. Does not build the role pack."""
     res = await runner.run(AgentCall(
         label="company-research", model=model, instructions=brief,
         documents={"posting.md": (posting or "")[:15000] or "(no posting text on file)",
