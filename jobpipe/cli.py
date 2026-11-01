@@ -170,7 +170,7 @@ def cmd_tailor(cfg, args):
 
 def cmd_serve(cfg, args):
     from .web.server import serve
-    serve(cfg, port=args.port, open_browser=not args.no_open)
+    serve(cfg, port=args.port, open_browser=not args.no_open, uds=args.socket, systemd_socket=args.systemd_socket)
 
 
 def cmd_jobs(cfg, args):
@@ -354,6 +354,9 @@ def main(argv=None) -> None:
     p = sub.add_parser("serve", help="local web app")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-open", action="store_true", help="don't open the browser")
+    p.add_argument("--socket", metavar="PATH", help="serve on this Unix socket instead of a port")
+    p.add_argument("--systemd-socket", action="store_true",
+                   help="serve on the socket systemd passes in (the website's socket units)")
     p.set_defaults(fn=cmd_serve)
 
     sub.add_parser("jobs").set_defaults(fn=cmd_jobs)

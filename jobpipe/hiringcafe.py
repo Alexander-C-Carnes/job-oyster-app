@@ -101,7 +101,9 @@ def _guarded_fetch(timeout: float, requests, CurlOpt, RequestException) -> Fetch
             except httpx.TransportError as e:
                 raise Unreadable(str(e)) from None
             pin = f"{u.hostname}:{port}:" + (f"[{ip}]" if ":" in ip else ip)
-            session = requests.Session(impersonate="chrome", timeout=timeout, curl_options={CurlOpt.RESOLVE: [pin]})
+            via = egress.proxy()
+            session = requests.Session(impersonate="chrome", timeout=timeout, curl_options={CurlOpt.RESOLVE: [pin]},
+                                       **({"proxies": {"http": via, "https": via}} if via else {}))
             try:
                 r = session.get(url, allow_redirects=False)
             except RequestException as e:

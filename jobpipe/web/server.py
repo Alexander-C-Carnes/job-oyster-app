@@ -36,7 +36,7 @@ from ..config import Config
 from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from .. import hosted, lowfit
-from . import about, follow
+from . import about, follow, idle
 from .flow import application_flow
 from .menu import snapshot as menu_snapshot
 from .ready import Answered, counts, inbox, is_key, questions_in
@@ -279,6 +279,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if host not in allowed:
             return JSONResponse({"detail": "Forbidden host"}, status_code=403)
         path = request.url.path
+        app.state.idle.seen(request.method, path)
         if path.startswith("/api/"):
             supplied = request.headers.get("x-jobpipe-token") or (
                 request.query_params.get("t") if request.method == "GET" else None)
@@ -909,6 +910,13 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return {"id": jid}
 
     scorer = Scorer({"signal": signal_score, "full": full_score, "upload": score_upload})
+
+    def busy() -> bool:
+        """Something is going that a stop would cut short or leave unanswered."""
+        going = runs.going()
+        return bool(going["running"] or going["waiting"] or scorer.active or state["chatting"]
+                    or any(not t.done() for t, _ in work.values()))
+    app.state.idle = idle.Idle(idle.minutes(), busy)
 
     @app.post("/api/jobs/{jid}/score")
     async def score_job(jid: str):
@@ -2843,7 +2851,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     return app
 
 
-def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
+def serve(cfg: Config, port: int = 8765, open_browser: bool = True, uds: Optional[str] = None,
+          systemd_socket: bool = False) -> None:
+    """Serve on 127.0.0.1:port, or on the Unix socket `uds`, or (systemd_socket) on the socket systemd's socket unit
+    passes in (the website: hosted/systemd/jobpipe@.socket)."""
     import webbrowser
 
     from ..pipeline import make_tracker
@@ -2853,8 +2864,13 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
     token = load_token(config.DATA)
     tracker = make_tracker(cfg, print)
     app = create_app(cfg, token=token, tracker=tracker)
-    url = f"http://127.0.0.1:{port}/?token={token}"
-    print(f"\n  jobpipe is running at {url}\n  (bookmark it; the token stays the same until you delete {config.DATA / 'web-token'})\n")
+    fd = systemd_fd() if systemd_socket else None
+    if uds or fd is not None:
+        print(f"\n  jobpipe is serving on {uds or 'the socket systemd passed in'}\n", flush=True)
+        open_browser = False
+    else:
+        url = f"http://127.0.0.1:{port}/?token={token}"
+        print(f"\n  jobpipe is running at {url}\n  (bookmark it; the token stays the same until you delete {config.DATA / 'web-token'})\n")
     if open_browser:
         webbrowser.open(url)
     runs = app.state.runs
@@ -2893,18 +2909,28 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
         follower.start()
         print("  Following main (OYSTER_FOLLOW_MAIN): new commits on origin/main get pulled, and the app restarts\n"
               "  on them by itself whenever no run is going.\n")
-    quitting = run_server(app, port)
+    app.state.idle.watch()
+    quitting = run_server(app, port, uds=uds, fd=fd)
     if follower and follower.restarting and not quitting:
         follow.exec_again()
 
 
-def run_server(app: FastAPI, port: int) -> bool:
+def systemd_fd() -> int:
+    """The listening socket systemd passed in (socket activation: LISTEN_FDS, starting at fd 3)."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()) or os.environ.get("LISTEN_FDS") != "1":
+        raise SystemExit("--systemd-socket: systemd didn't pass this process one socket (LISTEN_FDS / LISTEN_PID).")
+    return 3
+
+
+def run_server(app: FastAPI, port: int, uds: Optional[str] = None, fd: Optional[int] = None) -> bool:
     """Serve until stopped. Quitting stops the runs; a restart leaves them going (app_server says which is which).
-    True when it was quitting."""
+    True when it was quitting. An idle stop (idle.py) is neither: nothing is going by then."""
     import uvicorn
 
     runs = app.state.runs
-    server = app.state.server = app_server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"), runs)
+    where = {"fd": fd} if fd is not None else {"uds": uds} if uds else {"host": "127.0.0.1", "port": port}
+    server = app.state.server = app_server(uvicorn.Config(app, log_level="warning", **where), runs)
+    app.state.idle.stop = lambda: setattr(server, "should_exit", True)
     signal.signal(signal.SIGHUP, server.hang_up)
     try:
         server.run()

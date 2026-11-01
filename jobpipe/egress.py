@@ -6,6 +6,9 @@ routable. The check runs after the DNS lookup, on every request and every redire
 the very address that was checked, so a name that answers with a public address for the check and a private one for
 the connection (DNS rebinding) gets nowhere. A name with any non-public address is refused outright.
 
+On the website the user's copy has no network of its own (hosted/systemd/jobpipe@.service): OYSTER_EGRESS_PROXY names
+the egress proxy every checked request goes through.
+
 With hosted mode off, client() and async_client() are plain httpx clients: postings, job sources and an AI running on
 this Mac (Ollama, LM Studio) are reached exactly as before. tests/test_egress.py fails when code makes a request any
 other way.
@@ -14,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 import socket
 from typing import Callable, Optional
 
@@ -21,6 +25,7 @@ import httpx
 
 from . import hosted
 
+PROXY = "OYSTER_EGRESS_PROXY"
 Resolve = Callable[[str, int], list[str]]          # (host, port) -> its addresses
 NAT64 = ipaddress.ip_network("64:ff9b::/96")       # IPv6 addresses that carry an IPv4 one in their last 32 bits
 
@@ -32,6 +37,11 @@ class Blocked(httpx.TransportError):
 
 def enforced() -> bool:
     return hosted.enabled()
+
+
+def proxy() -> Optional[str]:
+    """The egress proxy's address in hosted mode, else None."""
+    return (os.environ.get(PROXY, "").strip() or None) if enforced() else None
 
 
 def system_resolve(host: str, port: int) -> list[str]:
@@ -88,7 +98,7 @@ def _pinned(request: httpx.Request, address: str) -> httpx.Request:
 
 class GuardTransport(httpx.BaseTransport):
     def __init__(self, inner: Optional[httpx.BaseTransport] = None, resolve: Resolve = system_resolve):
-        self.inner = inner or httpx.HTTPTransport()
+        self.inner = inner or httpx.HTTPTransport(proxy=proxy())
         self.resolve = resolve
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
@@ -102,7 +112,7 @@ class GuardTransport(httpx.BaseTransport):
 
 class AsyncGuardTransport(httpx.AsyncBaseTransport):
     def __init__(self, inner: Optional[httpx.AsyncBaseTransport] = None, resolve: Resolve = system_resolve):
-        self.inner = inner or httpx.AsyncHTTPTransport()
+        self.inner = inner or httpx.AsyncHTTPTransport(proxy=proxy())
         self.resolve = resolve
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
