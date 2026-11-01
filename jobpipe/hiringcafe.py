@@ -24,9 +24,11 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Callable, Optional
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
-from . import doh, regions
+import httpx
+
+from . import doh, egress, regions
 from .config import HiringCafeSearch
 from .jd import html_to_text, posting_key
 from .store import Store, safe_id
@@ -71,6 +73,8 @@ def browser_fetch(timeout: float = 30) -> Fetch:
         from curl_cffi.requests.exceptions import RequestException
     except ImportError:
         raise Unreadable("curl_cffi isn't installed (run ./oyster update, or pip install -r requirements.txt)") from None
+    if egress.enforced():
+        return _guarded_fetch(timeout, requests, CurlOpt, RequestException)
     ip, _ = doh.lookup(HOST)
     session = requests.Session(impersonate="chrome", timeout=timeout,
                                curl_options={CurlOpt.RESOLVE: [f"{HOST}:443:{ip}"]} if ip else None)
@@ -81,6 +85,34 @@ def browser_fetch(timeout: float = 30) -> Fetch:
         except RequestException as e:
             raise Unreadable(f"couldn't connect ({e})") from None
         return Page(r.status_code, r.text, r.headers.get("location") or "", r.headers.get("cf-mitigated") == "challenge")
+    return fetch
+
+
+def _guarded_fetch(timeout: float, requests, CurlOpt, RequestException) -> Fetch:
+    """browser_fetch in hosted mode: each hop's address is checked (egress.public_address) and curl is pinned to it,
+    and redirects are followed here, one checked hop at a time."""
+    def fetch(url: str, follow: bool = True) -> Page:
+        for _ in range(6):
+            u = urlsplit(url)
+            try:
+                egress.check_url(url)
+                port = u.port or (443 if u.scheme == "https" else 80)
+                ip = egress.public_address(u.hostname or "", port)
+            except httpx.TransportError as e:
+                raise Unreadable(str(e)) from None
+            pin = f"{u.hostname}:{port}:" + (f"[{ip}]" if ":" in ip else ip)
+            session = requests.Session(impersonate="chrome", timeout=timeout, curl_options={CurlOpt.RESOLVE: [pin]})
+            try:
+                r = session.get(url, allow_redirects=False)
+            except RequestException as e:
+                raise Unreadable(f"couldn't connect ({e})") from None
+            finally:
+                session.close()
+            location = r.headers.get("location") or ""
+            if not (follow and r.status_code in (301, 302, 303, 307, 308) and location):
+                return Page(r.status_code, r.text, location, r.headers.get("cf-mitigated") == "challenge")
+            url = urljoin(url, location)
+        raise Unreadable("too many redirects")
     return fetch
 
 

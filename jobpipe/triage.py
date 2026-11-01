@@ -16,7 +16,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import config
+from . import config, hosted
 from .config import ModelCfg
 from .llm import AgentCall, AgentError, Runner
 
@@ -154,11 +154,12 @@ async def triage_one(runner: Runner, model: ModelCfg, jd_md: str, label: str) ->
              + f". The impact record's source name is \"{config.IMPACT_SOURCE}\".")
     call = AgentCall(label=f"triage:{label}", model=model, instructions=brief_text(cand) + "\n" + notes,
                      documents={"jd.md": jd_md}, expect=["triage.json"])
-    res = await runner.run(call)
-    try:
-        return Triage.from_json(res.files["triage.json"])
-    except (KeyError, ValueError, TypeError) as e:
-        raise AgentError(f"triage:{label}: bad triage.json ({e})") from e
+    with hosted.signal_score():
+        res = await runner.run(call)
+        try:
+            return Triage.from_json(res.files["triage.json"])
+        except (KeyError, ValueError, TypeError) as e:
+            raise AgentError(f"triage:{label}: bad triage.json ({e})") from e
 
 
 async def triage_many(runner: Runner, model: ModelCfg,

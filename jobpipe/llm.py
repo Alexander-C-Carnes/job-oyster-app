@@ -26,7 +26,7 @@ from typing import Optional, Protocol
 import anthropic
 import httpx
 
-from . import config
+from . import config, egress
 from .config import ModelCfg
 
 FILE_RE = re.compile(r'<file name="([^"]+)">\n?(.*?)\n?</file>', re.S)
@@ -482,7 +482,7 @@ class OpenAICompatRunner(_RetryingRunner):
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         if provider == "openrouter":
             headers.update({"X-Title": "Job Oyster", "HTTP-Referer": "https://github.com/Alexander-C-Carnes/job-oyster-app"})
-        self.client = client or httpx.AsyncClient(headers=headers, timeout=timeout_s)
+        self.client = client or egress.async_client(headers=headers, timeout=timeout_s)
         if client is not None:
             self.client.headers.update(headers)
         self.sem = asyncio.Semaphore(max_parallel)
@@ -557,7 +557,9 @@ class OpenAICompatRunner(_RetryingRunner):
             await asyncio.sleep(min(wait, 120))
 
     def _unreachable(self, e: Exception) -> AgentError:
-        where = f" Is {self.label.split(' (')[0]} running?" if PROVIDERS[self.provider].local else ""
+        if isinstance(e, egress.Blocked):
+            return AgentError(f"Couldn't reach {self.base_url}: {e}")
+        where =f" Is {self.label.split(' (')[0]} running?" if PROVIDERS[self.provider].local else ""
         return AgentError(f"Couldn't reach {self.base_url} ({e.__class__.__name__}).{where}")
 
     def _error(self, label: str, r: httpx.Response) -> AgentError:

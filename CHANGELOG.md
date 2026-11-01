@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-01
 
+### Looks
+- Sorbet's filters all look alike
+
 ### Tracker
 - Closed postings come off the tracker
 

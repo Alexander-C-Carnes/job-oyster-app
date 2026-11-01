@@ -29,6 +29,7 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
+from . import egress
 from . import regions
 from .jd import html_to_text
 from .store import _read, _write, now_iso, slug
@@ -459,7 +460,7 @@ def funding_from_feed(name: str, items: list[dict], since: str) -> list[dict]:
 
 def fetch_funding_news(feeds: dict[str, str], queries: list[str], days: int,
                        client: Optional[httpx.Client] = None, log: Callable[[str], None] = lambda s: None) -> list[dict]:
-    c = client or httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=20, follow_redirects=True, headers={"User-Agent": UA})
     since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
     found: list[dict] = []
     urls = list(feeds.items()) + [("Google News", GOOGLE_NEWS.format(q=quote(q))) for q in queries]
@@ -499,7 +500,7 @@ def yc_companies(*, hiring_only: bool = True, batches: Optional[list[str]] = Non
     """YC companies from the directory mirror. Each has its batch (W26 = winter 2026), whether it says it's hiring,
     team size, industries and website. The round isn't published there, so the stage stays Unknown until a news
     item or a lookup supplies it; YC's own Early/Growth label is kept as `yc_stage`."""
-    c = client or httpx.Client(timeout=60, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=60, follow_redirects=True, headers={"User-Agent": UA})
     try:
         r = c.get(YC_OSS.format(which="hiring" if hiring_only else "all"))
         rows = r.json() if r.status_code == 200 else None
@@ -608,7 +609,7 @@ def vc_board_startups(boards: dict[str, str], phrases: list[str], client: Option
                       log: Callable[[str], None] = lambda s: None, ids: Optional[dict[str, int]] = None) -> list[dict]:
     """Startups hiring for the filters' titles on VC portfolio boards, each with its stage and the matching roles.
     `ids` caches board URL -> network id across refreshes."""
-    c = client or httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=20, follow_redirects=True, headers={"User-Agent": UA})
     ids = ids if ids is not None else {}
     found: dict[str, dict] = {}
     for firm, url in boards.items():
@@ -656,7 +657,7 @@ def pdl_enrich(domain: str, api_key: str, client: Optional[httpx.Client] = None)
     """The latest round for a company website, from People Data Labs' company enrichment (1 credit)."""
     if not domain or not api_key:
         return None
-    c = client or httpx.Client(timeout=20, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=20, headers={"User-Agent": UA})
     r = c.get("https://api.peopledatalabs.com/v5/company/enrich", params={"website": domain, "min_likelihood": 5},
               headers={"X-Api-Key": api_key})
     if r.status_code != 200:
@@ -684,7 +685,7 @@ def fundable_enrich(domain: str, api_key: str, client: Optional[httpx.Client] = 
     """The latest deal for a company website, from Fundable (tryfundable.ai; 1 credit a lookup)."""
     if not domain or not api_key:
         return None
-    c = client or httpx.Client(timeout=20, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=20, headers={"User-Agent": UA})
     r = c.get("https://www.tryfundable.ai/api/v1/company", params={"domain": domain},
               headers={"Authorization": f"Bearer {api_key}"})
     if r.status_code != 200:
@@ -712,7 +713,7 @@ def theirstack_enrich(domain: str, api_key: str, client: Optional[httpx.Client] 
     """The funding stage of a company website, from TheirStack's company search (3 credits a lookup)."""
     if not domain or not api_key:
         return None
-    c = client or httpx.Client(timeout=30, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=30, headers={"User-Agent": UA})
     r = c.post("https://api.theirstack.com/v1/companies/search", json={"company_domain_or": [domain], "limit": 1},
                headers={"Authorization": f"Bearer {api_key}"})
     if r.status_code != 200:
@@ -1003,7 +1004,7 @@ def open_roles(s: dict, phrases: list[str], client: Optional[httpx.Client] = Non
     """The startup's open roles from its careers board: {board, careers_url, jobs: [...], matching: [i...]}.
     Each job: title, url, location, remote, description, posted, match. A role matches when it answers one of
     `searches` (title and place), or, without them, when its title has one of `phrases`."""
-    c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
     ats = s.get("ats") or {}
     b = Board(ats["kind"], ats["board"]) if ats.get("kind") and ats.get("board") else None
     careers = s.get("careers_url") or ""
@@ -1127,7 +1128,7 @@ def scan_boards(store: StartupStore, searches: list, jobs_store: Any, *, limit: 
     log(f"Open roles: reading {len(todo)} startups' careers boards for {', '.join(phrases) or 'any title'}")
 
     def one(s: dict) -> tuple[dict, dict]:
-        c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
+        c = client or egress.client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
         try:
             return s, open_roles(s, phrases, c, searches=searches, exclude=exclude)
         except Exception as e:  # noqa: BLE001 - one site's trouble shouldn't stop the scan

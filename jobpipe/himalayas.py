@@ -22,6 +22,7 @@ from typing import Callable, Optional
 
 import httpx
 
+from . import egress
 from . import regions
 from .config import Search
 from .jd import html_to_text
@@ -53,7 +54,7 @@ class Himalayas:
         self.workers = workers                  # queries at once: a region is ~30 of them (4 drew 429s)
         self.backoff = backoff                  # seconds to wait after a 429 before asking again
         self._lock = threading.Lock()
-        self.client = client or httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": UA})
+        self.client = client or egress.client(timeout=30, follow_redirects=True, headers={"User-Agent": UA})
         self.log = log
         self._pages: dict[tuple, list[dict]] = {}       # (title words, scope, days) -> raw jobs, shared across filters
         self.requests = 0

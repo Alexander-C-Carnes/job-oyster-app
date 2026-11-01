@@ -15,6 +15,8 @@ from typing import Callable, Optional
 
 import httpx
 
+from .. import egress
+
 REPO = "Alexander-C-Carnes/job-oyster-app"
 REPO_URL = f"https://github.com/{REPO}"
 LATEST_EVERY = 6 * 3600.0     # seconds a release lookup is kept (one that failed: 10 minutes)
@@ -44,7 +46,8 @@ def running(root: Path) -> dict:
 def fetch_latest(timeout: float = 4.0) -> Optional[dict]:
     """The newest published release: {"tag", "url", "date"}, or None when GitHub can't be reached."""
     try:
-        r = httpx.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=timeout,
+        with egress.client(timeout=timeout) as c:
+            r = c.get(f"https://api.github.com/repos/{REPO}/releases/latest",
                       headers={"Accept": "application/vnd.github+json", "User-Agent": "Job Oyster"})
         r.raise_for_status()
         d = r.json()

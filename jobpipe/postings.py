@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from . import egress
 from . import hiringcafe, jd
 from .jd import MIN_DESCRIPTION_CHARS, MIN_PASTED_CHARS, linkedin_job_id, posting_url
 from .notion import APPLIED_STATUSES
@@ -115,7 +116,7 @@ def check_closed(jobs_store: Any, *, tracker: Any = None, limit: int = 200, work
         _sync(tracker, counts)
         return counts
     log(f"Postings: checking whether {len(todo)} role(s) are still open")
-    c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
 
     def one(jid: str) -> tuple[str, Optional[bool]]:
         job = jobs_store.job(jid)
@@ -167,7 +168,7 @@ def mark_if_closed(store: Any, jid: str, client: Optional[httpx.Client] = None) 
     job = store.job(jid)
     if not job:
         return False
-    c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
+    c = client or egress.client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
     try:
         if not is_closed(job, c):
             return False

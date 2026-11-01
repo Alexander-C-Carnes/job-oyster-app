@@ -1,5 +1,5 @@
-/* Sorbet: candy brights, round shapes, chunky friendly type. The stage strip becomes a ribbon of
-   scoops sized by count; a sent application fires confetti; a rejection brings a round sad cat.
+/* Sorbet: candy brights, round shapes, chunky friendly type. Every filter is the same round chip with a
+   colour dot; a sent application fires confetti; a rejection brings a round sad cat.
    Everything here is scoped to html[data-theme="sorbet"] and only re-dresses app.css's elements. */
 
 @font-face { font-family: "Fredoka"; font-style: normal; font-weight: 300 700; font-display: swap;
@@ -73,8 +73,8 @@ html[data-theme="sorbet"] .btn-link:hover { background: var(--sel); border-color
 /* gooey movement: buttons and chips lift on the look's spring and squish when pressed, then bounce back */
 html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip) { transition: transform 620ms var(--open), background-color .15s ease, border-color .15s ease, color .15s ease; }
 @media (prefers-reduced-motion: no-preference) {
-  html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip):hover:not(:disabled) { transform: translateY(-1px) scale(1.04); }
-  html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip):active:not(:disabled) { transform: scale(.94); transition: transform 90ms ease-out; }
+  html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip, .stage, .seg:is(#find-seg, #startup-views) button):hover:not(:disabled) { transform: translateY(-1px) scale(1.04); }
+  html[data-theme="sorbet"] :is(button.primary, button.ghost, .chip, .stage, .seg:is(#find-seg, #startup-views) button):active:not(:disabled) { transform: scale(.94); transition: transform 90ms ease-out; }
 }
 html[data-theme="sorbet"] button.small { padding: 4px 11px; font-size: 12.5px; }
 html[data-theme="sorbet"] button.danger { color: var(--bad); }
@@ -103,54 +103,66 @@ html[data-theme="sorbet"] .searchbox input { border-radius: 999px; padding: 8px 
 html[data-theme="sorbet"] .searchbox kbd { border: 1.5px solid var(--edge); border-radius: 6px; font-weight: 700; color: var(--muted); background: var(--panel); }
 html[data-theme="sorbet"] .link-btn { color: var(--link); font-weight: 600; }
 
-/* tools row and chips */
-html[data-theme="sorbet"] .jobs-tools { background: var(--paper); border-bottom: 0; padding: 12px 20px 8px; gap: 8px; }
-html[data-theme="sorbet"] .jobs-tools .tools-row:nth-child(2) { flex-wrap: wrap; gap: 10px 14px; }
+/* tools row and filters: every filter is the same chip. A group starts with its name in small caps; a chip is
+   [colour dot or icon] label count, 32px tall; picked, it fills with ink; a value nothing matches fades back. */
+html[data-theme="sorbet"] .jobs-tools { background: var(--paper); border-bottom: 0; padding: 12px 20px 8px; gap: 10px; }
+html[data-theme="sorbet"] .jobs-tools .tools-row:nth-child(2) { flex-wrap: wrap; gap: 8px 22px; }
+html[data-theme="sorbet"] .tools-row.facets { gap: 8px 22px; }
 html[data-theme="sorbet"] .sync-state { font-size: 13px; }
-html[data-theme="sorbet"] .chip { border: 2px solid var(--edge); border-radius: 999px; padding: 5px 12px; font-weight: 600; color: var(--ink); background: var(--panel); }
-html[data-theme="sorbet"] .chip:hover { border-color: var(--ink); }
-html[data-theme="sorbet"] .chip b { font: 700 12.5px var(--display); color: var(--muted); }
-html[data-theme="sorbet"] .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-html[data-theme="sorbet"] .chip[aria-pressed="true"] b { color: var(--paper); }
-html[data-theme="sorbet"] #find-seg b { font-family: var(--display); }
-/* the score filter: each score a little scoop ringed in its fit colour, like the list's */
-html[data-theme="sorbet"] .facet-label { font: 700 13px var(--display); color: var(--muted); }
-html[data-theme="sorbet"] .chip .sc { --b: var(--line); width: 24px; height: 24px; margin-left: -8px; padding: 0; border-radius: 50%; font: 700 12.5px var(--display); background: var(--panel); color: var(--ink); box-shadow: inset 0 0 0 2.5px var(--b); }
-html[data-theme="sorbet"] .chip[data-fit="hi"] .sc { --b: var(--st-applied); }
-html[data-theme="sorbet"] .chip[data-fit="mid"] .sc { --b: #FF9F1C; }
-html[data-theme="sorbet"] .chip[data-fit="lo"] .sc { --b: #D9D0EA; }
-html[data-theme="sorbet"] .chip[aria-pressed="true"] .sc { transform: rotate(-8deg) scale(1.08); transition: transform 620ms var(--open); }
+html[data-theme="sorbet"] .chips, html[data-theme="sorbet"] #stages, html[data-theme="sorbet"] #find-seg, html[data-theme="sorbet"] #startup-views { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+html[data-theme="sorbet"] .facet-label, html[data-theme="sorbet"] #stages::before, html[data-theme="sorbet"] #flags::before, html[data-theme="sorbet"] #find-seg::before, html[data-theme="sorbet"] #startup-views::before, html[data-theme="sorbet"] #rounds::before {
+  font: 700 11px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); margin-right: 2px; }
+html[data-theme="sorbet"] #stages::before { content: "Stage"; order: 0; }
+html[data-theme="sorbet"] #flags::before { content: "Show"; }
+html[data-theme="sorbet"] #find-seg::before { content: "View"; }
+html[data-theme="sorbet"] #startup-views::before { content: "View"; }
+html[data-theme="sorbet"] #rounds::before { content: "Round"; }
 
-/* the pipeline: a ribbon of scoops, the main line sized by count, the exits as small pills */
-/* the strip keeps its natural width (every label whole); when it and the chips don't fit on one line, the chips wrap below */
-html[data-theme="sorbet"] .stage-wrap { flex: 1 1 auto; min-width: auto; }
-html[data-theme="sorbet"] .stages { display: flex; align-items: center; background: none; border: 0; border-radius: 0; overflow: visible; padding: 3px 0 3px 3px; }
-html[data-theme="sorbet"] .stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
-  height: 64px; padding: 2px 14px; border: 0; border-radius: 999px; background: var(--c); color: var(--ink); text-align: center;
-  box-shadow: 0 0 0 3px var(--paper); transition: transform .15s ease, box-shadow .15s ease, flex-grow .3s ease; }
-html[data-theme="sorbet"] .stage[data-kind="path"] { flex: max(var(--n, 1), 1) 0 auto; min-width: 88px; }
-html[data-theme="sorbet"] .stage[data-stage="Not started"] { order: 1; z-index: 7; }
-html[data-theme="sorbet"] .stage[data-stage="In progress"] { order: 2; z-index: 6; }
-html[data-theme="sorbet"] .stage[data-stage="Applied"] { order: 3; z-index: 5; }
-html[data-theme="sorbet"] .stage[data-stage="Interviewing"] { order: 5; z-index: 3; }
-html[data-theme="sorbet"] .stage[data-stage="Offer"] { order: 6; z-index: 2; }
-html[data-theme="sorbet"] .stage[data-stage="Done"] { order: 7; z-index: 1; }
-html[data-theme="sorbet"] .stage[data-stage="Blocked"] { order: 8; margin-left: 18px; }
+html[data-theme="sorbet"] .chip, html[data-theme="sorbet"] .stage, html[data-theme="sorbet"] #find-seg button, html[data-theme="sorbet"] #startup-views button {
+  display: inline-flex; flex-direction: row; align-items: center; gap: 6px; height: 32px; min-width: 0; margin: 0; padding: 0 12px;
+  border: 2px solid var(--edge); border-radius: 999px; background: var(--panel); color: var(--ink); box-shadow: none;
+  font: 600 13px/1 var(--body); white-space: nowrap; transition: transform 620ms var(--open), opacity .15s ease, background-color .15s ease, border-color .15s ease, color .15s ease; }
+html[data-theme="sorbet"] .chip:hover, html[data-theme="sorbet"] .stage:hover, html[data-theme="sorbet"] #find-seg button:hover, html[data-theme="sorbet"] #startup-views button:hover { border-color: var(--ink); background: var(--panel); }
+html[data-theme="sorbet"] .chip b, html[data-theme="sorbet"] .stage .n, html[data-theme="sorbet"] #find-seg b, html[data-theme="sorbet"] #startup-views b { font: 500 12.5px/1 var(--display); color: var(--muted); }
+html[data-theme="sorbet"] :is(.chip, .stage)[aria-pressed="true"], html[data-theme="sorbet"] #find-seg button.active, html[data-theme="sorbet"] #startup-views button.active {
+  background: var(--ink); border-color: var(--ink); color: var(--paper); }
+html[data-theme="sorbet"] .chip[aria-pressed="true"] b, html[data-theme="sorbet"] .stage[aria-pressed="true"] .n, html[data-theme="sorbet"] #find-seg button.active b, html[data-theme="sorbet"] #startup-views button.active b { color: var(--paper); opacity: .8; }
+html[data-theme="sorbet"] :is(.chip, .stage)[data-empty]:not([aria-pressed="true"]) { opacity: .45; }
+html[data-theme="sorbet"] :is(.chip, .stage)[data-empty]:not([aria-pressed="true"]):hover { opacity: 1; }
+/* the single-choice groups (Search Jobs' New / Fit 7+ / Dismissed, the startups' views) are chips too, not a segmented bar */
+html[data-theme="sorbet"] #find-seg, html[data-theme="sorbet"] #startup-views { border: 0; border-radius: 0; overflow: visible; background: none; }
+html[data-theme="sorbet"] #find-seg .seg-goo, html[data-theme="sorbet"] #startup-views .seg-goo { display: none; }
+
+/* the colour dot: a stage's colour, a score's fit, a round's colour */
+html[data-theme="sorbet"] :is(.stage, .chip[data-facet="score"], .chip.round-chip)::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--c, var(--dot)); margin-left: -2px; }
+html[data-theme="sorbet"] :is(.stage, .chip[data-facet="score"], .chip.round-chip)[aria-pressed="true"]::before { box-shadow: 0 0 0 2px var(--paper); }
+html[data-theme="sorbet"] .chip[data-fit="hi"] { --dot: var(--fit-hi-bg); }
+html[data-theme="sorbet"] .chip[data-fit="mid"] { --dot: var(--fit-mid-bg); }
+html[data-theme="sorbet"] .chip[data-fit="lo"] { --dot: var(--fit-lo-bg); }
+html[data-theme="sorbet"] .chip[data-fit="none"] { --dot: transparent; }
+html[data-theme="sorbet"] .chip[data-fit="none"]::before { box-shadow: inset 0 0 0 2px var(--edge); }
+html[data-theme="sorbet"] .chip .sc { all: unset; font: 700 14px/1 var(--display); }
+html[data-theme="sorbet"] .chip.round-chip, html[data-theme="sorbet"] .chip.round-chip[aria-pressed] { --dot: var(--r); color: var(--ink); border-color: var(--edge); }
+html[data-theme="sorbet"] .chip.round-chip[aria-pressed="true"] { color: var(--paper); border-color: var(--ink); }
+html[data-theme="sorbet"] .chip .ico { margin-left: -2px; }
+
+/* the stages: the main line in order, then a gap and the ways out. Label first, count after, like every chip */
+html[data-theme="sorbet"] .stage-wrap { flex: 0 1 auto; min-width: 0; }
+html[data-theme="sorbet"] .stages { background: none; border: 0; border-radius: 0; overflow: visible; padding: 0; }
+html[data-theme="sorbet"] .stage .l { order: 1; font: inherit; color: inherit; opacity: 1; overflow: visible; }
+html[data-theme="sorbet"] .stage .n { order: 2; }
+html[data-theme="sorbet"] .stage .n .of { font-size: .85em; opacity: .75; }
+html[data-theme="sorbet"] .stage[data-stage="Not started"] { order: 1; }
+html[data-theme="sorbet"] .stage[data-stage="In progress"] { order: 2; }
+html[data-theme="sorbet"] .stage[data-stage="Applied"] { order: 3; }
+html[data-theme="sorbet"] .stage[data-stage="Interviewing"] { order: 5; }
+html[data-theme="sorbet"] .stage[data-stage="Offer"] { order: 6; }
+html[data-theme="sorbet"] .stage[data-stage="Done"] { order: 7; }
+html[data-theme="sorbet"] .stage[data-stage="Blocked"] { order: 8; margin-left: 10px; }
 html[data-theme="sorbet"] .stage[data-stage="Denied"] { order: 9; }
 html[data-theme="sorbet"] .stage[data-stage="Ghosted"] { order: 10; }
 html[data-theme="sorbet"] .stage[data-stage="Not Applying"] { order: 11; }
-html[data-theme="sorbet"] .stage[data-kind="path"]:not([data-stage="Not started"]) { margin-left: -22px; padding-left: 30px; }
-html[data-theme="sorbet"] .stage[data-kind="side"] { flex: 0 0 auto; height: 54px; min-width: 78px; padding: 0 12px; margin-left: 8px; }
-html[data-theme="sorbet"] .stage:hover { background: var(--c); transform: translateY(-2px); z-index: 9; }
-html[data-theme="sorbet"] .stage[aria-pressed="true"] { background: var(--c); box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--accent); z-index: 9; }
-html[data-theme="sorbet"] .stage .n { font: 700 26px/1 var(--display); color: inherit; }
-html[data-theme="sorbet"] .stage .n .of { font: 700 13px var(--display); opacity: .8; }
-html[data-theme="sorbet"] .stage .l { font-size: 12px; font-weight: 700; color: inherit; opacity: .9; }
-html[data-theme="sorbet"] .stage[data-kind="side"] .n { font-size: 20px; }
-html[data-theme="sorbet"] .stage[data-kind="side"] .l { font-size: 11px; }
-html[data-theme="sorbet"] .stage[aria-pressed="true"] .n, html[data-theme="sorbet"] .stage[aria-pressed="true"] .l { color: inherit; }
-html[data-theme="sorbet"] .stage[data-stage="Offer"][aria-pressed="true"] { box-shadow: 0 0 0 3px var(--paper), 0 0 0 6px var(--ink); }
-html[data-theme="sorbet"] .stage[data-stage="Denied"], html[data-theme="sorbet"] .stage[data-stage="Not Applying"] { color: var(--paper); }
 html[data-theme="sorbet"] .stage-meter { display: none; }
 
 /* the list */
@@ -433,18 +445,6 @@ html[data-theme="sorbet"] .day-chart .hit:hover, html[data-theme="sorbet"] .day-
 html[data-theme="sorbet"] .dash-tip { border: 2px solid var(--accent); border-radius: 16px; }
 html[data-theme="sorbet"] .dash-tip .tv { font: 600 17px var(--display); }
 html[data-theme="sorbet"] .dash-table summary { font-weight: 700; color: var(--link); }
-
-@media (max-width: 1100px) {
-  html[data-theme="sorbet"] .stage { height: 56px; padding: 2px 10px; }
-  html[data-theme="sorbet"] .stage .n { font-size: 22px; }
-  html[data-theme="sorbet"] .stage[data-kind="path"] { min-width: 80px; }
-}
-@media (max-width: 860px) {  /* below this the ribbon no longer fits with every label whole */
-  html[data-theme="sorbet"] .stages { flex-wrap: wrap; gap: 8px; }
-  html[data-theme="sorbet"] .stage[data-kind="path"] { flex: 1 1 42%; margin-left: 0; padding-left: 14px; }
-  html[data-theme="sorbet"] .stage[data-kind="path"]:not([data-stage="Not started"]) { margin-left: 0; padding-left: 14px; }
-  html[data-theme="sorbet"] .stage[data-kind="side"] { flex: 1 1 28%; margin-left: 0; }
-}
 
 /* folding: the strip's stages as little scoops, the rail and the one-line header in the same round shapes */
 html[data-theme="sorbet"] .fold-strip { background: var(--paper); border-bottom: 0; padding: 8px 20px; }

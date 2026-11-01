@@ -1,12 +1,20 @@
 """Hosted mode (OYSTER_HOSTED=1, docs/paid-service.md item 1.1): the AI is always the proxy, on allowed models, and
 nothing that picks the AI or holds keys can be changed. With the switch off, nothing changes."""
+import asyncio
+import json
+import os
 import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
 
 import pytest
 
 from jobpipe import config, hosted
-from jobpipe.llm import ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner
+from jobpipe.llm import AgentError, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner
 from jobpipe.pipeline import make_runner
+from jobpipe.triage import triage_one
+from conftest import FakeRunner
 from test_web import H, env  # noqa: F401 - the web app fixture
 
 PROXY = "https://ai-proxy.example/v1"
@@ -146,3 +154,66 @@ def test_with_the_switch_off_the_ai_routes_work_as_before(env, monkeypatch):  # 
     assert c.get("/api/keys", headers=H).status_code == 200
     assert c.post("/api/ai/models", headers=H, json={"backend": "claude-code"}).json()["models"][0] == "claude-opus-5-5"
     assert c.get("/api/summary", headers=H).json()["hosted"] is False
+
+
+# ---- 1.3: Signal score on Haiku, with a daily cap per user -------------------------------------------------------
+
+class Failing(FakeRunner):
+    async def run(self, call):
+        self.calls.append(call)
+        raise AgentError("the proxy is down")
+
+
+def score(runner, n=1):
+    model = config.ModelCfg("claude-haiku-5-5", "low")
+    return [asyncio.run(triage_one(runner, model, "# A posting", f"j{i}")) for i in range(n)]
+
+
+def test_hosted_signal_scores_stop_at_the_daily_cap(on, tmp_dirs, monkeypatch):
+    monkeypatch.setenv(hosted.SIGNAL_CAP, "2")
+    runner = FakeRunner()
+    score(runner, 2)
+    with pytest.raises(hosted.OverCap, match="2 free Signal scores"):
+        score(runner)
+    assert len(runner.calls) == 2                                   # the third never reached the AI
+    saved = json.loads((config.DATA / "signal-scores.json").read_text())
+    assert saved == {"day": datetime.now(timezone.utc).date().isoformat(), "used": 2}
+
+
+def test_a_failed_signal_score_doesnt_count(on, tmp_dirs, monkeypatch):
+    monkeypatch.setenv(hosted.SIGNAL_CAP, "1")
+    with pytest.raises(AgentError):
+        score(Failing())
+    score(FakeRunner())                                             # the failed one was given back
+
+
+def test_the_cap_starts_again_each_day_and_is_shared_by_the_runs(on, tmp_dirs, monkeypatch):
+    monkeypatch.setenv(hosted.SIGNAL_CAP, "1")
+    config.DATA.mkdir(parents=True, exist_ok=True)
+    (config.DATA / "signal-scores.json").write_text(json.dumps({"day": "2026-10-31", "used": 1}))
+    score(FakeRunner())                                             # yesterday's don't count
+    # A run is its own process with the same data folder: it sees today's score.
+    code = ("import sys; from jobpipe import config, hosted; config.DATA = __import__('pathlib').Path(sys.argv[1])\n"
+            "try: hosted._count(1)\nexcept hosted.OverCap: print('over')")
+    out = subprocess.run([sys.executable, "-c", code, str(config.DATA)], capture_output=True, text=True,
+                         env={**os.environ, hosted.SIGNAL_CAP: "1"}, cwd=config.ROOT)
+    assert out.stdout.strip() == "over", out.stderr
+
+
+def test_the_cap_is_a_setting_and_off_hosted_mode_there_is_none(tmp_dirs, monkeypatch):
+    for v, want in (("", hosted.SIGNAL_CAP_DEFAULT), ("250", 250), ("lots", hosted.SIGNAL_CAP_DEFAULT), ("-3", 0)):
+        monkeypatch.setenv(hosted.SIGNAL_CAP, v)
+        assert hosted.signal_cap() == want
+    monkeypatch.setenv(hosted.SWITCH, "0")
+    monkeypatch.setenv(hosted.SIGNAL_CAP, "0")
+    score(FakeRunner(), 3)
+    assert not (config.DATA / "signal-scores.json").exists()
+
+
+def test_the_score_button_runs_on_haiku_and_says_when_the_cap_is_reached(henv, monkeypatch):
+    monkeypatch.setenv(hosted.SIGNAL_CAP, "1")
+    c, runner = henv["client"], henv["runner"].pipeline
+    assert c.post("/api/jobs/j1/score", headers=H).status_code == 200
+    assert [x.model.model for x in runner.calls if x.label.startswith("triage:")] == ["claude-haiku-5-5"]
+    r = c.post("/api/jobs/j2/score", headers=H)
+    assert r.status_code == 429 and "Signal scores are used up" in r.json()["detail"]

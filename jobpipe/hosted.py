@@ -7,9 +7,16 @@ With the switch off, nothing here changes how the app works.
 """
 from __future__ import annotations
 
+import fcntl
+import json
 import os
+from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime, timezone
+from typing import Iterator
 from urllib.parse import urlsplit
+
+from . import config
 
 SWITCH = "OYSTER_HOSTED"
 PROXY_URL = "OYSTER_AI_PROXY_URL"
@@ -26,6 +33,13 @@ MODELS = {
     "rescore": ("claude-sonnet-5-5", "claude-haiku-5-5"),     # live scores after a chat edit
 }
 EFFORTS = ("low", "medium", "high")
+# Signal score is free on the website within fair use: at most this many a day per user (UTC days).
+SIGNAL_CAP = "OYSTER_SIGNAL_SCORE_DAILY_CAP"
+SIGNAL_CAP_DEFAULT = 100
+
+
+class OverCap(RuntimeError):
+    """Today's Signal scores are used up."""
 
 
 def enabled() -> bool:
@@ -61,3 +75,44 @@ def lock(cfg):
             setattr(cfg, f"{stage}_model", replace(m, model=m.model if allowed(stage, m.model) else models[0],
                                                     effort=m.effort if m.effort in EFFORTS else "medium"))
     return cfg
+
+
+def signal_cap() -> int:
+    try:
+        return max(0, int(os.environ.get(SIGNAL_CAP, "").strip() or SIGNAL_CAP_DEFAULT))
+    except ValueError:
+        return SIGNAL_CAP_DEFAULT
+
+
+def _count(change: int) -> None:
+    """Add change to today's Signal scores in data/signal-scores.json, shared by the server and its runs (each its own
+    process, so the file is locked). Raises OverCap, counting nothing, when one more would pass the cap."""
+    path = config.DATA / "signal-scores.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    today = datetime.now(timezone.utc).date().isoformat()
+    with open(path.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            saved = json.loads(path.read_text())
+        except (OSError, ValueError):
+            saved = {}
+        used = int(saved.get("used") or 0) if saved.get("day") == today else 0
+        if change > 0 and used + change > signal_cap():
+            raise OverCap(f"Today's {signal_cap()} free Signal scores are used up. More can be scored tomorrow "
+                          "(the day starts at midnight UTC).")
+        path.write_text(json.dumps({"day": today, "used": max(0, used + change)}))
+
+
+@contextmanager
+def signal_score() -> Iterator[None]:
+    """One Signal score, counted against today's cap in hosted mode (nothing happens otherwise). One that fails is
+    given back."""
+    if not enabled():
+        yield
+        return
+    _count(1)
+    try:
+        yield
+    except BaseException:
+        _count(-1)
+        raise

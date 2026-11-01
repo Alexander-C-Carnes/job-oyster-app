@@ -38,14 +38,17 @@ def test_the_newest_release_is_asked_for_once_then_kept(monkeypatch):
 
 def test_fetch_latest_reads_github_and_survives_being_offline(monkeypatch):
     body = {"tag_name": "v0.1.11", "html_url": f"{about.REPO_URL}/releases/tag/v0.1.11", "published_at": "2026-10-16T07:02:11Z"}
-    monkeypatch.setattr(about.httpx, "get", lambda url, **kw: httpx.Response(200, json=body, request=httpx.Request("GET", url)))
+
+    def answer(handler):
+        monkeypatch.setattr(about.egress, "client", lambda **kw: httpx.Client(transport=httpx.MockTransport(handler), **kw))
+    answer(lambda r: httpx.Response(200, json=body))
     assert about.fetch_latest() == {"tag": "v0.1.11", "url": body["html_url"], "date": "2026-10-16"}
 
-    def down(url, **kw):
+    def down(r):
         raise httpx.ConnectError("offline")
-    monkeypatch.setattr(about.httpx, "get", down)
+    answer(down)
     assert about.fetch_latest() is None
-    monkeypatch.setattr(about.httpx, "get", lambda url, **kw: httpx.Response(404, request=httpx.Request("GET", url)))
+    answer(lambda r: httpx.Response(404))
     assert about.fetch_latest() is None
 
 

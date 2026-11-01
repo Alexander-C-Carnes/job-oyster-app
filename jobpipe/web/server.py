@@ -791,6 +791,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         row, job, jd_md = await prepare(jid)
         try:
             tri = await triage_one(get_runner(), cfg.triage_model, jd_md, jid)
+        except hosted.OverCap as e:
+            raise HTTPException(429, str(e)) from None
         except Exception as e:  # noqa: BLE001 - surface Claude/CLI failures to the UI
             raise HTTPException(502, "Claude couldn't score this job: "
                                 + str(e).removeprefix(f"triage:{jid}: ")) from None

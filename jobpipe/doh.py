@@ -13,6 +13,8 @@ from typing import Callable, Optional
 
 import httpx
 
+from . import egress
+
 # Asked by IP address, so no DNS lookup is needed to reach them.
 RESOLVERS = ("https://1.1.1.1/dns-query", "https://8.8.8.8/resolve")
 MIN_TTL = 300  # seconds an answer is reused, however short the record's own TTL
@@ -20,7 +22,7 @@ MIN_TTL = 300  # seconds an answer is reused, however short the record's own TTL
 
 def lookup(host: str, client: Optional[httpx.Client] = None) -> tuple[str, int]:
     """(IPv4 address, TTL) for host from the first resolver that answers, or ("", 0)."""
-    c = client or httpx.Client(timeout=5)
+    c = client or egress.client(timeout=5)
     for url in RESOLVERS:
         try:
             r = c.get(url, params={"name": host, "type": "A"}, headers={"accept": "application/dns-json"})

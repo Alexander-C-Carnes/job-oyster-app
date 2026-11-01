@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 import httpx
 
+from . import egress
 from .store import canonical_url
 
 API = "https://api.notion.com/v1"
@@ -60,7 +61,7 @@ class NotionTracker:
             raise RuntimeError("NOTION_TOKEN is not set (see docs/setup-from-code.md: Set up the Notion tracker)")
         self.ds = data_source_id
         self.project = project_page_id
-        self.http = client or httpx.Client(timeout=30)
+        self.http = client or egress.client(timeout=30)
         self.headers = {"Authorization": f"Bearer {token}", "Notion-Version": VERSION,
                         "Content-Type": "application/json"}
         self.backoff = (0.6, 1.8)   # waits before the second and third try of a failed request

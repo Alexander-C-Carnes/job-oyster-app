@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
 
+from . import egress
 from .jobs_api import salary_text, work_mode
 from .store import canonical_url
 
@@ -285,8 +286,8 @@ def fetch_posting_text(url: str, client: Optional[httpx.Client] = None) -> str:
     structured job data inside the page, then the page's visible text."""
     if not url:
         return ""
-    c = client or httpx.Client(timeout=20, follow_redirects=True,
-                               headers={"User-Agent": "Mozilla/5.0 (jobpipe resume tailoring)"})
+    c = client or egress.client(timeout=20, follow_redirects=True,
+                                headers={"User-Agent": "Mozilla/5.0 (jobpipe resume tailoring)"})
     return _read_with_retry(url, c, {})
 
 
@@ -296,8 +297,8 @@ def read_posting(url: str, client: Optional[httpx.Client] = None) -> dict:
     description is "" when the page has no posting text this can read. browser_check names the site
     when it only shows its pages to a person's browser."""
     url = normalize_posting_url(url)
-    c = client or httpx.Client(timeout=20, follow_redirects=True,
-                               headers={"User-Agent": "Mozilla/5.0 (jobpipe resume tailoring)"})
+    c = client or egress.client(timeout=20, follow_redirects=True,
+                                headers={"User-Agent": "Mozilla/5.0 (jobpipe resume tailoring)"})
     meta: dict = {}
     text = _read_with_retry(url, c, meta)
     return {"url": url, **{k: v for k, v in meta.items() if v not in (None, "")}, "description": text}

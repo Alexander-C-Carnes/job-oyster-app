@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 import jobspipe
 
+from . import egress
 from .config import Config, Search
 from .doh import DoHTransport
 from .store import Store, safe_id
@@ -59,8 +60,8 @@ def _http_client() -> httpx.Client:
     """The JobsPipe library's own HTTP settings, with the API's address found by DNS over HTTPS
     (a network DNS filter sent it to a block page; see doh.py)."""
     base_url = os.environ.get("JOBSPIPE_BASE_URL") or "https://api.jobspipe.dev"
-    return httpx.Client(base_url=base_url, timeout=httpx.Timeout(60.0, connect=10.0),
-                        transport=DoHTransport({urlsplit(base_url).hostname or ""}))
+    return egress.client(base_url=base_url, timeout=httpx.Timeout(60.0, connect=10.0),
+                         transport=DoHTransport({urlsplit(base_url).hostname or ""}))
 
 
 class JobsClient:

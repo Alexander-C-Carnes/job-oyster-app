@@ -605,6 +605,7 @@ function renderStages() {
   $("#stages").replaceChildren(...STAGES.map((s) => {
     const b = h("button", {
       class: "stage", "data-stage": s, "data-kind": PATH.includes(s) ? "path" : "side", "aria-pressed": String(S.stages.has(s)),
+      "data-empty": counts[s] ? null : "",
       title: (by && counts[s] !== totals[s] ? `${counts[s]} of your ${totals[s]} ${s} roles match ${by}. ` : "") + `${STAGE_BLURB[s]}. Click to show only these roles.`,
       onclick: () => { S.stages.has(s) ? S.stages.delete(s) : S.stages.add(s); renderJobs(); } },
       h("span", { class: "n" }, counts[s], ofAll(counts[s], totals[s])), h("span", { class: "l" }, s));
@@ -622,7 +623,9 @@ function renderFlags() {
   $$("#flags .chip").forEach((b) => {
     const f = b.dataset.flag;
     b.setAttribute("aria-pressed", String(S.flags.has(f)));
-    $("b", b).textContent = S.jobs.reduce((n, j) => n + (matches(j) && FLAGS[f](j) ? 1 : 0), 0);
+    const n = S.jobs.reduce((c, j) => c + (matches(j) && FLAGS[f](j) ? 1 : 0), 0);
+    $("b", b).textContent = n;
+    b.toggleAttribute("data-empty", !n);    // a look can fade a filter that would show nothing
   });
 }
 // Each value's count is of the roles the other filters leave, so it says what picking it would show.
@@ -634,7 +637,7 @@ function renderFacets() {
     $(`#${k}-chips`).replaceChildren(...(inScope.length ? [h("span", { class: "facet-label" }, f.label)] : []), ...(inScope.length ? vals : []).map((v) => {
       const n = shown.reduce((c, j) => c + (facetKeys(f, j).includes(v) ? 1 : 0), 0);
       return h("button", { class: "chip", "data-facet": k, "data-value": v, "data-fit": k === "score" ? fitClass(v === "none" ? null : +v) || "none" : null,
-        "aria-pressed": String(S.facets[k].has(v)), title: f.title(v),
+        "aria-pressed": String(S.facets[k].has(v)), "data-empty": n ? null : "", title: f.title(v),
         onclick: () => { S.facets[k].has(v) ? S.facets[k].delete(v) : S.facets[k].add(v); renderJobs(); } },
         k === "score" && v !== "none" ? h("span", { class: "sc" }, v) : f.name(v), " ", h("b", {}, n));
     }));
