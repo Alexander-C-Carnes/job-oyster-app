@@ -17,8 +17,10 @@ import json
 import re
 import time
 from typing import Any, Optional
+from urllib.parse import quote
 
-from .jd import MIN_PASTED_CHARS
+from . import config
+from .jd import MIN_PASTED_CHARS, posting_url
 from .jobs_api import salary_text
 from .llm import AgentCall, AgentError
 from .store import now_iso
@@ -460,6 +462,18 @@ async def run_many(store: Any, runner: Any, model: Any, *, job: Optional[str] = 
     return done
 
 
+def app_link(jid: str) -> str:
+    """Open this job in the app that is serving this profile. Empty when that app is not running:
+    the address is whatever that process wrote, not a fixed host or port."""
+    try:
+        origin = (config.DATA / "web-address").read_text().strip().rstrip("/")
+    except OSError:
+        return ""
+    if not origin.startswith(("http://", "https://")):
+        return ""
+    return f"{origin}/#job={quote(jid, safe='')}&tab=posting"
+
+
 def _report(store: Any, jid: str, result: dict, *, dry_run: bool = False) -> str:
     job = store.job(jid) or {}
     who = f"{job.get('job_title') or jid} @ {job.get('company') or ''}".strip(" @")
@@ -470,6 +484,12 @@ def _report(store: Any, jid: str, result: dict, *, dry_run: bool = False) -> str
     reading = result.get("reading")
     if dry_run and reading is not None:
         lines = [f"  {who}"]
+        link = posting_url(job).strip()
+        if link:
+            lines.append(f"    {link}")
+        here = app_link(jid)
+        if here:
+            lines.append(f"    {here}")
         quote = str(reading.get("quote") or "").strip()
         if quote:
             lines.append(f"    {quote}")

@@ -3,6 +3,7 @@ and a changed description asks for a new reading."""
 import asyncio
 import json
 
+from jobpipe import config
 from jobpipe.config import ModelCfg
 from jobpipe.jobs_api import salary_text
 from jobpipe.llm import AgentError, AgentResult
@@ -153,13 +154,16 @@ def test_find_pay_reads_the_posting_and_a_short_one_is_refused():
 def test_dry_run_prints_the_reading_and_saves_nothing(capsys):
     store = Store()
     text = posting("Compensation Range: $220,000-$240,000.")
-    store.save_job({"id": "cyera", "job_title": "CSE", "company": "Cyera", "description": text}, "manual")
+    store.save_job({"id": "cyera", "job_title": "CSE", "company": "Cyera", "url": "https://example.com/cyera",
+                    "description": text}, "manual")
     store.save_job({"id": "ashby", "job_title": "PM", "company": "Acme", "description": text,
                     "min_annual_salary_usd": 120000, "max_annual_salary_usd": 180000}, "manual")
     store.update_job("ashby", needs_parse_pay_run=None, pay_origin=None)
+    (config.DATA / "web-address").write_text("http://10.1.2.3:9999\n")
     n = asyncio.run(run_many(store, _Runner(YEARLY), ModelCfg(), limit=50, dry_run=True, log=print))
     out = capsys.readouterr().out
     assert n == 1 and "Nothing is saved." in out
+    assert "  CSE @ Cyera\n    https://example.com/cyera\n    http://10.1.2.3:9999/#job=cyera&tab=posting\n" in out
     assert "Compensation Range: $220,000-$240,000." in out and '"stated": true' in out
     assert "would show $220k–$240k" in out
     saved = store.job("cyera")

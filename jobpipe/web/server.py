@@ -2796,6 +2796,9 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
     tracker = make_tracker(cfg, print)
     app = create_app(cfg, token=token, tracker=tracker)
     url = f"http://127.0.0.1:{port}/?token={token}"
+    address = config.DATA / "web-address"
+    address.parent.mkdir(parents=True, exist_ok=True)
+    address.write_text(url.split("/?", 1)[0] + "\n")
     print(f"\n  jobpipe is running at {url}\n  (bookmark it; the token stays the same until you delete {config.DATA / 'web-token'})\n")
     if open_browser:
         webbrowser.open(url)
@@ -2809,6 +2812,7 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
             while os.getppid() == parent:
                 threading.Event().wait(2)
             runs.stop_all()
+            address.unlink(missing_ok=True)
             os._exit(0)
         threading.Thread(target=follow_app, daemon=True).start()
     if cfg.startups.auto_refresh_hours:
@@ -2835,7 +2839,10 @@ def serve(cfg: Config, port: int = 8765, open_browser: bool = True) -> None:
         follower.start()
         print("  Following main (OYSTER_FOLLOW_MAIN): new commits on origin/main get pulled, and the app restarts\n"
               "  on them by itself whenever no run is going.\n")
-    quitting = run_server(app, port)
+    try:
+        quitting = run_server(app, port)
+    finally:
+        address.unlink(missing_ok=True)
     if follower and follower.restarting and not quitting:
         follow.exec_again()
 
