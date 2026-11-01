@@ -61,7 +61,8 @@ PY="$RES/python/bin/python3"
 
 say "The app's packages"
 # The evidence checks' models need PyTorch (about 1 GB), so the app goes without them; runs say they're skipped.
-grep -vE '^\s*(#|$)|^(pytest|sentence-transformers)\b' requirements.txt > "$CACHE/requirements-app.txt"
+# cryptography is only for the website's AI proxy (hosted mode), so it's left out too.
+grep -vE '^\s*(#|$)|^(pytest|sentence-transformers|cryptography)\b' requirements.txt > "$CACHE/requirements-app.txt"
 "$PY" -m pip install --quiet --disable-pip-version-check --no-warn-script-location --upgrade pip
 "$PY" -m pip install --quiet --disable-pip-version-check --no-warn-script-location -r "$CACHE/requirements-app.txt"
 

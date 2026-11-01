@@ -5163,7 +5163,9 @@ async function loadAI() {
   let d;
   try { d = await api("/api/ai"); } catch (e) { toast(e.message, true); return; }
   // On the website, the AI and the keys are set for you: show the models, hide the settings.
-  for (const id of ["ai-card", "keys-card"]) $(`#${id}`).classList.toggle("hidden", !!d.hosted);
+  // On the Own AI plan the user picks the AI and its key, but the other services' keys are still the website's.
+  $("#ai-card").classList.toggle("hidden", !!d.hosted);
+  $("#keys-card").classList.toggle("hidden", !!d.hosted || !!d.own_ai);
   $("#ai-hosted").classList.toggle("hidden", !d.hosted);
   if (d.hosted) {
     AI.data = d;
@@ -5172,7 +5174,7 @@ async function loadAI() {
       h("div", { class: "ai-model" }, d.stages[s].model), h("div", { class: "muted" }, d.stages[s].effort)]));
     return;
   }
-  loadKeys();
+  if (!d.own_ai) loadKeys();
   applyAI(d);
 }
 async function loadKeys(d) {
@@ -5250,7 +5252,7 @@ function aiProviderShown(changed) {
 function keyHint() {
   const p = aiProvider(aField("backend").value) || {}, typed = !!aField("key").value.trim(), hint = $("#ai-key-hint");
   hint.textContent = !p.key_env ? "" : typed ? "not saved yet: click Save AI settings"
-    : p.key_set ? `✓ saved as ${p.key_env}; paste a new one to replace it` : "none saved yet";
+    : p.key_set ? `✓ saved ${AI.data?.own_ai ? "by Job Oyster, encrypted" : `as ${p.key_env}`}; paste a new one to replace it` : "none saved yet";
   hint.classList.toggle("warn", !!p.key_env && typed);
   hint.classList.toggle("ok", !!p.key_env && !typed && !!p.key_set);
 }
@@ -5792,7 +5794,8 @@ const SETUP_RENDER = {
       : claude.signed_in ? `It runs on your Claude subscription, through Claude Code, signed in${claude.account ? ` as ${claude.account}` : ""}.`
       : claude.signed_in === false ? "It runs on your Claude subscription, through Claude Code, but Claude Code isn't signed in (or the sign-in expired). Sign in first."
       : "It runs on your Claude subscription, through Claude Code. If you haven't signed in to Claude Code yet, do that first.")
-      : p.local ? "It runs on this computer." : p.key_set ? "Its key is saved in your profile folder." : "Its key isn't saved yet.";
+      : p.local ? "It runs on this computer." : p.key_set ? (d.own_ai ? "Its key is saved, encrypted, by Job Oyster." : "Its key is saved in your profile folder.")
+      : "Its key isn't saved yet.";
     const change = h("button", { type: "button", class: "ghost", onclick: () => {
       setupDialog.close();
       showTab("profile")?.then(() => $("#ai-form").scrollIntoView({ behavior: "smooth", block: "start" }));

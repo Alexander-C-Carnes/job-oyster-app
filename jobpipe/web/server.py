@@ -1884,9 +1884,10 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return get_profile()
 
     # ---- the AI: which provider and models do the work, and its key ---------------------------
-    # In hosted mode the website sets these: they can be read, but nothing here changes them.
-    def not_hosted() -> None:
-        if hosted.enabled():
+    # In hosted mode the website sets these: they can be read, but nothing here changes them. On the Own AI plan the
+    # user picks the provider and models (hosted.OWN_BACKENDS), and their key goes to the AI proxy, never to .env.
+    def not_hosted(own_ok: bool = False) -> None:
+        if hosted.enabled() and not (own_ok and hosted.own_ai()):
             raise HTTPException(403, hosted.REFUSED)
 
     def key_env(backend: str) -> str:
@@ -1896,6 +1897,17 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/ai")
     def get_ai():
+        if hosted.own_ai():
+            from ..pipeline import own_ai_keys
+            keys = own_ai_keys()
+            providers = [{"id": b, "label": BACKEND_LABELS[b], "key_env": key_env(b), "key_set": b in keys,
+                          "local": False, "signup": PROVIDERS[b].signup if b in PROVIDERS else "https://platform.claude.com",
+                          "base_url": PROVIDERS[b].base_url if b in PROVIDERS else "",
+                          "defaults": PROVIDERS[b].defaults or {} if b in PROVIDERS else {}}
+                         for b in hosted.OWN_BACKENDS]
+            return {**searches_file.load_models(searches_path), "backend": cfg.backend, "own_ai": True,
+                    "base_url": (keys.get(cfg.backend) or {}).get("base_url", ""),
+                    "providers": providers, "claude_models": CLAUDE_MODELS, "env_file": ""}
         if hosted.enabled():
             return {"hosted": True, "backend": cfg.backend, "base_url": "", "saved": {},
                     "stages": {s: {"model": getattr(cfg, f"{s}_model").model, "effort": getattr(cfg, f"{s}_model").effort}
@@ -1915,11 +1927,22 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     # already going finish on the AI they began with and the next one uses these.
     @app.put("/api/ai")
     def put_ai(body: dict):
-        not_hosted()
+        not_hosted(own_ok=True)
         try:
             backend, base_url, stages = searches_file.clean_models(body, BACKEND_LABELS)
             key, env = str(body.get("key") or "").strip(), key_env(backend)
-            if key and env:
+            if hosted.own_ai():
+                if backend not in hosted.OWN_BACKENDS:
+                    raise HTTPException(403, "The website can use an AI with an API key, not one on your own "
+                                             "computer or a subscription sign-in.")
+                if key:
+                    from ..pipeline import save_own_ai_key
+                    try:
+                        save_own_ai_key(backend, key, base_url or "")
+                    except RuntimeError as e:
+                        raise HTTPException(400, str(e)) from None
+                base_url = ""                        # the proxy holds the address with the key
+            elif key and env:
                 searches_file.set_env(config.PROFILE / ".env", env, key)
                 os.environ[env] = key                # this server and the runs it starts use it at once
             searches_file.save_models(searches_path, backend, base_url, stages)
@@ -1928,6 +1951,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         cfg.backend, cfg.base_url = backend, base_url or None
         for s in searches_file.MODEL_STAGES:
             setattr(cfg, f"{s}_model", ModelCfg(**stages[s]))
+        if hosted.enabled():
+            hosted.lock(cfg)                         # through the proxy
         state["runner"] = None
         return get_ai()
 
@@ -2003,7 +2028,14 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def chat_models():
         """Every AI set up on the Profile tab, with its models, for the résumé chat's model menu. The Profile's
         chat model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
-        reached, the models picked for it on the Profile tab are offered. In hosted mode, the chat's allowed models."""
+        reached, the models picked for it on the Profile tab are offered. In hosted mode, the chat's allowed models;
+        on Own AI, the models the Profile picks for the user's provider."""
+        if hosted.own_ai():
+            picks = [getattr(cfg, f"{s}_model").model for s in ("chat", "writer", "analysis", "rescore", "triage")]
+            models = list(dict.fromkeys(picks + (CLAUDE_MODELS if cfg.backend == "api" else [])))
+            return {"default": {"backend": cfg.backend, "model": cfg.chat_model.model},
+                    "groups": [{"backend": cfg.backend, "label": BACKEND_LABELS[cfg.backend],
+                                "short": short_label(cfg.backend), "models": models}]}
         if hosted.enabled():
             return {"default": {"backend": cfg.backend, "model": cfg.chat_model.model},
                     "groups": [{"backend": cfg.backend, "label": hosted.LABEL, "short": "Claude",
@@ -2045,14 +2077,21 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.post("/api/ai/models")
     async def ai_models(body: dict):
         """The models a provider offers, which also checks its address and key (a key typed in the form is used
-        for this check only, not saved)."""
-        not_hosted()
+        for this check only, not saved). On Own AI the proxy asks the provider, with the typed key or the saved one."""
+        not_hosted(own_ok=True)
         backend = str(body.get("backend") or "")
         if backend in ("claude-code", "api"):
             return {"models": CLAUDE_MODELS}
         if backend not in PROVIDERS:
             raise HTTPException(400, "Choose which AI to use.")
         try:
+            if hosted.own_ai():
+                if backend not in hosted.OWN_BACKENDS:
+                    raise HTTPException(403, hosted.REFUSED)
+                from ..pipeline import proxy_runner
+                runner = proxy_runner(backend, check_key=str(body.get("key") or "").strip(), timeout_s=20,
+                                      retry_wait=0.5)
+                return {"models": await runner.models()}
             runner = OpenAICompatRunner(provider=backend, base_url=str(body.get("base_url") or "") or None,
                                         key_env=cfg.api_key_env, api_key=str(body.get("key") or "").strip() or None,
                                         timeout_s=20, retry_wait=0.5)

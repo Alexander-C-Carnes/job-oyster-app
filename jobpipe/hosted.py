@@ -3,7 +3,11 @@
 The AI is always the Claude API through the website's metering proxy (OYSTER_AI_PROXY_URL), signed in with this
 user's proxy token (OYSTER_AI_PROXY_TOKEN), never a provider key. Claude Code, local models and custom addresses are
 refused, the settings that pick the AI or hold keys can't be changed, and each action runs on a model from MODELS.
-With the switch off, nothing here changes how the app works.
+
+On the Own AI plan (OYSTER_AI_PLAN=own) the user picks any provider with an API key (OWN_BACKENDS) and any of its
+models. Calls still go through the proxy, which holds their key encrypted and forwards to the provider: Claude at the
+proxy's root, the OpenAI-compatible providers at <proxy>/own/<backend>. With the switch off, nothing here changes how
+the app works.
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from . import config
 SWITCH = "OYSTER_HOSTED"
 PROXY_URL = "OYSTER_AI_PROXY_URL"
 PROXY_TOKEN = "OYSTER_AI_PROXY_TOKEN"
+PLAN = "OYSTER_AI_PLAN"
 LABEL = "Claude, through Job Oyster"
 REFUSED = "The website sets the AI and its keys, so they can't be changed here."
 
@@ -33,6 +38,10 @@ MODELS = {
     "rescore": ("claude-sonnet-5-5", "claude-haiku-5-5"),     # live scores after a chat edit
 }
 EFFORTS = ("low", "medium", "high")
+# Own AI: the providers a user may bring, each with an API key. No Claude Code (a subscription sign-in) and nothing
+# that runs on the user's own computer (Ollama, LM Studio), which the server can't reach.
+OWN_BACKENDS = ("api", "openai", "gemini", "kimi", "openrouter", "openai-compatible")
+OWN_KEY_HEADER = "X-Oyster-Own-Key"     # a key typed in the settings form, for the proxy to check it once (not kept)
 # Signal score is free on the website within fair use: at most this many a day per user (UTC days).
 SIGNAL_CAP = "OYSTER_SIGNAL_SCORE_DAILY_CAP"
 SIGNAL_CAP_DEFAULT = 100
@@ -44,6 +53,11 @@ class OverCap(RuntimeError):
 
 def enabled() -> bool:
     return os.environ.get(SWITCH, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def own_ai() -> bool:
+    """Hosted, on the Own AI plan: the user brings their own AI."""
+    return enabled() and os.environ.get(PLAN, "").strip().lower() == "own"
 
 
 def proxy_url() -> str:
@@ -60,15 +74,25 @@ def proxy_token() -> str:
     return token
 
 
+def backend_url(backend: str) -> str:
+    """Where a backend's calls go: the proxy's root for Claude (the SDK adds /v1/messages), else <proxy>/own/<backend>,
+    an OpenAI-compatible root the proxy forwards to the user's provider."""
+    return proxy_url() if backend == "api" else f"{proxy_url()}/own/{backend}"
+
+
 def allowed(stage: str, model: str) -> bool:
-    return model in MODELS.get(stage, ())
+    return own_ai() or model in MODELS.get(stage, ())
 
 
 def lock(cfg):
     """Pin a Config to the proxy and the allowed models (in place, and returned). Raises RuntimeError when the proxy's
-    address or token is missing, so a hosted copy that isn't set up stops at start rather than reaching another AI."""
-    cfg.backend, cfg.base_url, cfg.api_key_env, cfg.claude_bin = "api", proxy_url(), PROXY_TOKEN, None
+    address or token is missing, so a hosted copy that isn't set up stops at start rather than reaching another AI.
+    On Own AI the backend is kept when it's one of OWN_BACKENDS, and the models are the user's."""
+    backend = cfg.backend if own_ai() and cfg.backend in OWN_BACKENDS else "api"
+    cfg.backend, cfg.base_url, cfg.api_key_env, cfg.claude_bin = backend, backend_url(backend), PROXY_TOKEN, None
     proxy_token()
+    if own_ai():
+        return cfg
     for stage, models in MODELS.items():
         m = getattr(cfg, f"{stage}_model")
         if not allowed(stage, m.model) or m.effort not in EFFORTS:

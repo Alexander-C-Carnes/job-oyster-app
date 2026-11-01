@@ -48,11 +48,54 @@ class Candidate:
                        location=j.get("location") or j.get("short_location") or "")
 
 
+def proxy_runner(backend: str, *, fallbacks: bool = True, check_key: str = "", **kw) -> Runner:
+    """A runner that reaches the AI through the website's proxy (hosted mode), signed in with this user's proxy token:
+    Claude for "api", else the OpenAI-compatible provider the proxy forwards to with the user's own key (Own AI).
+    check_key: a key typed in the settings form, which the proxy uses for this one check instead of the saved one."""
+    if backend != "api":
+        import httpx
+        headers = {hosted.OWN_KEY_HEADER: check_key} if check_key else {}
+        return OpenAICompatRunner(provider=backend, base_url=hosted.backend_url(backend), api_key=hosted.proxy_token(),
+                                  client=httpx.AsyncClient(timeout=kw.pop("timeout_s", 1800), headers=headers,
+                                                           trust_env=False), **kw)
+    import anthropic
+    return ClaudeRunner(fallbacks=fallbacks, client=anthropic.AsyncAnthropic(
+        base_url=hosted.proxy_url(), api_key=hosted.proxy_token()))
+
+
+def own_ai_keys() -> dict[str, dict]:
+    """Own AI: the providers whose keys the proxy holds for this user ({backend: {"base_url": …}}), or {} when it
+    can't be asked."""
+    import httpx
+    try:
+        r = httpx.get(hosted.proxy_url() + "/own", headers={"x-api-key": hosted.proxy_token()}, timeout=5,
+                      trust_env=False)
+        return (r.json().get("providers") or {}) if r.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        return {}
+
+
+def save_own_ai_key(backend: str, key: str, base_url: str = "") -> None:
+    """Own AI: hand a key (and, for another OpenAI-compatible API, its address) to the proxy, which keeps it
+    encrypted. The app never stores it. Raises RuntimeError with the proxy's reason when it's refused."""
+    import httpx
+    try:
+        r = httpx.put(f"{hosted.proxy_url()}/own/{backend}/key", json={"key": key, "base_url": base_url},
+                      headers={"x-api-key": hosted.proxy_token()}, timeout=10, trust_env=False)
+    except httpx.HTTPError as e:
+        raise RuntimeError(f"Couldn't reach Job Oyster's AI service ({e.__class__.__name__}). Try again.") from None
+    if r.status_code != 200:
+        try:
+            why = r.json()["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            why = f"error {r.status_code}"
+        raise RuntimeError(why)
+
+
 def make_runner(cfg: Config) -> Runner:
-    if hosted.enabled():        # always the proxy, whatever cfg says
-        import anthropic
-        return ClaudeRunner(fallbacks=cfg.fallbacks, client=anthropic.AsyncAnthropic(
-            base_url=hosted.proxy_url(), api_key=hosted.proxy_token()))
+    if hosted.enabled():        # always the proxy, whatever cfg says; on Own AI, to the provider the user picked
+        return proxy_runner(cfg.backend if hosted.own_ai() and cfg.backend in hosted.OWN_BACKENDS else "api",
+                            fallbacks=cfg.fallbacks)
     if cfg.backend == "api":
         return ClaudeRunner(fallbacks=cfg.fallbacks)
     if cfg.backend == "claude-code":

@@ -14,3 +14,5 @@ ruamel.yaml>=0.18
 markdown>=3.5
 # Local Hugging Face models that check resumes against the evidence (jobpipe/evidence.py); pulls in PyTorch.
 sentence-transformers>=5.1
+# Hosted mode's AI proxy keeps Own AI keys encrypted; the Mac app leaves it out (mac/build.sh).
+cryptography>=44

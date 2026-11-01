@@ -217,3 +217,68 @@ def test_the_score_button_runs_on_haiku_and_says_when_the_cap_is_reached(henv, m
     assert [x.model.model for x in runner.calls if x.label.startswith("triage:")] == ["claude-haiku-5-5"]
     r = c.post("/api/jobs/j2/score", headers=H)
     assert r.status_code == 429 and "Signal scores are used up" in r.json()["detail"]
+
+
+# ---- 2.3: Own AI picks its provider and models; every call still goes through the proxy -------------------------
+@pytest.fixture
+def own(on, monkeypatch):
+    monkeypatch.setenv(hosted.PLAN, "own")
+
+
+@pytest.fixture
+def oenv(own, env, monkeypatch):  # noqa: F811 - the plan is set before the app's config is loaded
+    import jobpipe.pipeline as pipeline
+    saved: dict = {}
+    monkeypatch.setattr(pipeline, "own_ai_keys", lambda: {b: {"base_url": u} for b, (k, u) in saved.items()})
+    monkeypatch.setattr(pipeline, "save_own_ai_key", lambda b, k, u="": saved.__setitem__(b, (k, u)))
+    return {**env, "saved": saved}
+
+
+def test_own_ai_keeps_the_users_provider_and_models_but_not_local_ones(own, tmp_path):
+    cfg = config.load(searches(tmp_path, "{backend: openai, writer: {model: gpt-6, effort: high}, "
+                                         "triage: {model: gpt-6-mini, effort: low}}"))
+    assert (cfg.backend, cfg.base_url, cfg.api_key_env, cfg.claude_bin) == \
+        ("openai", PROXY + "/own/openai", hosted.PROXY_TOKEN, None)
+    assert cfg.writer_model == config.ModelCfg("gpt-6", "high") and cfg.triage_model.model == "gpt-6-mini"
+    for elsewhere in ("ollama", "lmstudio", "claude-code"):
+        cfg = config.load(searches(tmp_path, f"{{backend: {elsewhere}, base_url: 'http://127.0.0.1:11434/v1'}}"))
+        assert (cfg.backend, cfg.base_url) == ("api", PROXY)
+    assert hosted.allowed("writer", "claude-fable-5-1")             # any model of theirs
+
+
+def test_own_ai_runners_reach_the_proxy_with_the_users_token(own, tmp_path):
+    cfg = config.load(searches(tmp_path, "{backend: gemini}"))
+    r = make_runner(cfg)
+    assert isinstance(r, OpenAICompatRunner) and r.base_url == PROXY + "/own/gemini"
+    assert r.client.headers["authorization"] == "Bearer user-token"
+    cfg.backend = "api"
+    r = make_runner(cfg)
+    assert isinstance(r, ClaudeRunner) and str(r.client.base_url).rstrip("/") == PROXY
+    cfg.backend, cfg.base_url = "ollama", "http://127.0.0.1:11434/v1"   # changed after loading: still the proxy
+    r = make_runner(cfg)
+    assert isinstance(r, ClaudeRunner) and r.client.api_key == "user-token"
+
+
+def test_own_ai_settings_offer_the_key_providers_and_send_the_key_to_the_proxy(oenv):
+    c, cfg, saved = oenv["client"], oenv["cfg"], oenv["saved"]
+    a = c.get("/api/ai", headers=H).json()
+    assert a["own_ai"] and not a.get("hosted") and a["env_file"] == ""
+    assert [p["id"] for p in a["providers"]] == list(hosted.OWN_BACKENDS) and not any(p["key_set"] for p in a["providers"])
+    stages = {s: {"model": "gpt-6", "effort": "medium"} for s in a["stages"]}
+    r = c.put("/api/ai", headers=H, json={"backend": "openai", "stages": stages, "key": "sk-openai-mine"})
+    assert r.status_code == 200, r.text
+    assert saved == {"openai": ("sk-openai-mine", "")} and r.json()["providers"][1]["key_set"]
+    assert not (config.PROFILE / ".env").exists() or "sk-openai-mine" not in (config.PROFILE / ".env").read_text()
+    assert (cfg.backend, cfg.base_url, cfg.writer_model.model) == ("openai", PROXY + "/own/openai", "gpt-6")
+    r = c.put("/api/ai", headers=H, json={"backend": "openai-compatible", "base_url": "https://my-llm.example/v1",
+                                          "stages": stages, "key": "k2"})
+    assert r.status_code == 200 and saved["openai-compatible"] == ("k2", "https://my-llm.example/v1")
+    assert cfg.base_url == PROXY + "/own/openai-compatible"
+    for local in ("ollama", "lmstudio", "claude-code"):
+        r = c.put("/api/ai", headers=H, json={"backend": local, "base_url": "http://127.0.0.1:11434/v1", "stages": stages})
+        assert r.status_code == 403, local
+    assert c.get("/api/keys", headers=H).status_code == 403          # the other services' keys stay the website's
+    m = c.get("/api/ai/chat-models", headers=H).json()
+    assert m["default"]["backend"] == "openai-compatible" and m["groups"][0]["models"] == ["gpt-6"]
+    r = c.post("/api/jobs/j1/edit", headers=H, json={"instruction": "What's weakest?", "model": "gpt-6"})
+    assert r.status_code == 200
