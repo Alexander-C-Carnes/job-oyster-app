@@ -41,6 +41,7 @@ def test_build_jd():
 def test_detect_ats():
     assert detect_ats("https://jobs.lever.co/x/1") == "Lever"
     assert detect_ats("https://acme.wd5.myworkdayjobs.com/x") == "Workday"
+    assert detect_ats("https://jobs.gem.com/bigpanda/abc") == "Gem"
     assert detect_ats("https://example.com/careers/1") == "not identified"
 
 
@@ -115,6 +116,30 @@ def test_read_posting_from_comeet():
     # without the data, the template's placeholders aren't taken for the posting
     d = read_posting(url, _pages({url: httpx.Response(200, text=page.replace("POSITION_DATA", "OTHER"))}))
     assert d["description"] == ""
+
+
+def test_read_posting_from_gem():
+    # jobs.gem.com/board/id is an empty page; the posting is Gem's public GraphQL, including pay
+    # that lives only in compensationHtml. /application is the same posting.
+    from datetime import datetime, timezone
+    post = {"title": "Senior Solutions Architect", "extId": "ext1",
+            "descriptionHtml": "<div>About the Role:</div>" + BODY,
+            "compensationHtml": "<h2>Compensation</h2><div>The base pay range for this role is $120,000 – $195,000 per year.</div>",
+            "firstPublishedTsSec": datetime(2026, 9, 5, 12, tzinfo=timezone.utc).timestamp(),
+            "locations": [{"name": "", "city": "Austin", "isoCountry": "USA", "isRemote": False},
+                          {"name": "Remote - USA", "isRemote": True}],
+            "job": {"locationType": "REMOTE", "teamDisplayName": "BigPanda"},
+            "jobPostSectionHtml": {"introHtml": "<div>About BigPanda.</div>", "outroHtml": ""}}
+    page = {"https://jobs.gem.com/api/public/graphql": httpx.Response(200, json={"data": {"oatsExternalJobPosting": post}})}
+    d = read_posting("https://jobs.gem.com/bigpanda/ext1/application", _pages(page))
+    assert (d["job_title"], d["company"], d["location"], d["remote"]) == (
+        "Senior Solutions Architect", "BigPanda", "Austin, USA; Remote - USA", True)
+    assert d["description"].startswith("About BigPanda") and "release train" in d["description"]
+    assert "base pay range" in d["description"]
+    assert (d["min_annual_salary_usd"], d["max_annual_salary_usd"]) == (120000, 195000)
+    gone = read_posting("https://jobs.gem.com/bigpanda/gone", _pages(
+        {"https://jobs.gem.com/api/public/graphql": httpx.Response(200, json={"data": {"oatsExternalJobPosting": None}})}))
+    assert gone["description"] == "" and "job_title" not in gone
 
 
 def test_read_posting_from_workable():

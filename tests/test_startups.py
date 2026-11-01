@@ -322,6 +322,71 @@ def test_scan_reads_boards_and_adds_matching_roles_to_find_jobs(tmp_dirs, client
     assert [s["id"] for s in store.list()][:3] == ["acme", "gamma", "no-site"] or [s["id"] for s in store.list()][:2] == ["acme", "gamma"]
 
 
+def _gem_role(title, ext, *, remote=True, location="Remote - USA", pay=True, city=""):
+    from datetime import datetime, timezone
+    loc = {"name": location, "city": city, "isoCountry": "USA" if city else "", "isRemote": remote}
+    return {"title": title, "extId": ext, "descriptionHtml": "<p>Own the platform and the team around it.</p>",
+            "firstPublishedTsSec": datetime(2026, 9, 5, 12, tzinfo=timezone.utc).timestamp(),
+            "compensationHtml": "<div>The base pay range for this role is $120,000 – $195,000 per year.</div>" if pay else "",
+            "locations": [loc], "job": {"locationType": "REMOTE" if remote else "ONSITE", "teamDisplayName": "BigPanda"},
+            "jobPostSectionHtml": {"introHtml": "", "outroHtml": ""}}
+
+
+def _gem_board(posts, board=None):
+    return {"data": {"oatsExternalJobPostings": {"jobPostings": posts},
+                     "jobBoardExternal": board}}
+
+
+def test_a_gem_board_lists_roles_with_their_pay():
+    posts = [_gem_role("Senior Solutions Architect", "ext1"),
+             _gem_role("Principal Solutions Architect", "extuk", remote=False, location="United Kingdom", pay=False)]
+    posts[0]["locations"] = [{"name": "", "city": "Austin", "isoCountry": "USA", "isRemote": True}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host != "jobs.gem.com":
+            return httpx.Response(404)
+        board = (json.loads(request.content).get("variables") or {}).get("boardId")
+        if board == "missing":
+            return httpx.Response(200, json=_gem_board([], None))
+        if board == "quiet":
+            return httpx.Response(200, json=_gem_board([], {"teamDisplayName": "Quiet"}))
+        if board == "down":
+            return httpx.Response(200, json={"errors": [{"message": "no"}]})
+        return httpx.Response(200, json=_gem_board(posts, {"teamDisplayName": "BigPanda"}))
+
+    c = httpx.Client(transport=httpx.MockTransport(handler))
+    jobs = su.board_jobs(su.Board("gem", "bigpanda"), c)
+    assert jobs[0]["url"] == "https://jobs.gem.com/bigpanda/ext1"
+    assert jobs[0]["location"] == "Austin, USA" and jobs[0]["remote"] is True and jobs[0]["posted"] == "2026-09-05"
+    assert "Own the platform" in jobs[0]["description"] and "base pay range" in jobs[0]["description"]
+    assert jobs[0]["pay_usd"] == [120000, 195000]
+    assert jobs[1]["remote"] is False and jobs[1]["location"] == "United Kingdom" and "pay" not in jobs[1]
+    assert su.board_jobs(su.Board("gem", "missing"), c) is None
+    assert su.board_jobs(su.Board("gem", "quiet"), c) == []
+    assert su.board_jobs(su.Board("gem", "down"), c) is None
+    link = "See https://jobs.gem.com/bigpanda/am9icG9zdDog3VO7heSgmmLjulGiw-Tq"
+    assert su.boards_in(link) == [su.Board("gem", "bigpanda")]
+    assert su.Board("gem", "bigpanda").url == "https://jobs.gem.com/bigpanda"
+    # a careers link already on Gem is that board; the company site is not crawled for another one
+    seen = []
+
+    def careers(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return handler(request)
+
+    roles = su.open_roles({"name": "BigPanda", "website": "https://bigpanda.example",
+                           "careers_url": "https://jobs.gem.com/bigpanda"}, ["Solutions Architect"],
+                          client=httpx.Client(transport=httpx.MockTransport(careers)))
+    assert roles["board"] == {"kind": "gem", "board": "bigpanda", "url": "https://jobs.gem.com/bigpanda"}
+    assert [j["title"] for j in roles["jobs"] if j["match"]] == ["Principal Solutions Architect", "Senior Solutions Architect"]
+    assert seen == ["https://jobs.gem.com/api/public/graphql"]
+
+
+def test_gem_board_names_are_not_guessed(client, web):
+    assert su.find_board("", "Bigpanda", client)[0] is None
+    assert not any("jobs.gem.com" in u for u in web.calls)
+
+
 def test_lever_eu_boards_are_found_and_read(client):
     # Lever's EU host: linked from a careers page, or guessed when the US host has no such board
     assert su.boards_in('<a href="https://jobs.eu.lever.co/nordwind">Jobs</a>') == [su.Board("lever-eu", "nordwind")]
