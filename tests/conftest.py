@@ -196,6 +196,11 @@ class FakeNotion:
             return httpx.Response(200, json={"id": path.rsplit("/", 1)[-1], "parent": {
                 "type": "database_id", "database_id": "1a2b3c4d-1111-2222-3333-444455556666"}})
         pid = path.rsplit("/", 1)[-1]
+        if request.method == "PATCH" and body.get("in_trash"):     # a page in the trash is gone from queries
+            if pid not in self.rows:
+                return httpx.Response(404, json={"message": "Could not find page"})
+            self.trashed = [*getattr(self, "trashed", []), pid]
+            return httpx.Response(200, json={**self.rows.pop(pid), "in_trash": True})
         row = self.rows[pid]
         if request.method == "PATCH":
             for k, v in body["properties"].items():

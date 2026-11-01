@@ -465,7 +465,12 @@
         </form>
 
         <form id="ai-form" class="pview ai-view" autocomplete="off" novalidate>
-          <section class="pcard">
+          <section class="pcard hidden" id="ai-hosted">
+            <h2>AI</h2>
+            <p class="muted">Job Oyster runs Claude for you, so there's no key or sign-in to set up. These are the models each step uses.</p>
+            <div class="ai-stages" id="ai-hosted-stages"></div>
+          </section>
+          <section class="pcard" id="ai-card">
             <h2>AI</h2>
             <p class="muted">Which AI scores jobs and writes your résumés. The app is tuned on Claude. Other AIs work, and every résumé still goes through the same checks, but a weaker model writes weaker résumés.</p>
             <div class="row2">
@@ -489,7 +494,7 @@
               <button class="primary" id="ai-save" disabled>Save AI settings</button>
             </div>
           </section>
-          <section class="pcard">
+          <section class="pcard" id="keys-card">
             <h2>Other keys</h2>
             <p class="muted">For the services besides the AI. They're saved in your profile folder's <code>.env</code> and never shown again.</p>
             <ul class="keys" id="keys"></ul>

@@ -2828,7 +2828,7 @@ function renderResume(d, panel, sent = null) {
   const proposalBox = h("div");
   const metrics = h("div", { class: "card" }, h("h3", {}, `Current version: v${r.current}`),
     cur?.rating && h("p", { class: "muted" }, spinner(), " Re-rating this edit: ATS shows the new keywords; skills and experience follow in a few seconds."),
-    screenVerdict(S.byId.get(d.id), cur, r.missing_keywords),
+    screenVerdict(S.byId.get(d.id), cur, r, d.id),
     scoreMeters(S.byId.get(d.id), cur),
     h("div", { class: "metrics" },
       h("span", {}, "Format check ", checkBadge(cur?.check))));
@@ -3091,30 +3091,104 @@ const resumeTag = (j) => h("span", { class: `tag ${j.ats_total == null || j.ats_
 const versionScore = (j, v) => v?.resume_score ?? j?.resume_score;
 // Whether the résumé gets past the screen: ATS against its target decides it, not the résumé score (how a recruiter
 // rates the page once they read it). Below the target, names the part pulling ATS down most, weighted the way the
-// total is (skills and experience 35% each, keywords 30%), and lists the keywords the page is missing.
+// total is (skills and experience 35% each, keywords 30%). Then the posting keywords the page is missing, each a
+// chip: "I've done this" adds his one line to the impact record's Confirmed facts and marks the keyword confirmed;
+// "Not mine" sets it aside. Update this résumé runs the confirmed facts through the one-pass fact update (a diff
+// to accept or discard), after which the keywords it used are on the page and drop off the list.
 const screenWord = (ats) => (ats == null ? "" : ats >= ATS_TARGET ? " (passes the screen)" : ` (below the ${ATS_TARGET}% screen target)`);
-function screenVerdict(j, cur, missing = []) {
+const KW_UI = new Map();   // job id -> {open: keyword, draft, all}: kept while the panel is redrawn
+function screenVerdict(j, cur, r, id) {
   const ats = versionAts(j, cur);
   if (ats == null) return null;
   const pass = ats >= ATS_TARGET, resume = versionScore(j, cur), parts = cur?.ats_parts || {};
   const drag = [["keywords", parts.keywords ?? cur?.keywords_pct, 0.30], ["skills", parts.skills, 0.35], ["experience", parts.experience, 0.35]]
     .filter(([, v]) => v != null).map(([k, v, w]) => [k, w * (100 - v)]).sort((a, b) => b[1] - a[1])[0]?.[0];
   const fix = {
-    keywords: "Keywords pull it down most, and they're the quickest to fix: use the posting's own words for what you've done.",
+    keywords: "Keywords pull it down most, and they're the quickest to fix: confirm the ones you've done below.",
     skills: "Skills pull it down most: show the partial or missing skills with evidence (Heat map has the rows).",
     experience: "Experience pulls it down most: show the partial or missing experience with its scope and results (Heat map has the rows)." };
-  const shown = missing.slice(0, 15);
   return h("div", { class: `screen ${pass ? "hi" : ats >= 60 ? "mid" : "lo"}` },
     h("b", {}, pass ? "Passes the screen" : "Below the screen target"),
     h("span", {}, pass ? `ATS ${pct(ats)}, at or over the ${ATS_TARGET}% target.`
       : `ATS ${pct(ats)}, ${Math.ceil(ATS_TARGET - ats)} points under ${ATS_TARGET}%. A recruiter may never see it.`),
     !pass && drag && h("p", {}, fix[drag]),
-    !pass && shown.length > 0 && h("div", { class: "kw" }, h("span", { class: "muted" }, `Missing keywords (${missing.length}):`),
-      ...shown.map((k) => h("span", { class: "tag" }, k)), missing.length > shown.length && h("span", { class: "muted" }, `+${missing.length - shown.length} more`)),
-    !pass && shown.length > 0 && h("p", {}, "Add only the ones you can back up."),
+    missingKeywords(r, id),
     resume != null && h("p", {}, pass
       ? `The résumé score (${resume}/10) is how a recruiter rates it once they read it.`
       : `The résumé score (${resume}/10) is how a recruiter rates it once they read it. Raise ATS first: it decides whether they read it.`));
+}
+function missingKeywords(r, id) {
+  const missing = r.missing_keywords || [], ans = r.keyword_answers || { confirmed: {}, dismissed: [] };
+  if (!missing.length && !ans.dismissed.length) return null;
+  if (!KW_UI.has(id)) KW_UI.set(id, {});
+  const ui = KW_UI.get(id), box = h("div", { class: "kw-box" });
+  const reload = () => { S.details.delete(id); openJob(id, "resume"); };
+  const answer = (keyword, a, fact = "") => post(`/api/jobs/${encodeURIComponent(id)}/keywords`, { keyword, answer: a, fact });
+  const form = (k) => {
+    const t = h("textarea", { rows: 2, "aria-label": `Where you did ${k}`,
+                              placeholder: `Where and what, in a line: the program or team, and what you did that was “${k}”.` });
+    t.value = ui.draft || "";
+    const err = h("p", { class: "err", role: "alert" });
+    t.addEventListener("input", () => { ui.draft = t.value; err.textContent = ""; });
+    const yes = h("button", { type: "button", class: "primary" }, "I've done this");
+    const no = h("button", { type: "button", class: "ghost" }, "Not mine");
+    yes.addEventListener("click", async () => {
+      const line = t.value.trim();
+      if (line.length < 8) { err.textContent = "Say where you did it first, in a line."; t.focus(); return; }
+      const fact = `${line.replace(/[.\s]+$/, "")} (posting term: "${k}")`;
+      yes.disabled = no.disabled = true;
+      try {
+        await DOCS.impact.amend("/facts", { text: fact }, /(?!)/);
+        await answer(k, "confirmed", fact);
+        Object.assign(ui, { open: null, draft: "" });
+        reload();
+      } catch (e) { err.textContent = e.message; yes.disabled = no.disabled = false; }
+    });
+    no.addEventListener("click", async () => {
+      no.disabled = true;
+      try { await answer(k, "dismissed"); Object.assign(ui, { open: null, draft: "" }); reload(); }
+      catch (e) { err.textContent = e.message; no.disabled = false; }
+    });
+    requestAnimationFrame(() => t.focus());
+    return h("div", { class: "kw-form" }, h("b", {}, `Have you done “${k}”?`),
+      h("p", {}, "Say where, in a line. It goes into your impact record's Confirmed facts, so every résumé from now on can use it."),
+      t, err, h("div", { class: "actions" }, yes, no,
+        h("button", { type: "button", class: "ghost", onclick: () => { Object.assign(ui, { open: null, draft: "" }); draw(); } }, "Cancel")));
+  };
+  const update = (keys) => {
+    const btn = h("button", { type: "button", class: "primary" }, "Update this résumé");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.textContent = "Updating…";
+      try {
+        const res = await post(`/api/jobs/${encodeURIComponent(id)}/resume/from-fact`, { texts: keys.map((k) => ans.confirmed[k]) });
+        toast(res.proposal ? "Review the diff, then accept or discard it." : "Those facts don't change this résumé. The note is in the chat.");
+        reload();
+      } catch (e) { toast(e.message, true); btn.disabled = false; btn.textContent = "Update this résumé"; }
+    });
+    return h("div", { class: "kw-update" }, h("span", {}, `One pass rewrites only the lines ${keys.length === 1 ? "this fact unlocks" : "these facts unlock"}, then rates the résumé again. You see the diff before anything is saved.`), btn);
+  };
+  function draw() {
+    const open = missing.filter((k) => !ans.dismissed.includes(k));
+    const done = open.filter((k) => k in ans.confirmed), todo = open.filter((k) => !(k in ans.confirmed));
+    const shown = ui.all ? todo : todo.slice(0, 15);
+    const chip = (k) => h("button", { type: "button", class: `kw-chip${ui.open === k ? " on" : ""}`, "aria-expanded": String(ui.open === k),
+      onclick: () => { Object.assign(ui, { open: ui.open === k ? null : k, draft: "" }); draw(); } }, "+ ", k);
+    box.replaceChildren(...[
+      todo.length > 0 && h("div", { class: "kw" }, h("span", { class: "muted" }, `Missing keywords (${todo.length}). Click one you've done:`),
+        ...shown.map(chip), todo.length > shown.length && h("button", { type: "button", class: "ghost small", onclick: () => { ui.all = true; draw(); } },
+          `+${todo.length - shown.length} more`)),
+      ui.open && open.includes(ui.open) && form(ui.open),
+      done.length > 0 && h("div", { class: "kw" }, h("span", { class: "muted" }, "Confirmed, not in the résumé yet:"),
+        ...done.map((k) => h("span", { class: "kw-chip ok", title: ans.confirmed[k] }, "✓ ", k))),
+      done.length > 0 && (r.editable !== false ? update(done)
+        : h("p", {}, "This copy of the résumé can't be updated here. Make résumé again and it uses these facts.")),
+      ans.dismissed.length > 0 && h("details", { class: "kw-not" }, h("summary", {}, `Not mine (${ans.dismissed.length})`),
+        h("div", { class: "kw" }, h("span", { class: "muted" }, "Click one to put it back:"), ...ans.dismissed.map((k) => h("button", {
+          type: "button", class: "kw-chip no",
+          onclick: async () => { try { await answer(k, "open"); reload(); } catch (e) { toast(e.message, true); } } }, k))))].filter(Boolean));
+  }
+  draw();
+  return box;
 }
 function scoreMeters(j, cur) {
   const pctBand = (v) => (v >= 80 ? "hi" : v >= 60 ? "mid" : "lo");
@@ -3908,7 +3982,17 @@ async function startRun(body) {
   try { runStarted(await post("/api/runs", body)); }
   catch (e) { toast(e.message, true); }
 }
+// A Make résumé leaves you where you are (Find jobs, the tracker): the job's badge becomes a ring that fills,
+// and the bar at the top shows it and opens its log. Other runs open their log in Logs.
 function runStarted(r) {
+  if (tailoredJob(r)) {
+    const what = r.label.replace(/^Make résumé: /, "");
+    toast(r.status === "queued" ? `The résumé for ${what} is waiting its turn. It starts by itself when a run finishes.`
+      : `Making the résumé for ${what}. Its badge fills as it goes; the bar at the top opens the log.`);
+    loadSummary();
+    loadJobs();
+    return;
+  }
   toast(r.status === "queued" ? `Waiting its turn: ${r.label}. It starts by itself when a run finishes.` : `Started: ${r.label}`);
   pollRun.live = r.id;
   showTab("runs");
@@ -5065,12 +5149,25 @@ function aiState() {
   for (const [s] of AI_STAGES) out.stages[s] = { model: $(`#ai-model-${s}`).value.trim(), effort: $(`#ai-effort-${s}`).value };
   return out;
 }
-const aiDirty = () => !!AI.data && (JSON.stringify(aiState()) !== AI.base || !!aField("key").value.trim());
+const aiDirty = () => !!AI.data && !AI.data.hosted && (JSON.stringify(aiState()) !== AI.base || !!aField("key").value.trim());
 
 async function loadAI() {
-  loadKeys();
+  if (AI.data?.hosted) return;
   if (AI.data && aiDirty()) return;
-  try { applyAI(await api("/api/ai")); } catch (e) { toast(e.message, true); }
+  let d;
+  try { d = await api("/api/ai"); } catch (e) { toast(e.message, true); return; }
+  // On the website, the AI and the keys are set for you: show the models, hide the settings.
+  for (const id of ["ai-card", "keys-card"]) $(`#${id}`).classList.toggle("hidden", !!d.hosted);
+  $("#ai-hosted").classList.toggle("hidden", !d.hosted);
+  if (d.hosted) {
+    AI.data = d;
+    $("#ai-hosted-stages").replaceChildren(...AI_STAGES.flatMap(([s, name, what]) => [
+      h("div", { class: "ai-step" }, name, h("span", { class: "muted" }, what)),
+      h("div", { class: "ai-model" }, d.stages[s].model), h("div", { class: "muted" }, d.stages[s].effort)]));
+    return;
+  }
+  loadKeys();
+  applyAI(d);
 }
 async function loadKeys(d) {
   try { d = d || await api("/api/keys"); } catch (e) { return; }
@@ -5685,7 +5782,7 @@ const SETUP_RENDER = {
     } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
     const p = d.providers.find((x) => x.id === d.backend) || { label: d.backend };
     const ready = claude ? !!claude.found && claude.signed_in !== false : p.local || p.key_set;
-    const how = claude ? (!claude.found ? "Claude Code isn't installed, so the app can't reach Claude yet."
+    const how = d.hosted ? "Job Oyster runs it for you: there's nothing to set up." : claude ? (!claude.found ? "Claude Code isn't installed, so the app can't reach Claude yet."
       : claude.signed_in ? `It runs on your Claude subscription, through Claude Code, signed in${claude.account ? ` as ${claude.account}` : ""}.`
       : claude.signed_in === false ? "It runs on your Claude subscription, through Claude Code, but Claude Code isn't signed in (or the sign-in expired). Sign in first."
       : "It runs on your Claude subscription, through Claude Code. If you haven't signed in to Claude Code yet, do that first.")
@@ -5704,7 +5801,7 @@ const SETUP_RENDER = {
               try { await post("/api/ai/claude-login"); toast("Terminal is open: type /login, sign in, then close it."); }
               catch (e) { toast(e.message, true); } } }, "Sign in to Claude…") : null,
             claude && !claude.found ? extLink("https://claude.ai/download", "Install the Claude app") : null,
-            change))),
+            d.hosted ? null : change))),
       h("p", { class: "muted" }, "Your answers go to this AI only, as your postings and résumés already do. ",
         ready ? "" : "You can import LinkedIn without it, and come back for the interviews once it's set up."));
   },

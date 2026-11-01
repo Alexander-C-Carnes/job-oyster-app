@@ -65,7 +65,7 @@ Rules for everything you change on your own (his instruction overrides them):
 """
 FACT_BRIEF = """# Update the résumé from one confirmed fact
 
-{name} just confirmed a fact that was not available when this résumé was written. The current résumé, the posting, and the match brief are below. The new fact is in confirmed-fact.md.
+{name} just confirmed a fact that was not available when this résumé was written. The current résumé, the posting, and the match brief are below. The new fact is in confirmed-fact.md; when it lists several, apply each the same way. A fact that ends in (posting term: "…") is his answer to a posting keyword the résumé was missing: where the fact supports it, use that term word for word.
 
 This is one pass, not a new résumé. Rewrite only the lines this fact unlocks: a line that had to stay vague, a bullet the résumé left out because the evidence was missing, or a posting phrase the fact now lets you use. Every other line stays word for word, including the headline, the dates, and any section the fact does not touch.
 
@@ -213,6 +213,38 @@ class ResumeWorkspace:
             return None
         kw = normalize_keywords(json.loads(kw_path.read_text()))[0]
         return {k for k, p in kw.items() if re.search(p, text, re.I)}, len(kw)
+
+    # ---- missing keywords he answered: confirmed (with the fact he gave) or not his -------------------
+    @property
+    def answers_path(self) -> Path:
+        return self.vdir / "keyword-answers.json"
+
+    def keyword_answers(self) -> dict:
+        """{"confirmed": {keyword: fact}, "dismissed": [keyword]} for this job's missing posting keywords."""
+        try:
+            d = json.loads(self.answers_path.read_text())
+            return {"confirmed": dict(d.get("confirmed") or {}), "dismissed": list(d.get("dismissed") or [])}
+        except (OSError, ValueError, AttributeError, TypeError):
+            return {"confirmed": {}, "dismissed": []}
+
+    def answer_keyword(self, keyword: str, answer: str, fact: str = "") -> dict:
+        """Mark a posting keyword confirmed (with the fact behind it), not his (dismissed), or open again."""
+        kw_path = self.run_dir / "keywords.json"
+        known = normalize_keywords(json.loads(kw_path.read_text()))[0] if kw_path.exists() else {}
+        if keyword not in known:
+            raise EditError(f"“{keyword}” isn't one of this posting's keywords.")
+        if answer not in ("confirmed", "dismissed", "open"):
+            raise EditError("Answer confirmed, dismissed or open.")
+        d = self.keyword_answers()
+        d["confirmed"].pop(keyword, None)
+        d["dismissed"] = [k for k in d["dismissed"] if k != keyword]
+        if answer == "confirmed":
+            d["confirmed"][keyword] = fact
+        elif answer == "dismissed":
+            d["dismissed"].append(keyword)
+        self.vdir.mkdir(parents=True, exist_ok=True)
+        self.answers_path.write_text(json.dumps(d, indent=2))
+        return d
 
     def missing_keywords(self, text: str) -> list[str]:
         """The posting keywords the text doesn't have, in keywords.json's order ([] without keywords.json)."""
@@ -442,17 +474,18 @@ class ResumeWorkspace:
         self._say("claude", reply, proposal=True, **tag)
         return {"reply": reply, "proposal": {**proposal, "diff": diff(current, new_md)}}
 
-    async def update_from_fact(self, fact: str, runner: Runner, cfg: Config) -> dict:
-        """One pass over the current résumé from a fact just confirmed. Rewrites only the lines that fact
-        unlocks, then checks figures and the keyword score. The result is a proposal, accepted like any edit.
-        The three-draft pipeline is not run."""
+    async def update_from_fact(self, fact: str | list[str], runner: Runner, cfg: Config) -> dict:
+        """One pass over the current résumé from a fact just confirmed (or several, one per line). Rewrites only
+        the lines those facts unlock, then checks figures and the keyword score. The result is a proposal,
+        accepted like any edit. The three-draft pipeline is not run."""
         if not self.editable():
             raise EditError("This résumé was saved without its posting and match brief, so it can't be updated "
                             "from a fact here.")
-        fact = re.sub(r"\s*\n\s*", " ", fact).strip()
-        if not fact:
+        facts = [f for f in (re.sub(r"\s*\n\s*", " ", f).strip() for f in ([fact] if isinstance(fact, str) else fact)) if f]
+        if not facts:
             raise EditError("Write the fact to update from.")
-        if len(fact) > 2000:
+        fact = facts[0] if len(facts) == 1 else "\n".join(f"- {f}" for f in facts)
+        if len(fact) > 2000 * len(facts):
             raise EditError("That fact is too long to apply in one pass.")
         h = await asyncio.to_thread(self.history)
         if h.get("proposal"):

@@ -359,3 +359,34 @@ def test_a_tracker_from_before_reached_is_backfilled(tmp_path):
     con.close()
     t = LocalTracker(db)
     assert {r["page_id"]: r["reached"] for r in t.rows()} == {"a": "Interviewing", "b": "Interviewing", "c": "Applied", "d": ""}
+
+
+def test_a_removed_job_leaves_the_tracker_and_its_notion_page_goes_to_the_trash(tmp_path, monkeypatch):
+    t, fake, notion = make(tmp_path, [notion_row("p1", "https://x.example/jobs/1"), notion_row("p2", "https://x.example/jobs/2")])
+    t.sync()
+    t.upsert(entry(url="https://x.example/jobs/3"), job_id="j3")      # in Notion too
+    t.track(entry(url=""), job_id="j4")                                # local only: no URL, so never sent
+    ids = {r["job_id"] or r["page_id"]: r["page_id"] for r in t.rows()}
+    monkeypatch.setattr(notion, "trash", lambda pid: (_ for _ in ()).throw(RuntimeError("Notion is down")))
+    for key in ("p1", "j3", "j4"):
+        t.remove(ids[key])
+    assert [r["page_id"] for r in t.rows()] == ["p2"]                   # gone from the tracker at once
+    with pytest.raises(RuntimeError):
+        t.sync()
+    assert [r["page_id"] for r in t.rows()] == ["p2"]                   # a failed sync doesn't bring them back
+    monkeypatch.undo()
+    t.sync()
+    assert sorted(fake.trashed) == ["p1", "page3"] and list(fake.rows) == ["p2"]
+    assert [r["page_id"] for r in LocalTracker(tmp_path / "tracker.db").rows()] == ["p2"]
+    with pytest.raises(KeyError):
+        t.remove("nope")
+
+
+def test_a_removed_job_tracked_again_comes_back(tmp_path):
+    t, fake, _ = make(tmp_path, [notion_row("p1", URL)])
+    t.sync()
+    t.remove("p1")
+    assert t.rows() == []
+    assert t.track(entry(), job_id="j1") == "updated"                   # its Notion page wasn't trashed yet: kept
+    t.sync()
+    assert [(r["page_id"], r["job_id"]) for r in t.rows()] == [("p1", "j1")] and "p1" in fake.rows

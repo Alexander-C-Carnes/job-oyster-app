@@ -35,7 +35,7 @@ from .. import config
 from ..config import Config
 from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
-from .. import lowfit
+from .. import hosted, lowfit
 from . import about, follow
 from .flow import application_flow
 from .menu import snapshot as menu_snapshot
@@ -184,6 +184,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                searches_path: Optional[Path] = None,
                resume_root: Optional[Path] = None, impact_path: Optional[Path] = None,
                prep_path: Optional[Path] = None, hiringcafe: Optional[hc.HiringCafe] = None) -> FastAPI:
+    if hosted.enabled():
+        hosted.lock(cfg)                            # the proxy and the allowed models, whatever cfg came with
     store = store or Store()
     hiringcafe = hiringcafe or hc.HiringCafe()      # reads a share link when a search is added
     searches_path = searches_path or config.searches_path()
@@ -248,6 +250,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         is tagged with)."""
         chat = cfg.chat_model
         backend, model = backend or cfg.backend, model or chat.model
+        if hosted.enabled() and (backend != cfg.backend or not hosted.allowed("chat", model)):
+            raise HTTPException(403, "The website's chat can't use that AI.")
         if backend not in BACKEND_LABELS:
             raise HTTPException(400, "Choose an AI for the chat.")
         if not searches_file.MODEL_ID.fullmatch(model):
@@ -421,6 +425,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         fmt, default = ws.format, default_format()
         return {"current": h["current"], "versions": h["versions"], "proposal": bool(h.get("proposal")),
                 "title": ws.title(), "missing_keywords": ws.missing_keywords(ws.md(h["current"])),
+                "keyword_answers": ws.keyword_answers(),
                 "pdf_name": resume_filename(board.row(jid), h["current"]),
                 "pdf_names": resume_filenames(ws, board.row(jid)), "editable": ws.editable(), "chat": chat_payload(ws), "chat_busy": chat_busy(jid),
                 "format": {"id": fmt.id, "name": fmt.name, "max_pages": fmt.max_pages},
@@ -456,7 +461,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return {"impact_record": {"path": str(record), "updated": record.stat().st_mtime if record.exists() else None},
                 "credits": {"used": board.credits_used(cfg.allowance_period), "allowance": cfg.allowance_amount,
                             "period": cfg.allowance_period, "per_run": cfg.max_credits_per_run},
-                "backend": cfg.backend, "backend_label": BACKEND_LABELS.get(cfg.backend, cfg.backend),
+                "backend": cfg.backend, "hosted": hosted.enabled(),
+                "backend_label": hosted.LABEL if hosted.enabled() else BACKEND_LABELS.get(cfg.backend, cfg.backend),
                 "notion": local.notion is not None, "ghost_after_days": cfg.ghost_after_days,
                 "statuses": list(STATUSES), "active_runs": [{**r.public(len(r.lines)), "progress": progress.of(r),
                                  "queue_position": runs.queue_position(r)} for r in (*runs.running(), *runs.waiting)],
@@ -1218,8 +1224,9 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         """One pass: rewrite only the lines a new confirmed fact unlocks, then check figures and keywords.
         The three-draft pipeline is left for the first version. Nothing is saved until the diff is accepted."""
         ws = workspace(jid)
-        text = str(body.get("text") or "")
-        if text.strip() and not is_confirmed_fact(read_impact(), text):   # only a fact the user confirmed
+        texts = [str(t) for t in body.get("texts") or [] if str(t).strip()] or [str(body.get("text") or "")]
+        record = read_impact()
+        if any(t.strip() and not is_confirmed_fact(record, t) for t in texts):   # only facts the user confirmed
             raise HTTPException(400, "That fact isn't in the impact record's Confirmed facts. Add it there first.")
         lock = state["edit_locks"].setdefault(jid, asyncio.Lock())
         if lock.locked():
@@ -1227,7 +1234,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         async with lock:
             state["chatting"].add(jid)
             try:
-                r = await ws.update_from_fact(text, get_runner(), cfg)
+                r = await ws.update_from_fact(texts if len(texts) > 1 else texts[0], get_runner(), cfg)
                 p = r["proposal"]
                 return {"reply": r["reply"], "reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
                         "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
@@ -1239,6 +1246,19 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 raise HTTPException(502, f"The résumé couldn't be updated: {e}") from None
             finally:
                 state["chatting"].discard(jid)
+
+    @app.post("/api/jobs/{jid}/keywords")
+    def answer_keyword(jid: str, body: dict):
+        """A missing posting keyword answered from the screen verdict: confirmed (its fact must already be in
+        the impact record's Confirmed facts), not his (dismissed), or open again."""
+        ws = workspace(jid)
+        answer, fact = str(body.get("answer") or ""), str(body.get("fact") or "")
+        if answer == "confirmed" and not is_confirmed_fact(read_impact(), fact):
+            raise HTTPException(400, "That fact isn't in the impact record's Confirmed facts. Add it there first.")
+        try:
+            return ws.answer_keyword(str(body.get("keyword") or ""), answer, fact)
+        except EditError as e:
+            raise HTTPException(400, str(e)) from None
 
     @app.post("/api/jobs/{jid}/restore")
     def restore(jid: str, body: dict):
@@ -1792,6 +1812,11 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         return get_profile()
 
     # ---- the AI: which provider and models do the work, and its key ---------------------------
+    # In hosted mode the website sets these: they can be read, but nothing here changes them.
+    def not_hosted() -> None:
+        if hosted.enabled():
+            raise HTTPException(403, hosted.REFUSED)
+
     def key_env(backend: str) -> str:
         if backend == "api":
             return "ANTHROPIC_API_KEY"
@@ -1799,6 +1824,13 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/ai")
     def get_ai():
+        if hosted.enabled():
+            return {"hosted": True, "backend": cfg.backend, "base_url": "", "saved": {},
+                    "stages": {s: {"model": getattr(cfg, f"{s}_model").model, "effort": getattr(cfg, f"{s}_model").effort}
+                               for s in searches_file.MODEL_STAGES},
+                    "providers": [{"id": cfg.backend, "label": hosted.LABEL, "key_env": "", "key_set": True,
+                                   "local": False, "signup": "", "base_url": "", "defaults": {}}],
+                    "claude_models": list(dict.fromkeys(m for ms in hosted.MODELS.values() for m in ms)), "env_file": ""}
         providers = [{"id": b, "label": label, "key_env": key_env(b), "key_set": bool(key_env(b) and os.environ.get(key_env(b))),
                       "local": b in PROVIDERS and PROVIDERS[b].local, "signup": PROVIDERS[b].signup if b in PROVIDERS else "",
                       "base_url": PROVIDERS[b].base_url if b in PROVIDERS else "",
@@ -1811,6 +1843,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     # already going finish on the AI they began with and the next one uses these.
     @app.put("/api/ai")
     def put_ai(body: dict):
+        not_hosted()
         try:
             backend, base_url, stages = searches_file.clean_models(body, BACKEND_LABELS)
             key, env = str(body.get("key") or "").strip(), key_env(backend)
@@ -1836,11 +1869,13 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/keys")
     def get_keys():
+        not_hosted()
         return {"keys": [{"name": k, "label": l, "for": f, "url": u, "restart": r, "set": bool(os.environ.get(k))}
                          for k, (l, f, u, r) in KEYS.items()], "env_file": str(config.PROFILE / ".env")}
 
     @app.put("/api/keys")
     def put_key(body: dict):
+        not_hosted()
         name, value = str(body.get("name") or ""), str(body.get("value") or "").strip()
         if name not in KEYS or not value:
             raise HTTPException(400, "Paste the key first.")
@@ -1863,6 +1898,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.get("/api/ai/claude")
     def claude_cli():
         """Whether a working Claude Code CLI is here, its version, and whether it's signed in."""
+        not_hosted()
         from .. import llm
         try:
             found = cfg.claude_bin or os.environ.get("CLAUDE_BIN") or llm.find_claude()
@@ -1873,6 +1909,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     @app.post("/api/ai/claude-login")
     def claude_login():
         """Open Terminal on Claude Code, ready for /login: the one step of signing in a browser page can't do."""
+        not_hosted()
         import shlex
         import subprocess
         import sys
@@ -1894,7 +1931,11 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def chat_models():
         """Every AI set up on the Profile tab, with its models, for the résumé chat's model menu. The Profile's
         chat model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
-        reached, the models picked for it on the Profile tab are offered."""
+        reached, the models picked for it on the Profile tab are offered. In hosted mode, the chat's allowed models."""
+        if hosted.enabled():
+            return {"default": {"backend": cfg.backend, "model": cfg.chat_model.model},
+                    "groups": [{"backend": cfg.backend, "label": hosted.LABEL, "short": "Claude",
+                                "models": list(hosted.MODELS["chat"])}]}
         saved = searches_file.load_models(searches_path)["saved"]
         usable = ["claude-code"] + (["api"] if os.environ.get("ANTHROPIC_API_KEY") else [])
         for b, p in PROVIDERS.items():
@@ -1933,6 +1974,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def ai_models(body: dict):
         """The models a provider offers, which also checks its address and key (a key typed in the form is used
         for this check only, not saved)."""
+        not_hosted()
         backend = str(body.get("backend") or "")
         if backend in ("claude-code", "api"):
             return {"models": CLAUDE_MODELS}

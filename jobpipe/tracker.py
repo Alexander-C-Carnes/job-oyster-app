@@ -12,6 +12,9 @@ status works at once and offline. The Notion tracker is a synced copy:
 
 When Notion can't be reached nothing is lost: the queue waits and the next sync sends it.
 
+A job taken off the tracker (remove(), for a posting that closed before you applied) is gone from rows() at once;
+its Notion page goes to Notion's trash at the next sync, so the sync doesn't bring it back.
+
 Each row also keeps the day it reached an applied stage (Applied, Interviewing, ... see APPLIED_STATUSES),
 set here or by a sync, for the dashboard's applications per day, and the day its status last changed: a job left
 at Applied or Interviewing that long (ghost_stale) moves to Ghosted on its own.
@@ -55,7 +58,8 @@ CREATE TABLE IF NOT EXISTS tracker (
   status_since TEXT NOT NULL DEFAULT '',     -- the local day the status last changed (a move to Ghosted keeps it)
   ghosted_on TEXT NOT NULL DEFAULT '',       -- the day ghost_stale moved it to Ghosted ('' if you set it, or it moved on)
   ghosted_from TEXT NOT NULL DEFAULT '',     -- the status it had then
-  reached TEXT NOT NULL DEFAULT ''           -- the furthest stage it got to: Applied, Interviewing or Offer ('' before applying)
+  reached TEXT NOT NULL DEFAULT '',          -- the furthest stage it got to: Applied, Interviewing or Offer ('' before applying)
+  removed INTEGER NOT NULL DEFAULT 0         -- taken off the tracker; queued for Notion: move its page to the trash
 );
 CREATE INDEX IF NOT EXISTS tracker_url ON tracker(url_key);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -64,7 +68,8 @@ FROM_NOTION = ("page_url", "name", "company", "job_url", "fit", "notes", "priori
 # Columns added after the first release, for tracker.db files made before them.
 ADDED = {"resume_files": "TEXT NOT NULL DEFAULT '[]'", "resume_upload": "TEXT", "applied": "TEXT NOT NULL DEFAULT ''",
          "status_since": "TEXT NOT NULL DEFAULT ''", "ghosted_on": "TEXT NOT NULL DEFAULT ''",
-         "ghosted_from": "TEXT NOT NULL DEFAULT ''", "reached": "TEXT NOT NULL DEFAULT ''"}
+         "ghosted_from": "TEXT NOT NULL DEFAULT ''", "reached": "TEXT NOT NULL DEFAULT ''",
+         "removed": "INTEGER NOT NULL DEFAULT 0"}
 # The stages a job is moved to Ghosted from when its status hasn't changed in ghost_after_days.
 GHOSTABLE = ("Applied", "Interviewing")
 
@@ -144,7 +149,7 @@ class LocalTracker:
         version = self.version()
         if self._cache[0] != version:
             with closing(self._db()) as con:
-                found = con.execute("SELECT * FROM tracker ORDER BY rowid").fetchall()
+                found = con.execute("SELECT * FROM tracker WHERE removed = 0 ORDER BY rowid").fetchall()
             self._cache = (version, [{
                 "page_id": r["id"], "notion_page_id": r["notion_page_id"], "page_url": r["page_url"], "job_id": r["job_id"],
                 "name": r["name"], "company": r["company"], "job_url": r["job_url"], "status": r["status"],
@@ -181,6 +186,20 @@ class LocalTracker:
                         f"{_SINCE} WHERE id = ?",
                         (status, now_iso(), _reach(row["reached"], status), status in APPLIED_STATUSES, _today(), status,
                          _today(), status, status, row_id))
+            self._bump(con)
+
+    def remove(self, row_id: str) -> None:
+        """Take the job off the tracker. A row with a Notion copy waits, hidden, until the sync has moved its page to
+        Notion's trash (restorable there for 30 days); one without is deleted now."""
+        with closing(self._db()) as con, con:
+            row = con.execute("SELECT notion_page_id FROM tracker WHERE id = ?", (row_id,)).fetchone()
+            if row is None:
+                raise KeyError(row_id)
+            if row["notion_page_id"]:
+                con.execute("UPDATE tracker SET removed = 1, entry = NULL, dirty_status = 0, resume_upload = NULL, "
+                            "updated = ? WHERE id = ?", (now_iso(), row_id))
+            else:
+                con.execute("DELETE FROM tracker WHERE id = ?", (row_id,))
             self._bump(con)
 
     def queue_resume(self, row_id: str, pdf: Path) -> None:
@@ -226,8 +245,8 @@ class LocalTracker:
                     queued = json.dumps({**e.__dict__, "url": e.url or row["job_url"]})
                 con.execute("UPDATE tracker SET job_id = COALESCE(?, job_id), status = ?, fit = COALESCE(?, fit), notes = ?, "
                             "job_url = CASE WHEN job_url = '' THEN ? ELSE job_url END, "
-                            f"url_key = CASE WHEN url_key = '' THEN ? ELSE url_key END, entry = ?, updated = ?, {_SINCE} "
-                            "WHERE id = ?",
+                            f"url_key = CASE WHEN url_key = '' THEN ? ELSE url_key END, entry = ?, updated = ?, removed = 0, "
+                            f"{_SINCE} WHERE id = ?",
                             (job_id, status, e.fit_score, merge_notes(row["notes"], e.notes), e.url, key,
                              queued, now_iso(), status, _today(), status, status, row["id"]))
                 action = "updated"
@@ -249,9 +268,9 @@ class LocalTracker:
                             ("local-" + secrets.token_hex(8), job_id, f"{e.title} — {e.company}", e.company, e.url, key,
                              "In progress", e.fit_score, e.notes, now_iso(), _today()))
                 action = "created"
-            elif row["status"] in ("", "Not started"):
+            elif row["removed"] or row["status"] in ("", "Not started"):    # a removed row comes back
                 con.execute("UPDATE tracker SET job_id = COALESCE(?, job_id), status = 'In progress', dirty_status = 1, "
-                            "updated = ?, status_since = ? WHERE id = ?", (job_id, now_iso(), _today(), row["id"]))
+                            "removed = 0, updated = ?, status_since = ? WHERE id = ?", (job_id, now_iso(), _today(), row["id"]))
                 action = "updated"
             else:
                 return "unchanged"
@@ -278,7 +297,7 @@ class LocalTracker:
         cutoff = (today - timedelta(days=days)).isoformat()
         with closing(self._db()) as con, con:
             stale = con.execute(f"SELECT id, name, status FROM tracker WHERE status IN ({','.join('?' * len(GHOSTABLE))}) "
-                                "AND status_since != '' AND status_since <= ?", (*GHOSTABLE, cutoff)).fetchall()
+                                "AND status_since != '' AND status_since <= ? AND removed = 0", (*GHOSTABLE, cutoff)).fetchall()
             for r in stale:
                 con.execute("UPDATE tracker SET status = 'Ghosted', dirty_status = 1, updated = ?, ghosted_on = ?, "
                             "ghosted_from = ? WHERE id = ?", (now_iso(), today.isoformat(), r["status"], r["id"]))
@@ -319,9 +338,16 @@ class LocalTracker:
         refused = None
         with closing(self._db()) as con:
             queued = con.execute("SELECT * FROM tracker WHERE (entry IS NOT NULL AND url_key != '') OR dirty_status = 1 "
-                                 "OR resume_upload IS NOT NULL").fetchall()
+                                 "OR resume_upload IS NOT NULL OR removed = 1").fetchall()
         for row in queued:
             page_id = row["notion_page_id"]
+            if row["removed"]:
+                if page_id:
+                    self.notion.trash(page_id)
+                with closing(self._db()) as con, con:
+                    con.execute("DELETE FROM tracker WHERE id = ? AND removed = 1", (row["id"],))
+                    self._bump(con)
+                continue
             if row["entry"] and row["url_key"]:
                 # upsert finds the row by Job URL first, so a retry after a half-finished attempt can't add a duplicate
                 _, page = self.notion.upsert_page(TrackerEntry(**json.loads(row["entry"])))

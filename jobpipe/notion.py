@@ -156,6 +156,14 @@ class NotionTracker:
                                    f'"{status}" option, add one in Notion, then sync again.') from e
             raise
 
+    def trash(self, page_id: str) -> None:
+        """Move the row's page to Notion's trash (it can be restored from there). One already gone is fine."""
+        try:
+            self._req("PATCH", f"/pages/{page_id}", {"in_trash": True})
+        except RuntimeError as e:
+            if "-> 404" not in str(e):
+                raise
+
     # ---- "Resume Used": the résumé sent with the application ----------------
     def resume_files(self, page_id: str) -> list[dict]:
         """The row's Resume Used files, with fresh download links (Notion's expire after an hour)."""

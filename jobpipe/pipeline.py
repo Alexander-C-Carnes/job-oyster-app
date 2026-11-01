@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from . import config
+from . import config, hosted
 from .config import Config, HiringCafeSearch, Search
 from .hiringcafe import HiringCafe, Unreadable, links, posting_index
 from .himalayas import Himalayas
@@ -49,6 +49,10 @@ class Candidate:
 
 
 def make_runner(cfg: Config) -> Runner:
+    if hosted.enabled():        # always the proxy, whatever cfg says
+        import anthropic
+        return ClaudeRunner(fallbacks=cfg.fallbacks, client=anthropic.AsyncAnthropic(
+            base_url=hosted.proxy_url(), api_key=hosted.proxy_token()))
     if cfg.backend == "api":
         return ClaudeRunner(fallbacks=cfg.fallbacks)
     if cfg.backend == "claude-code":

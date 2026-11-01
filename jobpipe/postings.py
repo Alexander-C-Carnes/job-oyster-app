@@ -1,7 +1,7 @@
 """Is a posting still open? Roles in Find jobs are found once and otherwise never looked at again, so a role that
 closed after it was found stays in the list. check_closed() asks the posting's page (or its applicant-tracking
 system) and moves closed roles to Dismissed, tagged Closed. A tracked role you haven't applied to yet (one tracked
-on its own, say) is checked too, but only tagged Closed: its status is yours to set.
+on its own, say) is checked too, and taken off the tracker when it has closed: there's nothing left to apply to.
 
 A posting you applied to is kept for good, to read again before an interview after the page comes down.
 keep_applied() saves the posting text of every tracked job in an applied stage that doesn't have it yet;
@@ -79,25 +79,40 @@ def is_closed(job: dict, client: httpx.Client) -> Optional[bool]:
         return None
 
 
-def check_closed(jobs_store: Any, *, tracked: Optional[dict[str, str]] = None, limit: int = 200, workers: int = 8,
+def check_closed(jobs_store: Any, *, tracker: Any = None, limit: int = 200, workers: int = 8,
                  client: Optional[httpx.Client] = None, log: Callable[[str], None] = lambda s: None) -> dict:
     """Re-check the roles that weren't checked in the last RECHECK_HOURS, oldest first: the untracked, undismissed
-    ones in Find jobs, and the tracked ones not yet applied to or ruled out and not already found closed.
-    `tracked`: stored job id -> its tracker status. A closed role is marked closed_at, and dismissed if it isn't
-    tracked. Returns counts: checked, closed, unknown."""
-    state, tracked = jobs_store.state(), tracked or {}
+    ones in Find jobs, and the tracked ones not yet applied to or ruled out. A closed role is marked closed_at and
+    dismissed, and taken off `tracker` (the LocalTracker) if it's there; so is a tracked one already found closed.
+    Returns counts: checked, closed, unknown, removed (from the tracker)."""
+    state = jobs_store.state()
+    rows = tracker.rows() if tracker is not None else []
+    tracked = {r["job_id"]: r["status"] for r in rows if r["job_id"]}
+    open_rows: dict[str, list[dict]] = {}      # stored job id -> its tracker rows not yet applied to or ruled out
+    for r in rows:
+        if r["job_id"] and r["status"] not in (*APPLIED_STATUSES, "Not Applying"):
+            open_rows.setdefault(r["job_id"], []).append(r)
     since = (datetime.now(timezone.utc) - timedelta(hours=RECHECK_HOURS)).isoformat(timespec="seconds")
+    counts = {"checked": 0, "closed": 0, "unknown": 0, "removed": 0}
+
+    def untrack(jid: str, job: dict) -> None:
+        for r in open_rows.pop(jid, []):
+            tracker.remove(r["page_id"])
+            counts["removed"] += 1
+            log(f"  removed from your tracker: {job.get('job_title')} @ {job.get('company')} (was {r['status'] or 'no status'})")
+
+    for jid in [j for j in open_rows if state.get(j, {}).get("closed_at")]:     # found closed earlier, by another check
+        jobs_store.update(jid, dismissed=True)
+        untrack(jid, jobs_store.job(jid) or {})
 
     def due(jid: str, st: dict) -> bool:
-        if jid in tracked:
-            return tracked[jid] not in (*APPLIED_STATUSES, "Not Applying") and not st.get("closed_at")
-        return not st.get("dismissed")
+        return jid in open_rows if jid in tracked else not st.get("dismissed")
     todo = [jid for jid, st in state.items() if due(jid, st) and (st.get("posting_checked") or "") < since]
     todo.sort(key=lambda j: state[j].get("posting_checked") or state[j].get("first_seen") or "")
     todo = todo[:limit]
-    counts = {"checked": 0, "closed": 0, "unknown": 0}
     if not todo:
         log("Postings: every role was checked recently")
+        _sync(tracker, counts)
         return counts
     log(f"Postings: checking whether {len(todo)} role(s) are still open")
     c = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": UA})
@@ -116,17 +131,25 @@ def check_closed(jobs_store: Any, *, tracked: Optional[dict[str, str]] = None, l
             if closed:
                 counts["closed"] += 1
                 job = jobs_store.job(jid)
-                if jid in tracked:
-                    jobs_store.update(jid, posting_checked=now_iso(), closed_at=now_iso())
-                    log(f"  closed: {job.get('job_title')} @ {job.get('company')} (in your tracker as {tracked[jid] or 'no status'})")
-                else:
-                    jobs_store.update(jid, posting_checked=now_iso(), dismissed=True, closed_at=now_iso())
-                    log(f"  closed: {job.get('job_title')} @ {job.get('company')}")
+                jobs_store.update(jid, posting_checked=now_iso(), dismissed=True, closed_at=now_iso())
+                log(f"  closed: {job.get('job_title')} @ {job.get('company')}")
+                untrack(jid, job)
             else:
                 jobs_store.update(jid, posting_checked=now_iso())
     log(f"Postings: {counts['closed']} closed of {counts['checked']} checked"
-        + (f" ({counts['unknown']} couldn't be told)" if counts["unknown"] else ""))
+        + (f" ({counts['unknown']} couldn't be told)" if counts["unknown"] else "")
+        + (f"; {counts['removed']} taken off your tracker" if counts["removed"] else ""))
+    _sync(tracker, counts)
     return counts
+
+
+def _sync(tracker: Any, counts: dict) -> None:
+    """Send the removals to Notion now if it answers; otherwise they wait in the tracker's queue."""
+    if counts["removed"]:
+        try:
+            tracker.sync()
+        except Exception:  # noqa: BLE001 - queued; the next sync sends it
+            pass
 
 
 def has_posting(job: dict) -> bool:

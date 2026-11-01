@@ -4,7 +4,12 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-01
 
+### Tracker
+- Closed postings come off the tracker
+
 ### Résumés
+- Confirm a missing keyword in one line, then add it to the résumé
+- Make résumé leaves you where you are
 - The Résumé tab says whether your résumé passes the screen
 
 ## 2026-10-31

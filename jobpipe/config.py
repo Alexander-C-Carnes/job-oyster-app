@@ -519,7 +519,7 @@ def load(path: Optional[Path] = None) -> Config:
                              else int(su["roles"]["track_min_fit"])),
         check_postings=bool(su.get("check_postings", True)),
         auto_refresh_hours=float(su.get("auto_refresh_hours", 24) or 0))
-    return Config(
+    cfg = Config(
         searches=[_search(s, defaults) for s in raw.get("searches") or []],
         hiringcafe=[_hiringcafe(dict(h)) for h in raw.get("hiringcafe") or []],
         defaults=dict(defaults),
@@ -557,6 +557,8 @@ def load(path: Optional[Path] = None) -> Config:
                              verifier_model=ev.get("verifier_model", EvidenceCfg.verifier_model),
                              device=ev.get("device")),
     )
+    from . import hosted
+    return hosted.lock(cfg) if hosted.enabled() else cfg
 
 
 def one_off_search(raw: dict, cfg: Config) -> Search:

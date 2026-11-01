@@ -12,7 +12,7 @@
   startups list        Stored startups, newest raise first (--stage "Series B", --hiring, --days N)
   startups roles ID    A startup's open roles from its careers board; --add stores the matching ones as jobs
   startups enrich ID   Look up a startup's latest round (needs FUNDABLE_API_KEY or PDL_API_KEY)
-  check-postings       Re-check that roles are still open; closed ones in Search Jobs go to Dismissed, tracked ones are tagged Closed
+  check-postings       Re-check that roles are still open; closed ones go to Dismissed, tagged Closed, and off the tracker if not applied to
   dismiss-low-fit      Dismiss the scored jobs at pipeline.dismiss_at_or_below_fit or less
   credits              JobsPipe credit ledger
   serve                Local web app (job board, searches, runs, résumé review and edits)
@@ -203,6 +203,7 @@ def cmd_credits(cfg, args):
 def cmd_startups(cfg, args):
     import os
     from . import startups as su
+    from .pipeline import make_tracker
     from .store import Store
     store = su.StartupStore(config.DATA / "startups.json")
     keys = {"fundable": os.environ.get("FUNDABLE_API_KEY", ""), "theirstack": os.environ.get("THEIRSTACK_API_KEY", ""),
@@ -210,7 +211,7 @@ def cmd_startups(cfg, args):
     exclude = cfg.startups.roles_exclude_titles
     if args.what == "refresh":
         new, upd = su.refresh(cfg.startups, store, keys, log=print, days=args.days, phrases=cfg.title_phrases,
-                              searches=cfg.searches, jobs_store=Store(), tracked=_tracked())
+                              searches=cfg.searches, jobs_store=Store(), tracker=make_tracker(cfg, print))
         print(f"Startups: {new} new, {upd} seen again; {len(store.read())} stored in {store.path}")
         if cfg.startups.roles_signal_score and cfg.startups.roles_score_per_refresh:
             asyncio.run(su.score_startup_roles(cfg, Store(), limit=cfg.startups.roles_score_per_refresh, log=print,
@@ -272,13 +273,11 @@ def cmd_startups(cfg, args):
 
 def _tracked() -> dict[str, str]:
     """Stored job id -> tracker status, for the jobs in the tracker (a closed posting there is tagged, not dismissed)."""
-    import sqlite3
-    from contextlib import closing
+    from .tracker import LocalTracker
     path = config.DATA / "tracker.db"
     if not path.exists():
         return {}
-    with closing(sqlite3.connect(path)) as con:
-        return {r[0]: r[1] for r in con.execute("SELECT job_id, status FROM tracker WHERE job_id IS NOT NULL")}
+    return {r["job_id"]: r["status"] for r in LocalTracker(path).rows() if r["job_id"]}
 
 
 def cmd_dismiss_low_fit(cfg, args):
@@ -292,9 +291,10 @@ def cmd_dismiss_low_fit(cfg, args):
 
 
 def cmd_check_postings(cfg, args):
+    from .pipeline import make_tracker
     from .postings import check_closed
     from .store import Store
-    check_closed(Store(), tracked=_tracked(), limit=args.limit, log=print)
+    check_closed(Store(), tracker=make_tracker(cfg, print), limit=args.limit, log=print)
 
 
 class _NoLLM:
@@ -362,7 +362,7 @@ def main(argv=None) -> None:
     sub.add_parser("dismiss-low-fit", help="dismiss the scored jobs at pipeline.dismiss_at_or_below_fit or less "
                    "(new scores are dismissed as they come in)").set_defaults(fn=cmd_dismiss_low_fit)
 
-    p = sub.add_parser("check-postings", help="move roles in Search Jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
+    p = sub.add_parser("check-postings", help="move roles whose posting has closed to Dismissed, tagged Closed; take tracked ones not yet applied to off the tracker")
     p.add_argument("--limit", type=int, default=200)
     p.set_defaults(fn=cmd_check_postings)
 

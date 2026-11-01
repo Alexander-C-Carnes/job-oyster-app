@@ -1605,6 +1605,40 @@ def test_update_resume_from_a_confirmed_fact(env):
     assert c.post("/api/jobs/j2/resume/from-fact", headers=H, json={"text": fact}).status_code == 404
 
 
+def test_missing_keywords_confirmed_or_set_aside(env):
+    """The screen verdict's keyword chips: "I've done this" needs the fact in Confirmed facts first, "Not mine"
+    sets a keyword aside, and Update this résumé sends every confirmed fact in one pass."""
+    c, run_dir, runner = env["client"], env["run_dir"], env["runner"]
+    _ratings(run_dir)
+    kw = json.loads((run_dir / "keywords.json").read_text())
+    (run_dir / "keywords.json").write_text(json.dumps({**kw, "critical path": r"critical\s+path", "Kubernetes": "kubernetes"}))
+    r = c.get("/api/jobs/j1", headers=H).json()["resume"]
+    assert r["missing_keywords"] == ["critical path", "Kubernetes"] and r["keyword_answers"] == {"confirmed": {}, "dismissed": []}
+
+    fact = 'Kept the critical path for the Aurora migration across six teams (posting term: "critical path")'
+    url = "/api/jobs/j1/keywords"
+    r = c.post(url, headers=H, json={"keyword": "critical path", "answer": "confirmed", "fact": fact})
+    assert r.status_code == 400 and "Confirmed facts" in r.json()["detail"]        # a typed claim isn't a fact
+    v = c.get("/api/impact-record", headers=H).json()["version"]
+    c.post("/api/impact-record/facts", headers=H, json={"text": fact, "version": v})
+    assert c.post(url, headers=H, json={"keyword": "critical path", "answer": "confirmed", "fact": fact}).json() == \
+        {"confirmed": {"critical path": fact}, "dismissed": []}
+    assert c.post(url, headers=H, json={"keyword": "Kubernetes", "answer": "dismissed"}).json()["dismissed"] == ["Kubernetes"]
+    assert c.post(url, headers=H, json={"keyword": "Rust", "answer": "dismissed"}).status_code == 400   # not the posting's
+    assert c.post(url, headers=H, json={"keyword": "Kubernetes", "answer": "maybe"}).status_code == 400
+    assert c.get("/api/jobs/j1", headers=H).json()["resume"]["keyword_answers"] == \
+        {"confirmed": {"critical path": fact}, "dismissed": ["Kubernetes"]}
+    assert c.post(url, headers=H, json={"keyword": "Kubernetes", "answer": "open"}).json()["dismissed"] == []
+
+    other = "Ran the weekly risk review for the platform launch"
+    v = c.get("/api/impact-record", headers=H).json()["version"]
+    c.post("/api/impact-record/facts", headers=H, json={"text": other, "version": v})
+    assert c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"texts": [fact, "made up"]}).status_code == 400
+    r = c.post("/api/jobs/j1/resume/from-fact", headers=H, json={"texts": [fact, other]})
+    assert r.status_code == 200, r.text
+    assert runner.calls[-1].documents["confirmed-fact.md"] == f"- {fact}\n- {other}"
+
+
 def test_add_confirmed_fact():
     from jobpipe.web.server import add_confirmed_fact
     day = date(2026, 10, 6)
