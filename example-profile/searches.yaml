@@ -43,7 +43,7 @@ candidate:
   # {MM} {DD}, and the version as {v} (v1, v2…) or {vv} (nothing for v1, then v2, v3…).
   # E.g. "{name} resume {YYYY}-{MM} {company} - {title}". Blank means {title} - {company}.
   pdf_name: "{title} - {company}"
-  # How résumé PDFs look: signature, executive, modern, minimal or compact (one page). Set on the Profile tab.
+  # How résumé PDFs look: signature, executive, modern, minimal or compact (one page). Set in Settings › Résumé Format.
   resume_format: signature
   # Your existing résumés in references/, scored alongside the impact record:
   # a source name (a heat-map column) -> file name. The first is the fallback base résumé.
@@ -75,7 +75,7 @@ pipeline:
   # A job whose signal score is at or below this is dismissed right after it's scored, tagged Low fit. It stays
   # below shortlist_min_fit and the track_min_fit settings: a score that makes a résumé or tracks a job never
   # dismisses it. Tracked and starred jobs are left alone, and a job you restore won't be dismissed again. null = off.
-  # Profile › Tracker sets this too. `python -m jobpipe dismiss-low-fit` applies it to jobs scored before.
+  # Settings › Tracker Rules sets this too. `python -m jobpipe dismiss-low-fit` applies it to jobs scored before.
   dismiss_at_or_below_fit: null
   tailor_top: 3
   # Salary floor enforced locally too. Jobs that do not state pay are kept and
@@ -98,15 +98,15 @@ notion:
 
 tracker:
   # A job at Applied or Interviewing this many days with no change of status moves to Ghosted (you never heard
-  # back). Pick any other status for it if you do. 0 = never. Profile › Tracker sets this too.
+  # back). Pick any other status for it if you do. 0 = never. Settings › Tracker Rules sets this too.
   ghost_after_days: 60
 
 menu:
-  # Mac menu bar "Newest at fit score N+" (found or scored yesterday or today). Profile › Menu Bar Settings sets this too.
+  # Mac menu bar "Newest at fit score N+" (found or scored yesterday or today). Settings › Menu Bar sets this too.
   fit_floor: 7
 
 models:
-  # Which AI does the work (the app's Profile tab sets all of this). backend: claude-code runs every
+  # Which AI does the work (Settings › AI Config sets all of this). backend: claude-code runs every
   # step through the Claude Code CLI (`claude -p`), which uses your Claude subscription (Pro/Max): no
   # API credits. Log in once by running `claude`. Or pay per call: api (Claude, ANTHROPIC_API_KEY),
   # openai (OPENAI_API_KEY), gemini (GEMINI_API_KEY), kimi (MOONSHOT_API_KEY), openrouter (OPENROUTER_API_KEY);

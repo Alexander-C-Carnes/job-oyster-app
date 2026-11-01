@@ -36,11 +36,7 @@
     </nav>
     <div class="meta">
       <button id="run-indicator" class="pill live hidden"></button>
-      <button type="button" id="credits" class="pill pill-btn" title="JobsPipe credits used: click for the ledger"></button>
-      <span id="backend" class="pill subtle"></span>
       <button role="tab" data-tab="profile" id="profile-btn" class="profile-btn" type="button" title="Profile" aria-label="Profile"><span class="ico" data-icon="person"></span></button>
-      <button id="look-btn" class="icon-btn" type="button" title="Change the look (in Profile)" aria-label="Change the look"><span class="ico" data-icon="palette"></span></button>
-      <button id="about-btn" class="icon-btn" type="button" title="About Job Oyster: version, guides, GitHub (in Profile)" aria-label="About Job Oyster"><span class="ico" data-icon="info"></span></button>
     </div>
   </header>
 
@@ -53,11 +49,12 @@
   <div id="toast" class="toast hidden" role="status"></div>
 
   <main>
-    <!-- Profile's two pages: who you are, and the evidence every score and résumé is built from -->
+    <!-- Profile, Impact record, and Settings. The person button opens Profile and stays lit on all three. -->
     <nav id="profile-nav" class="subnav hidden" aria-label="Profile">
       <div class="seg" role="tablist">
         <button role="tab" data-tab="profile">Profile</button>
         <button role="tab" data-tab="impact">Impact record <span class="dirty-dot hidden" id="impact-dirty" title="Unsaved changes"></span></button>
+        <button role="tab" data-tab="settings">Settings</button>
       </div>
     </nav>
     <!-- Jobs -->
@@ -87,6 +84,7 @@
             <div id="stage-meter" class="stage-meter" aria-hidden="true"></div>
           </div>
           <div id="flags" class="chips" role="group" aria-label="Filter">
+            <span class="facet-label">Show</span>
             <button class="chip" data-flag="starred" aria-pressed="false"><span class="ico" data-icon="star"></span>Starred <b></b></button>
             <button class="chip" data-flag="referral" aria-pressed="false"><span class="ico" data-icon="person"></span>Has referral <b></b></button>
             <button class="chip" data-flag="remote" aria-pressed="false" title="Fully remote roles only (not hybrid)">Remote <b></b></button>
@@ -325,59 +323,10 @@
 
         <section class="pcard setup-card" id="setup-card">
           <div class="grow">
-            <h2>Setup</h2>
-            <p class="muted" id="setup-card-text">A guided start, about ten minutes: your details, your LinkedIn, then a short interview about each past job that fills in your impact record. Run it again any time.</p>
+            <h2>Guided Setup</h2>
+            <p class="muted" id="setup-card-text">About ten minutes. Your name and contact info, then your LinkedIn, then a short interview about each past job that fills in your impact record. Run it again any time.</p>
           </div>
           <button type="button" id="setup-open" class="primary">Run setup</button>
-        </section>
-
-        <section class="pcard look-card" id="look-card">
-          <h2>Look</h2>
-          <p class="muted">How the app looks on this computer. Every look has the same tabs, buttons and shortcuts; they differ in colour, type and how they celebrate an application.</p>
-          <div id="look-picker" class="look-picker" role="radiogroup" aria-label="Look"></div>
-        </section>
-
-        <section class="pcard look-card format-card" id="format-card">
-          <h2>Résumé format</h2>
-          <p class="muted">How the résumés the app makes look. The words are the same in every format, so the scores and ATS results don't change. The previews use your fallback résumé.</p>
-          <div id="format-picker" class="format-picker" role="radiogroup" aria-label="Résumé format"></div>
-          <h3 class="format-own-head">Your formats</h3>
-          <div id="format-own" class="format-picker format-own-list" role="group" aria-label="Your formats"></div>
-          <div class="format-foot">
-            <label class="check"><input type="checkbox" id="format-redraw" checked> Redraw the résumés already made in it</label>
-            <span class="grow"></span>
-            <a id="format-pdf" class="link-btn" target="_blank" rel="noopener">Preview PDF ↗</a>
-            <button type="button" id="format-save" class="primary" disabled>Use this format</button>
-          </div>
-          <div id="format-status" class="format-status"></div>
-        </section>
-
-        <section class="pcard look-card tracker-card" id="tracker-card">
-          <h2>Tracker</h2>
-          <p class="muted">A role you applied to and never heard back from moves to Ghosted on its own. If you do hear back, pick its status again; the wait starts over.</p>
-          <form id="ghosted-form" class="ghosted-form" novalidate>
-            <label class="inline">Move to Ghosted after <input id="ghosted-days" type="number" min="0" max="3650" step="1" inputmode="numeric" aria-describedby="ghosted-what"> days</label>
-            <span class="muted" id="ghosted-what">at Applied or Interviewing with no change of status. 0 turns it off.</span>
-            <span id="ghosted-state" class="muted"></span>
-            <button class="primary small" id="ghosted-save" disabled>Save</button>
-          </form>
-          <form id="lowfit-form" class="ghosted-form" novalidate>
-            <label class="inline">Dismiss new jobs that score <input id="lowfit-fit" type="number" min="1" max="9" step="1" inputmode="numeric" placeholder="off" aria-describedby="lowfit-what"> or less</label>
-            <span class="muted" id="lowfit-what">right after they're scored. They move to Dismissed, tagged Low fit. A job you restore won't be dismissed again. Leave blank to turn this off.</span>
-            <span id="lowfit-state" class="muted"></span>
-            <button class="primary small" id="lowfit-save" disabled>Save</button>
-          </form>
-        </section>
-
-        <section class="pcard look-card menu-card" id="menu-card">
-          <h2>Menu Bar Settings</h2>
-          <p class="muted">The Mac app's menu-bar item lists new roles at this fit score or higher.</p>
-          <form id="menu-form" class="ghosted-form" novalidate>
-            <label class="inline">Show roles at fit score <input id="menu-fit" type="number" min="1" max="9" step="1" inputmode="numeric" value="7" aria-describedby="menu-fit-what"> or higher</label>
-            <span class="muted" id="menu-fit-what">Roles at fit 7+ found or scored yesterday or today.</span>
-            <span id="menu-fit-state" class="muted"></span>
-            <button class="primary small" id="menu-fit-save" disabled>Save</button>
-          </form>
         </section>
 
         <form id="profile-form" class="pview" autocomplete="off" novalidate>
@@ -386,7 +335,7 @@
             <p id="profile-first-text">No profile is saved yet. Put in your details and save.</p>
           </div>
           <section class="pcard">
-            <h2>About you</h2>
+            <h2>About You</h2>
             <div class="row2">
               <label>Name <input name="name" required placeholder="Your Name"></label>
               <label>Pronouns <span class="hint">how the prompts refer to you</span>
@@ -394,29 +343,35 @@
             </div>
           </section>
           <section class="pcard">
-            <h2>Contact line</h2>
-            <p class="muted">Every résumé shows this line under your name. The résumé check fails one without your city and LinkedIn address.</p>
+            <h2>Contact Info</h2>
+            <p class="muted">Every résumé shows this line under your name.</p>
             <div class="row2">
-              <label>City <span class="hint">City, ST</span><input name="city" placeholder="Portland, OR"></label>
+              <label>Location <input name="city" placeholder="Portland, OR"></label>
               <label>Phone <input name="phone" type="tel" placeholder="+1 555-555-5555"></label>
               <label>Email <input name="email" type="email" placeholder="you@example.com"></label>
-              <label>LinkedIn <input name="linkedin" placeholder="linkedin.com/in/your-name"></label>
+              <label>LinkedIn Profile URL
+                <span class="url-row">
+                  <input name="linkedin" placeholder="linkedin.com/in/your-name">
+                  <button type="button" id="linkedin-open" class="link-btn linkedin-open" disabled>Open ↗</button>
+                </span>
+              </label>
             </div>
             <div class="line-preview"><span class="hint">Preview</span><div id="contact-preview"></div></div>
           </section>
-          <section class="pcard">
-            <h2>Your résumés</h2>
-            <p class="muted">Tick the résumés to score each job against, alongside your impact record. Each name labels a column of the heat map. The fallback is where the writers start when the matcher's pick isn't one of these.</p>
+          <section class="pcard" id="resumes-card">
+            <h2>Your Résumés</h2>
+            <p class="muted">Enable résumés to score each job against, in addition to your impact record. Each one you check becomes a column on the heat map report. Also, select a fallback résumé to use if the app picks a résumé you didn't enable as the best match.</p>
+            <p class="where-note">Layout and file names are in <button type="button" class="link-btn inline-link" data-goto="settings" data-goto-id="format-card">Settings › Résumé Format</button> and <button type="button" class="link-btn inline-link" data-goto="settings" data-goto-id="pdf-card">Settings › PDF File Names</button>.</p>
             <ul id="resume-files" class="rfiles"></ul>
             <div class="rfiles-foot">
               <button type="button" id="resume-add" class="ghost">Add a résumé…</button>
               <input type="file" id="resume-upload" accept=".pdf,.docx,.md,.markdown,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/markdown,text/plain" hidden>
-              <span class="hint">A PDF or Word file, saved from the program you wrote it in (not a scan), or Markdown or text. You check what the app read before it's saved in <code>references/</code>.</span>
+              <span class="hint">You can upload an existing résumé that is in PDF, Word, Markdown and plain text format. The app will parse your resume and provide guidance before it saves the file in the app's <code>references/</code> folder.</span>
             </div>
           </section>
           <section class="pcard pin-card" id="pin-card">
-            <h2>Pinned résumé section</h2>
-            <p class="muted">Goes word for word into every résumé the app makes, right after Professional experience: the writers leave room for it, and no AI step rewrites or cuts it.</p>
+            <h2>Pinned Section</h2>
+            <p class="muted">Allows you to specify an exact section that you want to appear on every résumé, exactly as entered, right below Professional experience. The PDF writer will leave room for it, and the AI does not rewrite it or shorten what you provide here.</p>
             <label for="pin-text">Markdown <span class="hint">saved in <code id="pin-file">references/pinned.md</code>. A <code>## </code> heading makes it its own section; without one, its rows join the end of Professional experience. Empty pins nothing.</span></label>
             <textarea id="pin-text" class="pin-text" rows="9" spellcheck="true" placeholder="## FOUNDER EXPERIENCE&#10;&#10;**Your Company** | Founder&#10;*Jan 2024–Present*&#10;&#10;- What you built, and what came of it."></textarea>
             <div class="pin-preview">
@@ -432,29 +387,6 @@
               <button type="button" id="pin-save" class="primary small" disabled>Save pinned section</button>
             </div>
           </section>
-          <section class="pcard">
-            <h2>PDF file names</h2>
-            <p class="muted">How every résumé PDF is named: the one you download, the one a run saves, and the copy kept as the one you sent. Click a variable to add it where the cursor is. The date is the day you save it; <code>{vv}</code> leaves the version out of v1.</p>
-            <label>Name <input name="pdf_name" spellcheck="false" autocomplete="off"></label>
-            <div class="var-chips" id="pdf-vars">
-              <button type="button" class="chip var-chip" data-var="{name}" title="your name">{name}</button>
-              <button type="button" class="chip var-chip" data-var="{first}" title="your first name">{first}</button>
-              <button type="button" class="chip var-chip" data-var="{company}" title="the company">{company}</button>
-              <button type="button" class="chip var-chip" data-var="{title}" title="the role's title">{title}</button>
-              <button type="button" class="chip var-chip" data-var="{YYYY}" title="the year, e.g. 2026">{YYYY}</button>
-              <button type="button" class="chip var-chip" data-var="{YY}" title="the year's last two digits">{YY}</button>
-              <button type="button" class="chip var-chip" data-var="{MM}" title="the month, 01–12">{MM}</button>
-              <button type="button" class="chip var-chip" data-var="{DD}" title="the day, 01–31">{DD}</button>
-              <button type="button" class="chip var-chip" data-var="{v}" title="the version: v1, v2, v3…">{v}</button>
-              <button type="button" class="chip var-chip" data-var="{vv}" title="the version from v2 on: nothing for v1, then v2, v3…">{vv}</button>
-            </div>
-            <div class="line-preview"><span class="hint">Example</span><div id="pdf-preview"></div></div>
-          </section>
-          <details class="pcard">
-            <summary>How the signal score describes your evidence</summary>
-            <label>Describe your materials <span class="hint">e.g. point at a section of your impact record worth reading in full</span>
-              <textarea name="evidence" rows="2"></textarea></label>
-          </details>
           <p class="form-error hidden"></p>
           <div class="run-bar">
             <span id="profile-state" class="muted"></span>
@@ -464,15 +396,114 @@
           </div>
         </form>
 
+      </div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel">
+      <div class="page profile">
+        <div class="page-head">
+          <div>
+            <h1>Settings</h1>
+            <p class="muted">How the app looks and behaves.</p>
+          </div>
+        </div>
+
+        <section class="pcard look-card" id="look-card">
+          <h2>App Appearance</h2>
+          <p class="muted">Pick a theme. The app works the same way in each. The differences are to the colors, the fonts, and the reaction when you make updates.</p>
+          <div id="look-picker" class="look-picker" role="radiogroup" aria-label="App Appearance"></div>
+        </section>
+
+        <section class="pcard look-card format-card" id="format-card">
+          <h2>Résumé Format</h2>
+          <p class="muted">Choose the layout for résumés the app writes. Use Preview PDF to see it with your fallback résumé before you apply it.</p>
+          <p class="where-note">The résumés themselves are under <button type="button" class="link-btn inline-link" data-goto="profile" data-goto-id="resumes-card">Your Résumés</button> on Profile.</p>
+          <div id="format-picker" class="format-picker" role="radiogroup" aria-label="Résumé format"></div>
+          <h3 class="format-own-head">Your formats</h3>
+          <div id="format-own" class="format-picker format-own-list" role="group" aria-label="Your formats"></div>
+          <div class="format-foot">
+            <label class="check"><input type="checkbox" id="format-redraw" checked> Rebuild generated résumés in the current theme</label>
+            <span class="grow"></span>
+            <a id="format-pdf" class="link-btn" target="_blank" rel="noopener">Preview PDF ↗</a>
+            <button type="button" id="format-save" class="primary" disabled>Use this format</button>
+          </div>
+          <div id="format-status" class="format-status"></div>
+        </section>
+
+        <section class="pcard look-card" id="pdf-card">
+          <h2>PDF File Names</h2>
+          <p class="muted">Set your preferred résumé PDF file name format. Click a variable to add it where the cursor is. The date is the day you save the PDF; <code>{vv}</code> leaves the version out for v1.</p>
+          <label>Name <input id="pdf-name" spellcheck="false" autocomplete="off"></label>
+          <div class="var-chips" id="pdf-vars">
+            <button type="button" class="chip var-chip" data-var="{name}" title="your name">{name}</button>
+            <button type="button" class="chip var-chip" data-var="{first}" title="your first name">{first}</button>
+            <button type="button" class="chip var-chip" data-var="{company}" title="the company">{company}</button>
+            <button type="button" class="chip var-chip" data-var="{title}" title="the role's title">{title}</button>
+            <button type="button" class="chip var-chip" data-var="{YYYY}" title="the year, e.g. 2026">{YYYY}</button>
+            <button type="button" class="chip var-chip" data-var="{YY}" title="the year's last two digits">{YY}</button>
+            <button type="button" class="chip var-chip" data-var="{MM}" title="the month, 01–12">{MM}</button>
+            <button type="button" class="chip var-chip" data-var="{DD}" title="the day, 01–31">{DD}</button>
+            <button type="button" class="chip var-chip" data-var="{v}" title="the version: v1, v2, v3…">{v}</button>
+            <button type="button" class="chip var-chip" data-var="{vv}" title="the version from v2 on: nothing for v1, then v2, v3…">{vv}</button>
+          </div>
+          <div class="line-preview"><span class="hint">Example</span><div id="pdf-preview"></div></div>
+          <div class="pin-foot">
+            <span id="pdf-state" class="muted"></span>
+            <span class="grow"></span>
+            <button type="button" id="pdf-save" class="primary small" disabled>Save</button>
+          </div>
+        </section>
+
+        <section class="pcard look-card tracker-card" id="tracker-card">
+          <h2>Tracker Rules</h2>
+          <p class="muted">Set how long a role can sit at Applied or Interviewing before it becomes Ghosted. Use 0 if you want every role to stay where you put it.</p>
+          <form id="ghosted-form" class="ghosted-form" novalidate>
+            <div class="rule-row">
+              <label class="inline">Move to Ghosted after <input id="ghosted-days" type="number" min="0" max="3650" step="1" inputmode="numeric" aria-describedby="ghosted-what"> days</label>
+              <span class="grow"></span>
+              <span id="ghosted-state" class="muted"></span>
+              <button class="primary small" id="ghosted-save" disabled>Save</button>
+            </div>
+            <p class="muted" id="ghosted-what">At Applied or Interviewing with no change of status. 0 turns it off.</p>
+          </form>
+          <form id="lowfit-form" class="ghosted-form" novalidate>
+            <div class="rule-row">
+              <label class="inline">Dismiss new jobs that score <input id="lowfit-fit" type="number" min="1" max="9" step="1" inputmode="numeric" placeholder="off" aria-describedby="lowfit-what"> or less</label>
+              <span class="grow"></span>
+              <span id="lowfit-state" class="muted"></span>
+              <button class="primary small" id="lowfit-save" disabled>Save</button>
+            </div>
+            <p class="muted" id="lowfit-what">Right after they're scored, they move to Dismissed, tagged Low fit. A job you restore won't be dismissed again. Leave blank to turn this off.</p>
+          </form>
+        </section>
+
+        <section class="pcard look-card menu-card" id="menu-card">
+          <h2>Menu Bar</h2>
+          <p class="muted">Use this when you want the menu bar to surface strong new roles without opening the app. Roles below the score stay on the Tracker and stay off that list. The default setting is 7.</p>
+          <form id="menu-form" class="ghosted-form" novalidate>
+            <div class="rule-row">
+              <label class="inline">Show roles at fit score <input id="menu-fit" type="number" min="1" max="9" step="1" inputmode="numeric" value="7" aria-describedby="menu-fit-what"> or higher</label>
+              <span class="grow"></span>
+              <span id="menu-fit-state" class="muted"></span>
+              <button class="primary small" id="menu-fit-save" disabled>Save</button>
+            </div>
+            <p class="muted" id="menu-fit-what">Roles at fit 7+ found or scored yesterday or today.</p>
+          </form>
+        </section>
+
         <form id="ai-form" class="pview ai-view" autocomplete="off" novalidate>
           <section class="pcard hidden" id="ai-hosted">
-            <h2>AI</h2>
+            <h2>AI Config</h2>
             <p class="muted">Job Oyster runs Claude for you, so there's no key or sign-in to set up. These are the models each step uses.</p>
             <div class="ai-stages" id="ai-hosted-stages"></div>
           </section>
           <section class="pcard" id="ai-card">
-            <h2>AI</h2>
-            <p class="muted">Which AI scores jobs and writes your résumés. The app is tuned on Claude. Other AIs work, and every résumé still goes through the same checks, but a weaker model writes weaker résumés.</p>
+            <div class="ai-head">
+              <h2>AI Config</h2>
+              <span class="grow"></span>
+              <span id="backend" class="pill subtle"></span>
+            </div>
+            <p class="muted">Specify which AI scores jobs and writes your résumés. The app is tuned on Claude. Other AIs work, and every résumé still goes through the same process, but a weaker model writes weaker résumés. You can optionally tune what model and effort level to use for each step.</p>
             <div class="row2">
               <label>Provider <select name="backend"></select></label>
               <label id="ai-key-row">API key <span class="hint" id="ai-key-hint"></span>
@@ -494,17 +525,32 @@
               <button class="primary" id="ai-save" disabled>Save AI settings</button>
             </div>
           </section>
-          <section class="pcard" id="keys-card">
-            <h2>Other keys</h2>
-            <p class="muted">For the services besides the AI. They're saved in your profile folder's <code>.env</code> and never shown again.</p>
-            <ul class="keys" id="keys"></ul>
-          </section>
         </form>
 
+        <section class="pcard look-card" id="signal-card">
+          <h2>Signal Score</h2>
+          <p class="muted">This is what the signal score treats as your evidence. It usually means your impact record, your confirmed notes, and your résumés. You can optionally customize this if you want to guide to more specific details in your impact record that you want used in full.</p>
+          <label>Describe your materials <span class="hint">e.g. point at a section of your impact record worth reading in full</span>
+            <textarea id="evidence" rows="2"></textarea></label>
+          <div class="pin-foot">
+            <span id="evidence-state" class="muted"></span>
+            <span class="grow"></span>
+            <button type="button" id="evidence-save" class="primary small" disabled>Save</button>
+          </div>
+        </section>
+
+        <section class="pcard look-card" id="keys-card">
+          <h2>API Keys</h2>
+          <p class="muted">These are the keys for everything except the AI. Each one is saved in your profile's .env file. After you save, the app does not show the key again.</p>
+          <button type="button" id="credits" class="pill pill-btn hidden" title="JobsPipe credits used: click for the ledger"></button>
+          <ul class="keys" id="keys"></ul>
+        </section>
+
         <section class="pcard look-card about-card" id="about-card">
-          <h2>About Job Oyster</h2>
+          <h2>About</h2>
           <p class="about-version" id="about-version"></p>
-          <p class="muted">Job Oyster is free, and its code and guides are public on GitHub.</p>
+          <div class="about-home" id="about-home"></div>
+          <p class="muted">Job Oyster is free. The code and the guides are public on GitHub.</p>
           <div class="about-links">
             <div>
               <h3>Guides</h3>
@@ -527,7 +573,6 @@
               </ul>
             </div>
           </div>
-          <p class="about-claude"><b>Made with Claude.</b> Job Oyster was written with <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude Code</a>, Anthropic's coding agent, and it's tuned on Claude, the AI that scores your jobs and writes your résumés unless you pick another one under AI.</p>
         </section>
 
       </div>

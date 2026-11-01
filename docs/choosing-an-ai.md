@@ -1,6 +1,6 @@
 # Which AI does the work
 
-Pick it on the **Profile** tab, under **AI**: the provider, its key, and a model and effort for each step (signal score, analysis, writing, the résumé chat, live scores). It's saved in `models:` in your `searches.yaml` and the key in your profile's `.env`. **Check connection** lists the provider's models, which also confirms the key works (OpenRouter shows its model list to anyone, so there the app asks OpenRouter about the key first). The first time you choose OpenRouter, it fills in Claude Sonnet 5.5 for each step and Claude Opus 5.5 for writing; pick others from its list.
+Pick it in **Settings › AI Config**: the provider, its key, and a model and effort for each step (signal score, analysis, writing, the résumé chat, live scores). It's saved in `models:` in your `searches.yaml` and the key in your profile's `.env`. **Check connection** lists the provider's models, which also confirms the key works (OpenRouter shows its model list to anyone, so there the app asks OpenRouter about the key first). The first time you choose OpenRouter, it fills in Claude Sonnet 5.5 for each step and Claude Opus 5.5 for writing; pick others from its list.
 
 Each provider's key stays saved under its own name, so you can keep several (say ChatGPT, Gemini and Kimi) and switch between them: choose another provider and click **Save**. The app remembers the models and effort you picked for each provider (`models.saved` in `searches.yaml`), so switching back puts them back.
 

@@ -155,7 +155,7 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
 
 // ---- tabs --------------------------------------------------------------------------------
 // The impact record lives under Profile: the round Profile button stays lit on it, and the strip under the bar switches the two.
-const PROFILE_TABS = ["profile", "impact"];
+const PROFILE_TABS = ["profile", "impact", "settings"];
 $$(".topbar [data-tab], #profile-nav [data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 function showTab(name) {
   if (S.tab in DOCS && name !== S.tab) DOCS[S.tab].save();
@@ -171,8 +171,8 @@ function showTab(name) {
   if (name === "runs") loadRuns();
   if (name === "dashboard") renderDashboard();
   if (name in DOCS) DOCS[name].load();
-  // Profile's cards load at once; the promise settles when all have (the About button scrolls down after that)
-  if (name === "profile") return Promise.allSettled([loadProfile(), loadAI(), loadFormats(), loadGhostDays(), loadMenuFit(), loadAbout()]);
+  if (name === "profile") return Promise.allSettled([loadProfile()]);
+  if (name === "settings") return Promise.allSettled([loadProfile(), loadFormats(), loadGhostDays(), loadMenuFit(), loadAI(), loadAbout()]);
 }
 
 // ---- what each action is called ----------------------------------------------------------------
@@ -331,7 +331,9 @@ async function loadSummary() {
   }
   applyScoring(S.summary.scoring);
   const c = S.summary.credits;
-  $("#credits").textContent = `${c.used} / ${c.allowance} credits`;
+  const credits = $("#credits");
+  credits.textContent = `${c.used} / ${c.allowance} credits`;
+  if (credits.closest(".keys")) credits.classList.remove("hidden");
   $("#backend").textContent = "AI: " + (S.summary.backend_label || S.summary.backend);
   const ind = $("#run-indicator");
   const going = S.summary.active_runs;
@@ -1732,7 +1734,7 @@ function rowEl(j) {
           !j.tracker_id && j.posted && h("span", { class: "tag" }, `Posted ${fmtDate(j.posted.length === 10 ? j.posted + "T12:00" : j.posted)}`),
           j.pending && h("span", { class: "tag", title: "Saved here. It will be sent to Notion on the next sync." }, "To sync"),
           j.closed ? h("span", { class: "tag warn-tag", title: `Its posting had closed when the app checked on ${fmtDate(j.closed)}` }, "Closed")
-            : j.dismissed && j.low_fit ? h("span", { class: "tag", title: "Dismissed on its own: its signal score was at or below your setting in Profile › Tracker. A job you restore won't be dismissed again." }, "Low fit")
+            : j.dismissed && j.low_fit ? h("span", { class: "tag", title: "Dismissed on its own: its signal score was at or below your setting in Settings › Tracker Rules. A job you restore won't be dismissed again." }, "Low fit")
             : j.dismissed && h("span", { class: "tag" }, "Dismissed"),
           !j.local && h("span", { class: "tag", title: "None of your filters found it. Paste its description on the role, or a signal score reads it from its page." }, "No posting stored"))),
       rowEnd(j));
@@ -4359,7 +4361,7 @@ suForm.addEventListener("submit", async (e) => {
 // searches.yaml's candidate section: who the résumés are for, and which résumés to score against.
 const P = { data: null, rows: [], fallback: null, base: "" };
 const pForm = $("#profile-form"), pField = (n) => pForm.elements.namedItem(n);
-const PROFILE_TEXT = ["name", "pronouns", "city", "phone", "email", "linkedin", "pdf_name", "evidence"];
+const PROFILE_FORM = ["name", "pronouns", "city", "phone", "email", "linkedin"];
 const PDF_NAME_DEFAULT = "{title} - {company}";
 // The Profile's PDF file name pattern filled in, as config.fill_pdf_name does it on the server.
 function fillPdfName(pattern, { name = "", title = "", company = "", version = 0, day = new Date() } = {}) {
@@ -4376,8 +4378,11 @@ function fillPdfName(pattern, { name = "", title = "", company = "", version = 0
 }
 const fileLabel = (f) => f.replace(/^resume-|\.md$/g, "").split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") + " resume";
 
+const savedSlice = (key) => (P.data?.candidate[key] || "").trim();
 function profileState() {
-  const out = Object.fromEntries(PROFILE_TEXT.map((k) => [k, pField(k).value.trim()]));
+  const out = Object.fromEntries(PROFILE_FORM.map((k) => [k, pField(k).value.trim()]));
+  out.pdf_name = savedSlice("pdf_name");
+  out.evidence = savedSlice("evidence");
   const ticked = P.rows.filter((r) => r.ticked);
   const first = ticked.find((r) => r.file === P.fallback) || ticked[0];
   out.resumes = (first ? [first, ...ticked.filter((r) => r !== first)] : []).map((r) => ({ name: r.name.trim(), file: r.file }));
@@ -4391,11 +4396,16 @@ async function loadProfile() {
     try { applyProfile(await api("/api/profile")); } catch (e) { toast(e.message, true); }
   }
 }
-function applyProfile(d) {
+function applyProfile(d, savedKey) {
+  const keepPdf = savedKey !== "pdf_name" && P.data && $("#pdf-name").value.trim() !== (P.data.candidate.pdf_name || "").trim();
+  const keepEv = savedKey !== "evidence" && P.data && $("#evidence").value.trim() !== (P.data.candidate.evidence || "").trim();
+  const pdfDraft = $("#pdf-name").value, evDraft = $("#evidence").value;
   P.data = d;
   const c = d.candidate;
-  for (const k of PROFILE_TEXT) pField(k).value = c[k] || "";
-  pField("evidence").placeholder = d.default_evidence;
+  for (const k of PROFILE_FORM) pField(k).value = c[k] || "";
+  $("#pdf-name").value = keepPdf ? pdfDraft : (c.pdf_name || "");
+  $("#evidence").value = keepEv ? evDraft : (c.evidence || "");
+  $("#evidence").placeholder = d.default_evidence;
   const facts = new Map(d.files.map((f) => [f.file, f]));
   P.rows = [...c.resumes.map((r) => ({ ...r, ticked: facts.has(r.file), missing: !facts.has(r.file) })),
             ...d.files.filter((f) => !c.resumes.some((r) => r.file === f.file)).map((f) => ({ file: f.file, name: "", ticked: false }))];
@@ -4408,6 +4418,7 @@ function applyProfile(d) {
   renderResumeRows();
   P.base = JSON.stringify(profileState());
   profileChanged();
+  sliceChanged();
   const ir = d.impact_record;
   $("#profile-impact").textContent = ir.words ? `${ir.words.toLocaleString()} words` : "empty";
 }
@@ -4435,22 +4446,67 @@ function renderResumeRows() {
       h("label", { class: "check fb", title: "Where the writers start when the matcher's pick isn't one of these" }, fb, "Fallback"));
   }), ...(P.rows.length ? [] : [h("li", { class: "muted" }, "No résumés in your profile folder yet. Add one below.")]));
 }
-function profileChanged() {
-  const name = pField("name").value.trim();
-  $("#contact-preview").textContent = ["city", "phone", "email", "linkedin"].map((k) => pField(k).value.trim()).filter(Boolean).join(" | ") || "—";
-  const pattern = pField("pdf_name").value.trim(), job = { name: name || "Your Name", title: "Staff Technical Program Manager", company: "Acme" };
-  const versioned = /\{vv?\}/.test(pattern);
+function linkedinHref(raw) {
+  const v = raw.trim();
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+function paintPdfPreview() {
+  const c = P.data?.candidate || {};
+  const pattern = (c.pdf_name || "").trim();
+  const job = { name: (c.name || "").trim() || "Your Name", title: "Staff Technical Program Manager", company: "Acme" };
+  const versioned = /\{vv?\}/.test(pattern || PDF_NAME_DEFAULT);
   $("#pdf-preview").replaceChildren(...(versioned ? [1, 2] : [0]).map((v) =>
     h("div", {}, `${fillPdfName(pattern, { ...job, version: v })}.pdf`)));
+}
+function sliceChanged() {
+  const pdfDirty = !!P.data && $("#pdf-name").value.trim() !== savedSlice("pdf_name");
+  const evDirty = !!P.data && $("#evidence").value.trim() !== savedSlice("evidence");
+  $("#pdf-save").disabled = !pdfDirty;
+  $("#pdf-state").textContent = pdfDirty ? "Unsaved changes" : "";
+  $("#evidence-save").disabled = !evDirty;
+  $("#evidence-state").textContent = evDirty ? "Unsaved changes" : "";
+  paintPdfPreview();
+}
+async function saveCandidateSlice(key, value, btn, state) {
+  if (!P.data) return;
+  const body = JSON.parse(P.base);
+  body[key] = value.trim();
+  btn.disabled = true;
+  try {
+    const d = await put("/api/profile", body);
+    P.data.candidate[key] = d.candidate[key] || "";
+    const saved = JSON.parse(P.base);
+    saved[key] = (d.candidate[key] || "").trim();
+    P.base = JSON.stringify(saved);
+    $(key === "pdf_name" ? "#pdf-name" : "#evidence").value = d.candidate[key] || "";
+    sliceChanged();
+    state.textContent = "✓ saved";
+    toast(key === "pdf_name" ? "PDF file name saved." : "Signal score description saved.");
+  } catch (e) { toast(e.message, true); sliceChanged(); }
+}
+function profileChanged() {
+  $("#contact-preview").textContent = ["city", "phone", "email", "linkedin"].map((k) => pField(k).value.trim()).filter(Boolean).join(" | ") || "—";
+  const open = $("#linkedin-open"), href = linkedinHref(pField("linkedin").value);
+  open.disabled = !href;
+  open.onclick = href ? () => window.open(href, "_blank", "noopener") : null;
+  paintPdfPreview();
   const dirty = profileDirty();
   $("#profile-save").disabled = !dirty;
   $("#profile-discard").disabled = !dirty;
   $("#profile-state").textContent = dirty ? "Unsaved changes" : P.data?.saved ? "Saved in searches.yaml" : "";
 }
 pForm.addEventListener("input", (e) => { if (!e.target.closest(".rfile, .pin-card")) profileChanged(); });
-pField("pdf_name").placeholder = PDF_NAME_DEFAULT;
+$("#pdf-name").placeholder = PDF_NAME_DEFAULT;
+$("#pdf-name").addEventListener("input", sliceChanged);
+$("#evidence").addEventListener("input", sliceChanged);
+$("#pdf-save").addEventListener("click", () => saveCandidateSlice("pdf_name", $("#pdf-name").value, $("#pdf-save"), $("#pdf-state")));
+$("#evidence-save").addEventListener("click", () => saveCandidateSlice("evidence", $("#evidence").value, $("#evidence-save"), $("#evidence-state")));
+$$("[data-goto]").forEach((b) => b.addEventListener("click", () => {
+  showTab(b.dataset.goto)?.then(() => document.getElementById(b.dataset.gotoId)?.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" }));
+}));
 $$("#pdf-vars .var-chip").forEach((b) => b.addEventListener("click", () => {
-  const f = pField("pdf_name"), v = b.dataset.var;
+  const f = $("#pdf-name"), v = b.dataset.var;
   if (!f.value.trim()) { f.value = PDF_NAME_DEFAULT; delete f.dataset.caret; }   // add to the default, not to nothing
   const at = f.dataset.caret != null ? Math.min(+f.dataset.caret, f.value.length) : f.value.length;   // where the cursor was
   const before = f.value.slice(0, at), after = f.value.slice(at);
@@ -4458,9 +4514,9 @@ $$("#pdf-vars .var-chip").forEach((b) => b.addEventListener("click", () => {
   f.value = before + pad + v + (after && !/^\s/.test(after) ? " " : "") + after;
   const caret = (before + pad + v).length;
   f.focus(); f.setSelectionRange(caret, caret); f.dataset.caret = caret;
-  profileChanged();
+  sliceChanged();
 }));
-pField("pdf_name").addEventListener("blur", (e) => { e.target.dataset.caret = e.target.selectionStart; });
+$("#pdf-name").addEventListener("blur", (e) => { e.target.dataset.caret = e.target.selectionStart; });
 $("#profile-discard").addEventListener("click", () => applyProfile(P.data));
 pForm.addEventListener("submit", (e) => { e.preventDefault(); saveProfile(); });
 async function saveProfile() {
@@ -4761,7 +4817,7 @@ async function showLook(d, box) {
       h("p", {}, h("b", {}, "Kept: "), lk.found.join(" · ") || "fonts, sizes and layout"),
       lk.not_copied.length ? h("div", {}, h("p", {}, h("b", {}, "Not copied, on purpose:")),
         h("ul", { class: "import-notes" }, ...lk.not_copied.map((n) => h("li", {}, n)))) : null,
-      h("p", { class: "muted" }, "You can change any of it afterwards: Profile › Résumé format › Edit.")));
+      h("p", { class: "muted" }, "You can change any of it afterwards: Settings › Résumé Format › Edit.")));
 }
 
 // ---- profile: the pinned section (references/pinned.md, jobpipe/pinned.py), word for word in every résumé.
@@ -4794,11 +4850,20 @@ $("#pin-sheet").addEventListener("load", () => {
   if (pin) doc.scrollingElement.scrollTop = pin.getBoundingClientRect().top + doc.scrollingElement.scrollTop - 24;
 });
 function pinChanged() {
-  const dirty = PIN.saved != null && $("#pin-text").value.trim() !== PIN.saved.trim();
+  const val = $("#pin-text").value.trim();
+  const sample = $("#pin-text").placeholder.trim();
+  const changed = PIN.saved != null && val !== (PIN.saved || "").trim();
+  const dirty = changed && val !== sample;
   $("#pin-save").disabled = !dirty;
-  $("#pin-discard").disabled = !dirty;
+  $("#pin-discard").disabled = !changed;
   $("#pin-state").textContent = dirty ? "Unsaved changes" : "";
 }
+$("#pin-text").addEventListener("focus", () => {
+  if ((PIN.saved || "").trim() === "" && $("#pin-text").value.trim() === "") {
+    $("#pin-text").value = $("#pin-text").placeholder;
+    $("#pin-text").dispatchEvent(new Event("input"));
+  }
+});
 $("#pin-text").addEventListener("input", () => {
   PIN.text = $("#pin-text").value;
   pinChanged();
@@ -4927,7 +4992,7 @@ const newerTag = (tag, v) => {
 const longDate = (d) => new Date(`${d}T12:00`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 async function loadAbout() {
   let r;
-  try { r = await api("/api/about"); } catch (e) { $("#about-version").textContent = ""; return; }
+  try { r = await api("/api/about"); } catch (e) { $("#about-version").textContent = ""; $("#about-home").textContent = ""; return; }
   const run = r.running || {}, latest = r.latest;
   const rel = latest && h("a", { href: latest.url, target: "_blank", rel: "noopener" }, latest.tag);
   const parts = [];
@@ -4939,14 +5004,18 @@ async function loadAbout() {
   } else {
     parts.push(h("b", {}, run.commit ? "Running from the code" : "Version unknown"));
     if (run.commit) parts.push(`: ${run.branch ? run.branch + " at " : ""}${run.commit}, ${longDate(run.date)}`);
+    if (run.dirty) parts.push(" · with local changes");
     if (latest) parts.push(" · newest release ", rel, latest.date ? `, ${longDate(latest.date)}` : "");
   }
   $("#about-version").replaceChildren(...parts);
+  const openPlace = (id) => async () => {
+    try { await post("/api/about/open", { which: id }); }
+    catch (e) { toast(e.message, true); }
+  };
+  $("#about-home").replaceChildren(...(r.places || []).map((p) => h("div", {}, p.label, " ", h("button", {
+    type: "button", class: "link-btn inline-link", title: "Show in Finder", onclick: openPlace(p.id),
+  }, p.display))));
 }
-$("#about-btn").addEventListener("click", async () => {
-  await showTab("profile");      // the cards above it change height as they fill in
-  $("#about-card").scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "smooth" });
-});
 
 async function loadFormats() {
   try { F.data = await api("/api/formats"); } catch (e) { toast(e.message, true); return; }
@@ -5175,7 +5244,8 @@ async function loadAI() {
 }
 async function loadKeys(d) {
   try { d = d || await api("/api/keys"); } catch (e) { return; }
-  $("#keys").replaceChildren(...d.keys.map((k) => {
+  const head = h("li", { class: "keys-head" }, h("span", {}, "Service"), h("span", {}, "API key"), h("span", {}), h("span", {}));
+  $("#keys").replaceChildren(head, ...d.keys.map((k) => {
     const box = h("input", { type: "password", autocomplete: "new-password", spellcheck: "false",
                              placeholder: k.set ? "•••••••• (saved)" : "paste the key", "aria-label": `${k.label} key` });
     const save = h("button", { type: "button", class: "ghost", disabled: true }, "Save");
@@ -5187,7 +5257,12 @@ async function loadKeys(d) {
         toast(`${k.label} key saved.${k.restart ? " Quit and reopen the app to start using it." : ""}`);
       } catch (e) { toast(e.message, true); save.disabled = false; }
     });
-    return h("li", {}, h("div", { class: "what" }, k.label, " ", extLink(k.url, "get one"), h("span", { class: "muted" }, k.for)), box, save);
+    const what = h("div", { class: "what" }, h("h3", {}, k.label), h("span", { class: "muted" }, k.for));
+    const link = extLink(k.url, "get one");
+    const credits = k.name === "JOBSPIPE_API_KEY" ? $("#credits") : null;
+    if (credits?.textContent) credits.classList.remove("hidden");
+    if (credits) return h("li", { class: "has-credits" }, what, box, link, save, credits);
+    return h("li", {}, what, box, link, save);
   }));
 }
 function applyAI(d) {
@@ -5196,7 +5271,11 @@ function applyAI(d) {
   aField("backend").value = d.backend;
   aField("base_url").value = d.base_url;
   aField("key").value = "";
-  $("#ai-stages").replaceChildren(...AI_STAGES.flatMap(([s, name, what]) => [
+  $("#ai-stages").replaceChildren(
+    h("span", { class: "ai-col" }, "Step"),
+    h("span", { class: "ai-col" }, "Model"),
+    h("span", { class: "ai-col" }, "Effort level"),
+    ...AI_STAGES.flatMap(([s, name, what]) => [
     h("div", { class: "ai-step" }, name, h("span", { class: "muted" }, what)),
     h("div", { class: "ai-model" },
       h("select", { id: `ai-pick-${s}`, class: "hidden", "aria-label": `${name} model` }),
@@ -5675,8 +5754,8 @@ document.addEventListener("keydown", (e) => {
 
 // ---- the setup wizard (onboarding.py): your details, your LinkedIn, then an interview about each past job that
 // fills in the impact record. Every step can be skipped. It opens by itself on first use (no profile saved yet,
-// never finished or skipped); Profile › Setup opens it again, where you left off.
-const SETUP_STEPS = [["welcome", "Welcome"], ["about", "About you"], ["ai", "Your AI"], ["linkedin", "LinkedIn"],
+// never finished or skipped); Profile › Guided Setup opens it again, where you left off.
+const SETUP_STEPS = [["welcome", "Welcome"], ["about", "About You"], ["ai", "AI Config"], ["linkedin", "LinkedIn"],
                      ["interview", "Interviews"], ["done", "Done"]];
 const WIZ = { step: 0, data: null, imported: null, importBox: null, role: null, extra: [] };
 const setupDialog = $("#setup-dialog");
@@ -5714,7 +5793,7 @@ const setupHead = (title, sub) => [h("h2", { id: "setup-title" }, title), sub ? 
 function skipSetup() {
   if (WIZ.data?.state) { setupDialog.close(); return; }
   fill(setupFootEl, h("span", { class: "setup-confirm" },
-    h("b", {}, "Skip the rest? "), "Your résumés are only as good as your impact record. You can carry on any time from Profile › Setup."),
+    h("b", {}, "Skip the rest? "), "Your résumés are only as good as your impact record. You can carry on any time from Profile › Guided Setup."),
     h("span", { class: "grow" }),
     h("button", { type: "button", class: "ghost", onclick: () => setupStep(WIZ.step) }, "Keep going"),
     h("button", { type: "button", class: "primary", onclick: async () => {
@@ -5737,33 +5816,49 @@ const SETUP_RENDER = {
       h("p", { class: "setup-lede" }, "Every score and résumé the app makes is drawn from your ", h("b", {}, "impact record"),
         ": what you did at each job, and what came of it. The fuller it is, the better your résumés. This setup fills it in with you."),
       h("ol", { class: "setup-plan" },
-        h("li", {}, h("b", {}, "About you"), h("span", {}, "The name and contact line on every résumé."), h("small", {}, "1 minute")),
-        h("li", {}, h("b", {}, "Your LinkedIn"), h("span", {}, "Your jobs and what you wrote about them, from LinkedIn's PDF or data export."), h("small", {}, "2 minutes")),
-        h("li", {}, h("b", {}, "Interviews"), h("span", {}, "Your AI asks about each past job, one question at a time, then drafts lines for your record. You check every line."), h("small", {}, "about 5 minutes a job"))),
-      h("p", { class: "muted" }, "Each step can be skipped, and Profile › Setup brings you back here."));
+        h("li", {}, h("b", {}, "About You"), h("span", {}, "The name and contact line on every résumé."), h("small", {}, "1 minute")),
+        h("li", {}, h("b", {}, "LinkedIn"), h("span", {}, "Your jobs and what you wrote about them, from LinkedIn's PDF or data export."), h("small", {}, "2 minutes")),
+        h("li", {}, h("b", {}, "Interviews"), h("span", {}, "Your AI asks about each past job, one question at a time, then drafts lines for your record. You check every line."), h("small", {}, "about 5 minutes per job"))),
+      h("p", { class: "muted" }, "Each step can be skipped, and ", h("b", {}, "Profile › Guided Setup"), " brings you back here."));
     setupFoot(setupNext("Let's start"));
   },
 
   async about() {
-    fill(setupBody, ...setupHead("About you", "The name and contact line on every résumé. You can change them later on Profile."), h("p", {}, spinner()));
+    fill(setupBody, ...setupHead("About You", "The name and contact line on every résumé. You can change them later on Profile."), h("p", {}, spinner()));
     let prof;
     try { prof = await api("/api/profile"); } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
     const c = prof.candidate, blank = prof.example || !prof.saved;
     const field = (name, label, attrs = {}, hint = "") => h("label", {}, label, hint ? [" ", h("span", { class: "hint" }, hint)] : null,
       h("input", { name, value: blank ? "" : c[name] || "", ...attrs }));
+    const linkedin = h("input", { name: "linkedin", value: blank ? "" : c.linkedin || "", placeholder: "linkedin.com/in/your-name", spellcheck: "false" });
+    const openBtn = h("button", { type: "button", class: "link-btn linkedin-open", disabled: true }, "Open ↗");
+    const previewLine = h("div", {});
     const form = h("form", { class: "setup-form", autocomplete: "off", novalidate: true },
       h("div", { class: "row2" },
         field("name", "Name", { required: true, placeholder: "Your Name" }),
         h("label", {}, "Pronouns ", h("span", { class: "hint" }, "how the prompts refer to you"),
-          h("select", { name: "pronouns" }, ...["he/him", "she/her", "they/them"].map((p) => h("option", { selected: c.pronouns === p }, p)))),
-        field("city", "City", { placeholder: "Portland, OR" }, "City, ST"),
+          h("select", { name: "pronouns" }, ...["he/him", "she/her", "they/them"].map((p) => h("option", { selected: c.pronouns === p }, p))))),
+      h("h3", {}, "Contact Info"),
+      h("p", { class: "muted" }, "Every résumé shows this line under your name."),
+      h("div", { class: "row2" },
+        field("city", "Location", { placeholder: "Portland, OR" }),
         field("phone", "Phone", { type: "tel", placeholder: "+1 555-555-5555" }),
         field("email", "Email", { type: "email", placeholder: "you@example.com" }),
-        field("linkedin", "LinkedIn", { placeholder: "linkedin.com/in/your-name", spellcheck: "false" }, "your profile's address")),
-      h("p", { class: "muted setup-note" }, "The LinkedIn address goes on your résumés. LinkedIn doesn't let apps read a profile from its address, so the next steps bring your jobs in another way."),
+        h("label", {}, "LinkedIn Profile URL", h("span", { class: "url-row" }, linkedin, openBtn))),
+      h("div", { class: "line-preview" }, h("span", { class: "hint" }, "Preview"), previewLine),
+      h("p", { class: "muted setup-note" }, "The LinkedIn Profile URL goes on your résumés. LinkedIn doesn't let apps read a profile from that address, so the next steps bring your jobs in another way."),
       prof.example ? h("p", { class: "setup-note" }, "The app is showing an example profile. Put in your own details.") : null,
       h("p", { class: "form-error hidden" }));
-    fill(setupBody, ...setupHead("About you", "The name and contact line on every résumé. You can change them later on Profile."), form);
+    const paintContact = () => {
+      previewLine.textContent = ["city", "phone", "email", "linkedin"].map((k) => form.elements.namedItem(k).value.trim()).filter(Boolean).join(" | ") || "—";
+      const href = linkedinHref(linkedin.value);
+      openBtn.disabled = !href;
+      openBtn.onclick = href ? () => window.open(href, "_blank", "noopener") : null;
+    };
+    ["city", "phone", "email"].forEach((k) => form.elements.namedItem(k).addEventListener("input", paintContact));
+    linkedin.addEventListener("input", paintContact);
+    paintContact();
+    fill(setupBody, ...setupHead("About You", "The name and contact line on every résumé. You can change them later on Profile."), form);
     const save = async () => {
       const vals = Object.fromEntries(["name", "pronouns", "city", "phone", "email", "linkedin"].map((k) => [k, form.elements.namedItem(k).value.trim()]));
       if (!vals.name) { formError(form, "Put in your name: it heads every résumé."); form.elements.namedItem("name").focus(); return; }
@@ -5777,7 +5872,7 @@ const SETUP_RENDER = {
   },
 
   async ai() {
-    fill(setupBody, ...setupHead("Your AI", "The interviews run through the AI that scores your jobs and writes your résumés."), h("p", {}, spinner()));
+    fill(setupBody, ...setupHead("AI Config", "The interviews run through the AI that scores your jobs and writes your résumés."), h("p", {}, spinner()));
     setupFoot(setupNext());
     let d, claude = null;
     try {
@@ -5793,10 +5888,10 @@ const SETUP_RENDER = {
       : p.local ? "It runs on this computer." : p.key_set ? "Its key is saved in your profile folder." : "Its key isn't saved yet.";
     const change = h("button", { type: "button", class: "ghost", onclick: () => {
       setupDialog.close();
-      showTab("profile")?.then(() => $("#ai-form").scrollIntoView({ behavior: "smooth", block: "start" }));
-      toast("Set up the AI, then press Carry on with setup (Profile › Setup).");
-    } }, "Change the AI…");
-    fill(setupBody, ...setupHead("Your AI", "The interviews run through the AI that scores your jobs and writes your résumés."),
+      showTab("settings")?.then(() => $("#ai-form").scrollIntoView({ behavior: "smooth", block: "start" }));
+      toast("Set it up in Settings › AI Config, then press Carry on with setup.");
+    } }, "Open AI Config");
+    fill(setupBody, ...setupHead("AI Config", "The interviews run through the AI that scores your jobs and writes your résumés."),
       h("div", { class: `setup-ai ${ready ? "ok" : "warn"}` },
         h("span", { class: "setup-ai-dot", "aria-hidden": "true" }),
         h("div", {}, h("b", {}, p.label, d.stages?.chat?.model ? ` · ${d.stages.chat.model}` : ""), h("p", {}, how),
@@ -5834,13 +5929,13 @@ const SETUP_RENDER = {
     drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setupImport(f); });
     fill(setupBody, ...setupHead("Bring in your LinkedIn", "Your jobs, dates and what you wrote about each, as lines for your impact record. You pick every line."),
       drop,
-      h("p", { class: "muted setup-note" }, "Why not just your profile's address? LinkedIn shows apps only a sliver of a profile and blocks reading the rest, so one of these exports is the way in. Both stay on this computer. You can drop the file onto this box."));
+      h("p", { class: "muted setup-note" }, "Why not just the LinkedIn Profile URL? LinkedIn shows apps only a sliver of a profile and blocks reading the rest, so one of these exports is the way in. Both stay on this computer. You can drop the file onto this box."));
     setupFoot(setupNext("Skip this step"));
   },
 
   async interview() {
     fill(setupBody, ...setupHead("Interviews", "Pick a job. Your AI asks up to six questions about it, then drafts lines for your impact record."), h("p", {}, spinner()));
-    setupFoot(setupNext("Finish"));
+    setupFoot(setupNext("Finish", () => { celebrateSetup(); setupStep(WIZ.step + 1); }));
     try { WIZ.data = await api("/api/setup"); } catch (e) { setupBody.append(h("p", { class: "form-error" }, e.message)); return; }
     const pane = h("div", { class: "setup-chat" });
     const list = h("ul", { class: "setup-roles" });
@@ -5875,18 +5970,35 @@ const SETUP_RENDER = {
     try { WIZ.data = await put("/api/setup", { state: "done" }); } catch (e) { toast(e.message, true); }
     const li = WIZ.data?.linkedin, done = (WIZ.data?.roles || []).filter((r) => r.added);
     const added = done.reduce((n, r) => n + r.added, 0);
+    const sum = (label, value, extra) => h("li", {}, h("b", {}, label), h("span", {}, value),
+      extra ? h("span", { class: "file" }, extra) : null);
     fill(setupBody, h("div", { class: "setup-done" },
       h("span", { class: "setup-done-mark", "aria-hidden": "true" }, "✓"),
-      ...setupHead("You're set up", "From here, search for jobs: each one is scored against your impact record, and résumés are written from it."),
+      h("h1", { id: "setup-title", class: "setup-done-title" }, "You're set up"),
+      h("p", { class: "setup-done-lede" }, "From here, search for jobs: each one is scored against your impact record, and résumés are written from it."),
       h("ul", { class: "setup-sum" },
-        h("li", {}, li ? `LinkedIn: ${plural(li.roles, "job")} read from ${li.file}.` : "LinkedIn: skipped. Add it any time from here."),
-        h("li", {}, added ? `Interviews: ${plural(added, "line")} added for ${plural(done.length, "job")}.` : "Interviews: none yet. They're here whenever you have ten minutes.")),
-      h("p", { class: "muted" }, "Profile › Setup brings you back to any step.")));
+        li ? sum("LinkedIn", `${plural(li.roles, "job")} read`, li.file) : sum("LinkedIn", "Skipped"),
+        added ? sum("Interviews", `${plural(added, "line")} from ${plural(done.length, "job")}`)
+              : sum("Interviews", "None yet", "They're here whenever you have ten minutes.")),
+      h("p", { class: "muted" }, h("b", {}, "Profile › Guided Setup"), " brings you back to any step.")));
     fill(setupFootEl, h("span", { class: "grow" }),
       h("button", { type: "button", class: "ghost", onclick: () => { setupDialog.close(); showTab("impact"); } }, "Open my impact record"),
       h("button", { type: "button", class: "primary", onclick: () => { setupDialog.close(); showTab("find"); } }, "Search jobs"));
   },
 };
+
+function celebrateSetup() {
+  const Look = window.Look;
+  if (!Look?.confetti || Look.RM()) return;
+  const theme = Look.THEMES.find((t) => t.id === Look.current());
+  if (!theme) return;
+  const square = theme.id === "arcade" || theme.id === "bauhaus";
+  const w = setupDialog.clientWidth, h = setupDialog.clientHeight;
+  const burst = (x) => Look.confetti(x, h - 28, theme.confetti, {
+    root: setupDialog, count: square ? 140 : 180, spread: theme.id === "transit" ? 0.85 : 0.5, speed: 2.1, duration: 2600, square });
+  burst(w * 0.12);
+  burst(w * 0.88);
+}
 
 async function setupImport(f) {
   fill(setupBody, ...setupHead("Bring in your LinkedIn"), h("div", { class: "import-reading" },

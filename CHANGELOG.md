@@ -4,6 +4,10 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-01
 
+### Settings
+- Profile, Impact record, and Settings sit under the person button
+- Settings holds how the app looks, résumé format and PDF names, tracker rules, the menu bar, the AI, the signal score, API keys, and About
+
 ### Looks
 - Sorbet's filters all look alike
 

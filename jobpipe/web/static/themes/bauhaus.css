@@ -496,6 +496,7 @@ html[data-theme="bauhaus"] .setup-steps li.past button { background: var(--blue)
 html[data-theme="bauhaus"] .setup-steps li.past .n { color: #fff !important; }
 html[data-theme="bauhaus"] .setup-steps li.now button { background: var(--yellow); }
 html[data-theme="bauhaus"] .setup-body > h2 { font: 400 34px/1.05 var(--display); letter-spacing: -.02em; }
+html[data-theme="bauhaus"] .setup-done-title { font-size: 46px; letter-spacing: -.03em; }
 html[data-theme="bauhaus"] .setup-plan { gap: 0; border: var(--rule); }
 html[data-theme="bauhaus"] .setup-plan li { border: 0; border-radius: 0; }
 html[data-theme="bauhaus"] .setup-plan li + li { border-top: var(--rule); }
@@ -513,5 +514,6 @@ html[data-theme="bauhaus"] .setup-msg.ai p { border: var(--rule); }
 html[data-theme="bauhaus"] .setup-msg.you p { background: var(--blue); color: #fff; }
 html[data-theme="bauhaus"] .setup-ai-dot { border-radius: 0; box-shadow: none; }
 html[data-theme="bauhaus"] .setup-done-mark { border-radius: 0; background: var(--green); color: #000; font-family: var(--display); }
-html[data-theme="bauhaus"] .setup-sum li, html[data-theme="bauhaus"] .setup-addrole { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] .setup-sum, html[data-theme="bauhaus"] .setup-addrole { border: var(--rule); border-radius: 0; }
+html[data-theme="bauhaus"] .setup-sum li + li { border-top: var(--rule); }
 html[data-theme="bauhaus"] p.setup-note:not(.muted) { border-radius: 0; background: var(--yellow); }
