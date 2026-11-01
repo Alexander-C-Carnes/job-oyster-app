@@ -385,7 +385,7 @@ def ledger(match_md: str) -> dict[str, str]:
     m = re.search(r"^##\s+Evidence ledger\s*\n(.*?)(?=^##\s|\Z)", match_md, re.S | re.M)
     if not m:
         return {}
-    parts = re.split(r"^[\W_]*(E\d+[a-z]?)[*_\s]*[—–:|-]", m.group(1), flags=re.M)     # "E1 —", "- **E1** —"
+    parts = re.split(r"^[\W_]*(E\d+[a-z]?)[*_\s]*[—–:|(-]", m.group(1), flags=re.M)   # "E1 —", "- **E1** —", "- **E1** ("
     return {parts[i]: _clean(parts[i + 1]) for i in range(1, len(parts) - 1, 2)}
 
 

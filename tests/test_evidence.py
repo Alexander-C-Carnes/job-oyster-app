@@ -59,6 +59,10 @@ def test_ledger_trace_and_claims_parsing():
     match = ("## Evidence ledger\nE1 — §1 — Built the digest. Allowed: built.\n"
              "- **E2** — IR §2 — Owned build-farm reliability.\n\n## Do not claim (this job)\n- E9 — nope\n")
     assert evidence.ledger(match) == {"E1": "§1 — Built the digest. Allowed: built.", "E2": "IR §2 — Owned build-farm reliability."}
+    nested = ("## Evidence ledger\n- **E1** (Impact §1)\n  - Handled 125 tickets a week.\n"
+              "- **E2** (Impact §2): Mentored a team of 6.\n\n## Do not claim\n")
+    got = evidence.ledger(nested)
+    assert "125" in got["E1"] and "6" in got["E2"]
     trace = ("| Line | Starts with (first 8 words, exact) | Ledger IDs |\n|---|---|---|\n"
              "| L1 | Technical Program Manager with 9+ years in software | E1, E2 |\n"
              "| Northwind 1 | Owned build-farm reliability for 14 game studios | E2, U1 |\n")
