@@ -13,6 +13,7 @@
   startups roles ID    A startup's open roles from its careers board; --add stores the matching ones as jobs
   startups enrich ID   Look up a startup's latest round (needs FUNDABLE_API_KEY or PDL_API_KEY)
   check-postings       Re-check that roles are still open; closed ones in Search Jobs go to Dismissed, tracked ones are tagged Closed
+  parse-pay            Read pay from postings that don't have it yet (--limit N, default 50; --job ID reads one again; --dry-run prints the reading and saves nothing)
   dismiss-low-fit      Dismiss the scored jobs at pipeline.dismiss_at_or_below_fit or less
   credits              JobsPipe credit ledger
   serve                Local web app (job board, searches, runs, résumé review and edits)
@@ -297,6 +298,17 @@ def cmd_check_postings(cfg, args):
     check_closed(Store(), tracked=_tracked(), limit=args.limit, log=print)
 
 
+def cmd_parse_pay(cfg, args):
+    from .pay_parse import run_many
+    from .pipeline import make_runner
+    from .store import Store
+    runner = make_runner(cfg)
+    n = asyncio.run(run_many(Store(), runner, cfg.triage_model, job=args.job, limit=args.limit,
+                             dry_run=args.dry_run, log=print))
+    if n:
+        _usage(runner)
+
+
 class _NoLLM:
     async def run(self, call):  # search-only commands never call the AI
         raise RuntimeError("no AI calls in this command")
@@ -365,6 +377,13 @@ def main(argv=None) -> None:
     p = sub.add_parser("check-postings", help="move roles in Search Jobs whose posting has closed to Dismissed; tag tracked ones not yet applied to Closed")
     p.add_argument("--limit", type=int, default=200)
     p.set_defaults(fn=cmd_check_postings)
+
+    p = sub.add_parser("parse-pay", help="read pay from postings that don't state it yet (one model call each)")
+    p.add_argument("--limit", type=int, default=50, help="how many jobs (default 50)")
+    p.add_argument("--job", help="one stored job id; reads it again even if a reading already finished")
+    p.add_argument("--dry-run", action="store_true",
+                   help="ask for the reading and print it, including the quote, without saving")
+    p.set_defaults(fn=cmd_parse_pay)
 
     p = sub.add_parser("startups", help="startups that just raised, and their open roles")
     sp = p.add_subparsers(dest="what", required=True)
