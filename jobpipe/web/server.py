@@ -183,7 +183,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                runs: Optional[RunManager] = None, allowed_hosts: Optional[set[str]] = None,
                searches_path: Optional[Path] = None,
                resume_root: Optional[Path] = None, impact_path: Optional[Path] = None,
-               prep_path: Optional[Path] = None, hiringcafe: Optional[hc.HiringCafe] = None) -> FastAPI:
+               prep_path: Optional[Path] = None, hiringcafe: Optional[hc.HiringCafe] = None,
+               wait_s: float = 90, poll_s: float = 25) -> FastAPI:
     if hosted.enabled():
         hosted.lock(cfg)                            # the proxy and the allowed models, whatever cfg came with
     store = store or Store()
@@ -439,6 +440,42 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     def edit_busy(jid: str) -> bool:
         """A chat reply or a re-rating is in progress."""
         return bool(state["edit_locks"].get(jid) and state["edit_locks"][jid].locked())
+
+    # ---- long answers in the background ----------------------------------------------------------------
+    # A chat reply, a résumé edit or a re-rating can take minutes: longer than a proxy in front of the app keeps a
+    # request open (Cloudflare drops it at 125 s). Each runs as a task. Its request waits up to wait_s for the answer,
+    # else answers 202 {"work": id, "pending": true}, and GET /api/work/{id} waits up to poll_s more each time it's
+    # asked (the page's api() does that by itself). The work carries on if the page goes away; a finished answer is
+    # kept for 10 minutes.
+    work: dict[str, tuple[asyncio.Task, list[float]]] = {}      # id -> (task, [when it finished])
+
+    async def work_answer(wid: str, wait: float) -> Any:
+        task = work[wid][0]
+        await asyncio.wait({task}, timeout=wait)
+        if not task.done():
+            return JSONResponse({"work": wid, "pending": True}, status_code=202)
+        return task.result()
+
+    async def in_background(coro) -> Any:
+        now = time.monotonic()
+        for k in [k for k, (t, at) in work.items() if t.done() and now - at[0] > 600]:
+            del work[k]
+        wid, finished = secrets.token_urlsafe(12), [float("inf")]
+
+        def done(t: asyncio.Task) -> None:
+            finished[0] = time.monotonic()
+            if not t.cancelled():
+                t.exception()                # retrieved here, so an answer nobody asks for logs no warning
+        task = asyncio.create_task(coro)
+        task.add_done_callback(done)
+        work[wid] = (task, finished)
+        return await work_answer(wid, wait_s)
+
+    @app.get("/api/work/{wid}")
+    async def get_work(wid: str):
+        if wid not in work:
+            raise HTTPException(404, "That answer is no longer here. Reload the page to see where things stand.")
+        return await work_answer(wid, poll_s)
 
     def chat_payload(ws: ResumeWorkspace) -> list[dict]:
         return [{**m, "html": md_html(m["text"])} if m["role"] == "claude" else m for m in ws.chat()]
@@ -877,10 +914,13 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def score_job(jid: str):
         """Signal-score one job and wait for the result."""
         lock = state["edit_locks"].setdefault("score:" + jid, asyncio.Lock())
-        if lock.locked():
-            raise HTTPException(409, "This job is already being scored.")
-        async with lock:
-            return await signal_score(jid)
+
+        async def run() -> dict:
+            if lock.locked():          # checked and taken with nothing awaited between, so two messages can't both pass
+                raise HTTPException(409, "This job is already being scored.")
+            async with lock:
+                return await signal_score(jid)
+        return await in_background(run())
 
     @app.post("/api/score")
     async def score_many(body: dict):
@@ -1144,13 +1184,16 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         """Re-rate a hand-edited version ({"n": n}); waits for a chat reply in progress first."""
         ws = workspace(jid)
         lock = state["edit_locks"].setdefault(jid, asyncio.Lock())
-        async with lock:
-            try:
-                v = await ws.rescore(int(body.get("n", 0)), get_runner(), cfg)
-            except (EditError, ValueError) as e:
-                raise HTTPException(400, str(e)) from None
-        keep_scores(jid, ws)
-        return {"version": v}
+
+        async def run() -> dict:
+            async with lock:
+                try:
+                    v = await ws.rescore(int(body.get("n", 0)), get_runner(), cfg)
+                except (EditError, ValueError) as e:
+                    raise HTTPException(400, str(e)) from None
+            keep_scores(jid, ws)
+            return {"version": v}
+        return await in_background(run())
 
     # ---- chat and edits --------------------------------------------------------------------
     # POST /edit sends one chat message; Claude replies, and proposes an edit only when asked for one.
@@ -1169,28 +1212,31 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def propose(jid: str, body: dict):
         ws = workspace(jid)
         lock = state["edit_locks"].setdefault(jid, asyncio.Lock())
-        if lock.locked():
-            raise HTTPException(409, "Claude is still answering your last message.")
-        async with lock:
-            state["chatting"].add(jid)
-            try:
-                fid = str(body.get("format") or "")
-                if fid and not formats.known(fid):
-                    raise EditError(f"Unknown résumé format: {fid}")
-                chat_runner, model, via = chat_ai(str(body.get("backend") or ""), str(body.get("model") or ""))
-                r = await ws.propose(body.get("instruction", ""), get_runner(), cfg, fmt=fid or None,
-                                     chat=(chat_runner, model, via))
-                p = r["proposal"]
-                return {"reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
-                        "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
-            except HTTPException:
-                raise
-            except EditError as e:
-                raise HTTPException(400, str(e)) from None
-            except Exception as e:  # noqa: BLE001 - surface Claude/CLI failures to the UI
-                raise HTTPException(502, f"The AI couldn't answer: {e}") from None
-            finally:
-                state["chatting"].discard(jid)
+
+        async def run() -> dict:
+            if lock.locked():          # checked and taken with nothing awaited between, so two messages can't both pass
+                raise HTTPException(409, "Claude is still answering your last message.")
+            async with lock:
+                state["chatting"].add(jid)
+                try:
+                    fid = str(body.get("format") or "")
+                    if fid and not formats.known(fid):
+                        raise EditError(f"Unknown résumé format: {fid}")
+                    chat_runner, model, via = chat_ai(str(body.get("backend") or ""), str(body.get("model") or ""))
+                    r = await ws.propose(body.get("instruction", ""), get_runner(), cfg, fmt=fid or None,
+                                         chat=(chat_runner, model, via))
+                    p = r["proposal"]
+                    return {"reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
+                            "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
+                except HTTPException:
+                    raise
+                except EditError as e:
+                    raise HTTPException(400, str(e)) from None
+                except Exception as e:  # noqa: BLE001 - surface Claude/CLI failures to the UI
+                    raise HTTPException(502, f"The AI couldn't answer: {e}") from None
+                finally:
+                    state["chatting"].discard(jid)
+        return await in_background(run())
 
     @app.get("/api/jobs/{jid}/chat")
     def get_chat(jid: str):
@@ -1231,23 +1277,26 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         if any(t.strip() and not is_confirmed_fact(record, t) for t in texts):   # only facts the user confirmed
             raise HTTPException(400, "That fact isn't in the impact record's Confirmed facts. Add it there first.")
         lock = state["edit_locks"].setdefault(jid, asyncio.Lock())
-        if lock.locked():
-            raise HTTPException(409, "Claude is still working on this résumé.")
-        async with lock:
-            state["chatting"].add(jid)
-            try:
-                r = await ws.update_from_fact(texts if len(texts) > 1 else texts[0], get_runner(), cfg)
-                p = r["proposal"]
-                return {"reply": r["reply"], "reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
-                        "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
-            except PendingEdit as e:
-                raise HTTPException(409, str(e)) from None
-            except EditError as e:
-                raise HTTPException(400, str(e)) from None
-            except Exception as e:  # noqa: BLE001 - surface model failures to the UI
-                raise HTTPException(502, f"The résumé couldn't be updated: {e}") from None
-            finally:
-                state["chatting"].discard(jid)
+
+        async def run() -> dict:
+            if lock.locked():          # checked and taken with nothing awaited between, so two messages can't both pass
+                raise HTTPException(409, "Claude is still working on this résumé.")
+            async with lock:
+                state["chatting"].add(jid)
+                try:
+                    r = await ws.update_from_fact(texts if len(texts) > 1 else texts[0], get_runner(), cfg)
+                    p = r["proposal"]
+                    return {"reply": r["reply"], "reply_html": md_html(r["reply"]), "chat": chat_payload(ws),
+                            "proposal": p and {**p, "changes_html": md_html(p["changes"])}}
+                except PendingEdit as e:
+                    raise HTTPException(409, str(e)) from None
+                except EditError as e:
+                    raise HTTPException(400, str(e)) from None
+                except Exception as e:  # noqa: BLE001 - surface model failures to the UI
+                    raise HTTPException(502, f"The résumé couldn't be updated: {e}") from None
+                finally:
+                    state["chatting"].discard(jid)
+        return await in_background(run())
 
     @app.post("/api/jobs/{jid}/keywords")
     def answer_keyword(jid: str, body: dict):

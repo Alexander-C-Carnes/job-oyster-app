@@ -35,6 +35,8 @@ async function api(path, opts = {}) {
   const res = await request(path, opts);
   const data = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
   if (!res.ok) throw new Error((data && data.detail) || res.statusText);
+  // A long chat reply or résumé edit answers "still working" (202) after about 90 seconds: ask until it's done.
+  if (res.status === 202 && data?.pending && data.work) return api(`/api/work/${encodeURIComponent(data.work)}`);
   return data;
 }
 const send = (method) => (path, body) => api(path, { method, body: JSON.stringify(body || {}) });
