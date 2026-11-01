@@ -174,9 +174,12 @@ def test_dry_run_prints_the_reading_and_saves_nothing(capsys):
 def test_run_many_reads_jobs_that_need_it_and_stops_after_one_attempt(capsys):
     store = Store()
     text = posting("Compensation Range: $220,000-$240,000.")
-    store.save_job({"id": "cyera", "job_title": "CSE", "company": "Cyera", "description": text}, "manual")
+    store.save_job({"id": "cyera", "job_title": "CSE", "company": "Cyera", "url": "https://example.com/cyera",
+                    "description": text}, "manual")
+    (config.DATA / "web-address").write_text("http://10.1.2.3:9999\n")
     n = asyncio.run(run_many(store, _Runner(YEARLY), ModelCfg(effort="low"), limit=50, log=print))
     assert n == 1 and salary_text(store.job("cyera")) == "$220k–$240k"
-    assert "$220k–$240k" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "  CSE @ Cyera: $220k–$240k\n    https://example.com/cyera\n    http://10.1.2.3:9999/#job=cyera&tab=posting" in out
     n = asyncio.run(run_many(store, _Runner(YEARLY), ModelCfg(), limit=50, log=print))
     assert n == 0 and "No jobs need a pay reading." in capsys.readouterr().out

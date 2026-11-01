@@ -474,6 +474,18 @@ def app_link(jid: str) -> str:
     return f"{origin}/#job={quote(jid, safe='')}&tab=posting"
 
 
+def _where(job: dict, jid: str) -> list[str]:
+    """The posting, then this job in the app, when each is known."""
+    lines = []
+    link = posting_url(job).strip()
+    if link:
+        lines.append(f"    {link}")
+    here = app_link(jid)
+    if here:
+        lines.append(f"    {here}")
+    return lines
+
+
 def _report(store: Any, jid: str, result: dict, *, dry_run: bool = False) -> str:
     job = store.job(jid) or {}
     who = f"{job.get('job_title') or jid} @ {job.get('company') or ''}".strip(" @")
@@ -483,13 +495,7 @@ def _report(store: Any, jid: str, result: dict, *, dry_run: bool = False) -> str
         return f"  {who}: already has pay"
     reading = result.get("reading")
     if dry_run and reading is not None:
-        lines = [f"  {who}"]
-        link = posting_url(job).strip()
-        if link:
-            lines.append(f"    {link}")
-        here = app_link(jid)
-        if here:
-            lines.append(f"    {here}")
+        lines = [f"  {who}", *_where(job, jid)]
         quote = str(reading.get("quote") or "").strip()
         if quote:
             lines.append(f"    {quote}")
@@ -502,5 +508,7 @@ def _report(store: Any, jid: str, result: dict, *, dry_run: bool = False) -> str
         return "\n".join(lines)
     if result.get("stated"):
         kept = " (kept the pay already on the job)" if result.get("kept_source") else ""
-        return f"  {who}: {result.get('pay')}{kept}"
-    return f"  {who}: no pay stated"
+        head = f"  {who}: {result.get('pay')}{kept}"
+    else:
+        head = f"  {who}: no pay stated"
+    return "\n".join([head, *_where(job, jid)])
