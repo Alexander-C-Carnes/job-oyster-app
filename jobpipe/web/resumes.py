@@ -254,6 +254,29 @@ class ResumeWorkspace:
         kw = normalize_keywords(json.loads(kw_path.read_text()))[0]
         return [k for k, p in kw.items() if not re.search(p, text, re.I)]
 
+    def add_keywords(self, base: int, keywords: list[str]) -> dict:
+        """Add posting keywords to the résumé's skills line (Hard Skills when there is one) as the next version."""
+        self._check_base(base)
+        known = self.missing_keywords(self.md(base))
+        if bad := [k for k in keywords if k not in known]:
+            raise EditError(f"“{bad[0]}” isn't one of this résumé's missing keywords.")
+        if not keywords:
+            raise EditError("Pick a keyword to add.")
+        lines = self.md(base).split("\n")
+        start = next((i for i, ln in enumerate(lines) if re.match(r"##\s+(CORE\s+)?SKILLS\s*$", ln.strip(), re.I)), None)
+        if start is None:
+            raise EditError("This résumé has no Core skills section to add keywords to.")
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("#")), len(lines))
+        body = [i for i in range(start + 1, end) if lines[i].strip()]
+        at = next((i for i in body if re.match(r"\W*hard skills", lines[i], re.I)), body[0] if body else None)
+        if at is None:
+            lines.insert(start + 1, " | ".join(keywords))
+        else:
+            sep = " | " if "|" in lines[at] else ", "
+            lines[at] = lines[at].rstrip() + sep + sep.join(keywords)
+        quoted = ", ".join(f"“{k}”" for k in keywords)
+        return self._save_by_hand(base, "\n".join(lines), f"Added {quoted} to Core skills.", source="keywords")
+
     def keyword_pct(self, text: str) -> Optional[float]:
         if (got := self.keyword_hits(text)) is None:
             return None

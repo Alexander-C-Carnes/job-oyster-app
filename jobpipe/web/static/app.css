@@ -1053,12 +1053,11 @@ dialog h2 + p { margin: -6px 0 12px; }
 .kw-chip { font: inherit; font-size: 12px; line-height: 20px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
 .kw-chip:hover { border-color: var(--c, var(--accent)); }
 .kw-chip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
-.kw-chip.ok { cursor: default; color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+.kw-chip.ok { cursor: pointer; color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); background: color-mix(in srgb, var(--good) 8%, var(--panel)); }
+.kw-chip.ok.on { background: color-mix(in srgb, var(--good) 22%, var(--panel)); border-color: var(--good); }
 .kw-chip.no { color: var(--muted); text-decoration: line-through; }
-.kw-form { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
-.kw-form textarea { width: 100%; box-sizing: border-box; }
-.kw-form .err { color: var(--bad); font-size: 12px; margin: 0; }
-.kw-form .err:empty { display: none; }
+.kw-act { display: flex; gap: 8px; flex-wrap: wrap; }
+.kw-act:empty { display: none; }
 .kw-update { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .kw-update button { margin-left: auto; }
 .kw-not summary { font-size: 12px; color: var(--muted); cursor: pointer; }

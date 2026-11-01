@@ -1639,6 +1639,29 @@ def test_missing_keywords_confirmed_or_set_aside(env):
     assert runner.calls[-1].documents["confirmed-fact.md"] == f"- {fact}\n- {other}"
 
 
+def test_missing_keywords_added_to_core_skills(env):
+    """Picked keyword chips go straight onto the Hard Skills line as the next version: no fact to write."""
+    c, run_dir = env["client"], env["run_dir"]
+    _ratings(run_dir)
+    kw = json.loads((run_dir / "keywords.json").read_text())
+    (run_dir / "keywords.json").write_text(json.dumps({**kw, "critical path": r"critical\s+path", "Kubernetes": "kubernetes"}))
+    url = "/api/jobs/j1/keywords/add"
+    assert c.post(url, headers=H, json={"base": 1, "keywords": ["Rust"]}).status_code == 400       # not the posting's
+    assert c.post(url, headers=H, json={"base": 1, "keywords": []}).status_code == 400
+    assert c.post(url, headers=H, json={"base": 9, "keywords": ["Kubernetes"]}).status_code == 400  # stale version
+    r = c.post(url, headers=H, json={"base": 1, "keywords": ["critical path", "Kubernetes"]})
+    assert r.status_code == 200, r.text
+    h = r.json()
+    assert h["current"] == 2 and h["versions"][-1]["source"] == "keywords"
+    assert h["versions"][-1]["changes"] == "Added “critical path”, “Kubernetes” to Core skills."
+    md = (run_dir / "resume-final.md").read_text()
+    hard = next(ln for ln in md.splitlines() if ln.startswith("Hard Skills:"))
+    assert hard.endswith("| SQL | critical path | Kubernetes")
+    assert "Kubernetes" not in next(ln for ln in md.splitlines() if ln.startswith("Soft Skills:"))
+    assert c.get("/api/jobs/j1", headers=H).json()["resume"]["missing_keywords"] == []
+    assert c.post(url, headers=H, json={"base": 2, "keywords": ["Kubernetes"]}).status_code == 400  # already on it
+
+
 def test_add_confirmed_fact():
     from jobpipe.web.server import add_confirmed_fact
     day = date(2026, 10, 6)

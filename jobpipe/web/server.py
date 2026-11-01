@@ -1262,6 +1262,19 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         except EditError as e:
             raise HTTPException(400, str(e)) from None
 
+    @app.post("/api/jobs/{jid}/keywords/add")
+    def add_keywords(jid: str, body: dict):
+        """Missing posting keywords picked in the screen verdict, added to Core skills as the next version."""
+        if edit_busy(jid):
+            raise HTTPException(409, "Claude is still answering; wait for the reply, then add them.")
+        ws = workspace(jid)
+        try:
+            h = ws.add_keywords(int(body.get("base", 0)), [str(k) for k in body.get("keywords") or []])
+        except (EditError, ValueError, TypeError) as e:
+            raise HTTPException(400, str(e)) from None
+        keep_scores(jid, ws)          # the new keyword share now; POST .../rescore re-rates the rest
+        return h
+
     @app.post("/api/jobs/{jid}/restore")
     def restore(jid: str, body: dict):
         ws = workspace(jid)
