@@ -2454,6 +2454,44 @@ def test_about_says_which_version_runs_and_the_newest_release(env, monkeypatch):
     r = c.get("/api/about", headers=H).json()
     assert r["latest"]["tag"] == "v0.1.11" and r["repo"] == about.REPO_URL
     assert r["running"].get("version") or r["running"].get("commit")       # this checkout, or the Mac app's number
+    assert r["profile"] == str(config.PROFILE) and r["profile_label"] == about.home_label(config.PROFILE)
+    assert [p["id"] for p in r["places"][:2]] == ["profile", "code"]
+    assert isinstance(r["running"].get("dirty"), bool) or "commit" not in r["running"]
+    assert c.post("/api/about/open").status_code == 401
+
+
+def test_about_opens_the_config_folder_in_finder(env, monkeypatch, tmp_path):
+    folder = tmp_path / "JobOyster"
+    folder.mkdir()
+    monkeypatch.setattr(config, "PROFILE", folder)
+    opened = []
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: opened.append(cmd))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert env["client"].post("/api/about/open", headers=H).json()["opened"] is True
+    assert opened == [["open", str(folder)]]
+    assert env["client"].post("/api/about/open", headers=H, json={"which": "nope"}).status_code == 400
+    assert env["client"].post("/api/about/open", headers=H, json={"which": "code"}).json()["opened"] is True
+    assert opened[-1] == ["open", str(config.ROOT)]
+
+
+def test_about_lists_a_folder_only_when_it_sits_outside_the_config_folder(env, monkeypatch, tmp_path):
+    profile = tmp_path / "JobOyster"
+    profile.mkdir()
+    data = tmp_path / "elsewhere" / "data"
+    data.mkdir(parents=True)
+    monkeypatch.setattr(config, "PROFILE", profile)
+    monkeypatch.setattr(config, "DATA", data)
+    monkeypatch.setattr(config, "OUTPUTS", profile / "outputs")
+    ids = [p["id"] for p in env["client"].get("/api/about", headers=H).json()["places"]]
+    assert "data" in ids and "searches" in ids and "outputs" not in ids
+
+
+def test_about_dirty_means_the_checkout_has_uncommitted_changes(monkeypatch, tmp_path):
+    from jobpipe.web import about
+    monkeypatch.setattr(about.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0, "stdout": " M app.js\n"})())
+    assert about.dirty(tmp_path) is True
+    monkeypatch.setattr(about.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0, "stdout": ""})())
+    assert about.dirty(tmp_path) is False
 
 
 def test_the_page_script_calls_only_functions_and_elements_that_exist():

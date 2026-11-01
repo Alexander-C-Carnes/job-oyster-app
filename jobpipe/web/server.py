@@ -246,7 +246,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     def chat_ai(backend: str, model: str) -> tuple[Runner, ModelCfg, str]:
         """The runner and model for one chat message: the Profile's chat model, or another a message picks, on any
-        provider set up on the Profile tab, always at the chat's effort. Returns (runner, model, the label the reply
+        provider set up in Settings › AI Config, always at the chat's effort. Returns (runner, model, the label the reply
         is tagged with)."""
         chat = cfg.chat_model
         backend, model = backend or cfg.backend, model or chat.model
@@ -448,10 +448,58 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     this_copy = about.running(config.ROOT)
     newest = about.Latest()
 
+    def about_places() -> list[dict]:
+        """Config and code folders, plus searches.yaml, data, or outputs when one sits outside the config folder."""
+        folder = config.PROFILE
+        places = [{"id": "profile", "label": "Config folder", "display": about.home_label(folder)},
+                  {"id": "code", "label": "Code folder", "display": about.home_label(config.ROOT)}]
+        for key, label, path in (("searches", "searches.yaml", searches_path),
+                                 ("data", "Data folder", config.DATA),
+                                 ("outputs", "Outputs folder", config.OUTPUTS)):
+            if about.outside(path, folder):
+                places.append({"id": key, "label": label, "display": about.home_label(path)})
+        return places
+
+    def about_target(which: str) -> Path:
+        targets = {"profile": config.PROFILE, "code": config.ROOT, "searches": searches_path,
+                   "data": config.DATA, "outputs": config.OUTPUTS}
+        if which not in targets:
+            raise HTTPException(400, "Unknown folder.")
+        return targets[which]
+
     @app.get("/api/about")
     def about_app():
-        """Profile's About card: the version running, the newest release (None offline) and the public repo."""
-        return {"running": this_copy, "latest": newest.get(), "repo": about.REPO_URL}
+        """Profile's About card: the version running, whether that checkout has local changes, the newest
+        release (None offline), the public repo, and the folders this process is using."""
+        run = dict(this_copy)
+        if run.get("commit"):
+            run["dirty"] = about.dirty(config.ROOT)
+        folder = config.PROFILE
+        return {"running": run, "latest": newest.get(), "repo": about.REPO_URL,
+                "profile": str(folder), "profile_label": about.home_label(folder), "places": about_places()}
+
+    @app.post("/api/about/open")
+    async def open_about_folder(request: Request):
+        """Show one of this process's own folders in Finder. The page names which, never a path."""
+        import subprocess
+        which = "profile"
+        raw = await request.body()
+        if raw:
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError:
+                raise HTTPException(400, "Unknown folder.") from None
+            which = str((body or {}).get("which") or "profile")
+        path = about_target(which)
+        if sys.platform != "darwin":
+            raise HTTPException(400, f"The folder is {path}.")
+        if not path.exists():
+            raise HTTPException(404, f"Nothing at {path}.")
+        if path.is_dir():
+            subprocess.run(["open", str(path)], check=False)
+        else:
+            subprocess.run(["open", "-R", str(path)], check=False)
+        return {"opened": True}
 
     # ---- summary & jobs -------------------------------------------------------------
     @app.get("/api/summary")
@@ -553,7 +601,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.put("/api/menu/settings")
     def put_menu_settings(body: dict):
-        """searches.yaml's `menu.fit_floor`: Newest at fit N+ in the Mac menu bar (Profile › Menu Bar Settings)."""
+        """searches.yaml's `menu.fit_floor`: Newest at fit N+ in the Mac menu bar (Settings › Menu Bar)."""
         try:
             cfg.menu_fit_floor = searches_file.save_menu_fit_floor(searches_path, body.get("fit_floor"))
         except searches_file.SearchError as e:
@@ -1876,7 +1924,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     # Keys for the services besides the AI, kept in the profile's .env (values are never sent back).
     KEYS = {"JOBSPIPE_API_KEY": ("JobsPipe", "Searching for jobs (Filters, Find jobs)", "https://jobspipe.dev", False),
-            "NOTION_TOKEN": ("Notion", "Copying your tracker to Notion (also set it up in searches.yaml)",
+            "NOTION_TOKEN": ("Notion", "Copying your tracker data to Notion",
                              "https://www.notion.so/profile/integrations", True),
             "FUNDABLE_API_KEY": ("Fundable", "Looking up a startup's latest round", "https://www.tryfundable.ai", False),
             "THEIRSTACK_API_KEY": ("TheirStack", "Looking up a startup's latest round", "https://theirstack.com", False),
@@ -1944,9 +1992,9 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
 
     @app.get("/api/ai/chat-models")
     async def chat_models():
-        """Every AI set up on the Profile tab, with its models, for the résumé chat's model menu. The Profile's
+        """Every AI set up in Settings › AI Config, with its models, for the résumé chat's model menu. The saved
         chat model is the default. A provider's own list is asked for at most every 10 minutes; if it can't be
-        reached, the models picked for it on the Profile tab are offered. In hosted mode, the chat's allowed models."""
+        reached, the models picked for it in Settings › AI Config are offered. In hosted mode, the chat's allowed models."""
         if hosted.enabled():
             return {"default": {"backend": cfg.backend, "model": cfg.chat_model.model},
                     "groups": [{"backend": cfg.backend, "label": hosted.LABEL, "short": "Claude",

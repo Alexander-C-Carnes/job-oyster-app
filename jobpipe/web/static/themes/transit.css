@@ -491,6 +491,7 @@ html[data-theme="transit"] .setup-steps .n { width: 24px; height: 24px; border: 
 html[data-theme="transit"] .setup-steps li.past .n { border-color: var(--accent); background: var(--accent); }
 html[data-theme="transit"] .setup-steps li.now .n { border-color: var(--ink); background: var(--panel); box-shadow: 0 0 0 3px var(--board-text); }
 html[data-theme="transit"] .setup-body > h2 { font-size: 30px; }
+html[data-theme="transit"] .setup-done-title { font-size: 42px; }
 html[data-theme="transit"] .setup-plan li { border: 1.5px solid var(--ink); }
 html[data-theme="transit"] .setup-plan li::before { border-radius: 4px; background: var(--board); color: var(--board-text); font: 700 18px/1 var(--display); }
 html[data-theme="transit"] .setup-plan b, html[data-theme="transit"] .setup-way h3, html[data-theme="transit"] .setup-chat-head b { font: 700 18px var(--display); }
