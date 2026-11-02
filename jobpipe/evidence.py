@@ -22,7 +22,8 @@ the ledger entries its trace cites plus the passages closest to it, one at a tim
 Flagged lines go to one honesty-fix pass (tailor.py), where Claude, with the full record, keeps or rescopes each.
 
 The models are optional. With `evidence: enabled: false` in searches.yaml, or without sentence-transformers,
-load() raises Unavailable and only the figure check runs.
+load() raises Unavailable and only the figure check runs. On the website they run once on the server, and each
+user's copy calls them there (evidence_remote.py, OYSTER_EVIDENCE_URL).
 """
 from __future__ import annotations
 
@@ -216,9 +217,15 @@ _loaded: dict[tuple, Models] = {}
 
 def load(cfg: EvidenceCfg) -> Models:
     """The models, loaded once per process (the first run downloads them). Raises Unavailable, with the reason,
-    when they are switched off, not installed, or fail to load."""
+    when they are switched off, not installed, or fail to load. With OYSTER_EVIDENCE_URL set they are the shared
+    service's (evidence_remote.py); in hosted mode they never load in this process."""
     if not cfg.enabled:
         raise Unavailable("switched off in searches.yaml")
+    from . import evidence_remote, hosted
+    if evidence_remote.url():
+        return evidence_remote.RemoteModels(evidence_remote.url())
+    if hosted.enabled():
+        raise Unavailable(f"the website's honesty-check service isn't set ({evidence_remote.URL})")
     key = (cfg.embedding_model, cfg.reranker_model, cfg.verifier_model, cfg.device)
     with _lock:
         if key not in _loaded:

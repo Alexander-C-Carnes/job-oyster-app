@@ -194,6 +194,7 @@ DIRECT = re.compile(r"httpx\.(Client|AsyncClient|get|post|put|patch|delete|head|
                     r"(Async)?Anthropic\(|socket\.(create_connection|socket)\(|aiohttp|http\.client|pycurl")
 ALLOWED = {
     "jobpipe/egress.py": 6,          # the guard itself
+    "jobpipe/evidence_remote.py": 1,  # the honesty-check service, whose address the server's operator sets
     "jobpipe/doh.py": 1,             # DoHTransport's inner transport; jobs_api wraps DoHTransport in egress.client
     "jobpipe/hiringcafe.py": 2,      # curl: the unguarded session runs only with hosted mode off
     "jobpipe/llm.py": 1,             # the Claude API at its own address; in hosted mode make_runner gives the proxy's
