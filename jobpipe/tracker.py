@@ -393,6 +393,9 @@ class LocalTracker:
     def _pull(self) -> None:
         theirs = self.notion.list_jobs()
         with closing(self._db()) as con, con:
+            # Hold the write lock from the first read: a status set here between reading a row (not dirty) and
+            # writing Notion's status over it would otherwise be lost.
+            con.execute("BEGIN IMMEDIATE")
             before = [tuple(r) for r in con.execute("SELECT * FROM tracker ORDER BY id")]
             for r in theirs:
                 key = canonical_url(r["job_url"])

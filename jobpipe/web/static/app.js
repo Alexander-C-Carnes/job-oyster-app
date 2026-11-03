@@ -1451,7 +1451,7 @@ function renderJobs() {
 // that closed after the résumé was made. The Mac app notifies when a résumé run finishes; this is the list.
 function readySummary(c) {
   const parts = [];
-  if (c.ready) parts.push(plural(c.ready, "résumé"));
+  if (c.ready) parts.push(`${c.ready} ready`);
   if (c.questions) parts.push(plural(c.questions, "question"));
   if (c.referral) parts.push(c.referral === 1 ? "1 referral to ask" : `${c.referral} referrals to ask`);
   if (c.closed) parts.push(c.closed === 1 ? "1 posting closed" : `${c.closed} postings closed`);
@@ -1468,7 +1468,11 @@ async function loadReady() {
   S.readySig = sig;
   renderReady();
 }
+// Opening a role from Ready to send folds the list, so the role's résumé gets the room below it.
 function openReady(id, tab, referral = false) {
+  if (S.scope === "tracker" && S.ready?.items.some((it) => it.id === id) && !S.readyFold) {
+    S.readyFold = true; savePrefs(); renderReady();
+  }
   openJob(id, tab);
   if (referral) {
     const j = S.byId.get(id);
@@ -1514,6 +1518,8 @@ function renderReady(unfold = "") {
     if (reasons.has("referral")) tags.push(h("span", { class: "tag ref" }, "Referral to ask"));
     if (reasons.has("ready")) tags.push(h("span", { class: "tag ok" }, "Résumé ready"));
     const buttons = [];
+    const posting = !reasons.has("closed") && extLink(it.url, "Posting");
+    if (posting) buttons.push(posting);
     if (reasons.has("closed")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "posting") }, "Open"));
     else if (reasons.has("ready") || reasons.has("questions")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "resume") }, "Résumé"));
     if (reasons.has("questions")) buttons.push(h("button", { class: "ghost small", type: "button", onclick: () => openReady(it.id, "report") }, "Fit report"));
@@ -1537,7 +1543,9 @@ function renderReady(unfold = "") {
       h("span", { class: `fit ${fitClass(it.fit)}` }, it.fit ?? "–"),
       h("div", { class: "ready-main" },
         h("div", { class: "ready-line" },
-          h("span", { class: "who" }, h("b", {}, it.title || "(untitled)"), it.company ? ` · ${it.company}` : ""),
+          h("button", { class: "who", type: "button", title: "Open this role",
+            onclick: () => openReady(it.id, reasons.has("closed") ? "posting" : "resume") },
+            h("b", {}, it.title || "(untitled)"), it.company ? ` · ${it.company}` : ""),
           ...tags),
         reasons.has("closed") && h("p", { class: "muted" },
           it.closed ? `Its posting had closed when the app checked on ${fmtDate(it.closed)}.` : "Its posting has closed."),

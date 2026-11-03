@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-04
+
+### Tracker
+- Ready to send opens the role and says what's really ready
+- A status change during a Notion sync is kept
+
 ## 2026-11-01
 
 ### Looks
