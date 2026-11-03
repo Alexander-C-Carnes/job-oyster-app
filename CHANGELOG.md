@@ -20,26 +20,26 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 ## 2026-10-31
 
 ### Résumés
-- Update a résumé from a confirmed fact without remaking it
+- Update a résumé from a confirmed fact without remaking it @ronnie
 
 ### Tracker
-- Ready to send, above the list
+- Ready to send, above the list @ronnie
 
 ### Mac app
-- A notification when a résumé finishes
+- A notification when a résumé finishes @ronnie
 
 ### Finding jobs
-- Dismiss jobs that score too low, as soon as they're scored
-- Dismiss or restore the checked roles in one go
-- Delete a dismissed job you never tracked
-- HiringCafe jobs come with their whole posting
+- Dismiss jobs that score too low, as soon as they're scored @ronnie
+- Dismiss or restore the checked roles in one go @ronnie
+- Delete a dismissed job you never tracked @ronnie
+- HiringCafe jobs come with their whole posting @ronnie
 
 ### Job details
-- The fetch-posting box sits in the Posting tab, and a closed posting says so
-- HiringCafe's listing and the original posting have their own links
+- The fetch-posting box sits in the Posting tab, and a closed posting says so @ronnie
+- HiringCafe's listing and the original posting have their own links @ronnie
 
 ### Mac app
-- A menu-bar item while the app is open
+- A menu-bar item while the app is open @ronnie
 
 ### Setup
 - No more MIT license
@@ -57,7 +57,7 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 ## 2026-10-26
 
 ### Finding jobs
-- Comeet and Workable postings are read, and a closed posting says so
+- Comeet and Workable postings are read, and a closed posting says so @ronnie
 
 ## 2026-10-24
 
