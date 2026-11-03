@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-04
 
+### Mac app
+- Updates install in one click
+
 ### Tracker
 - Ready to send opens the role and says what's really ready
 - A status change during a Notion sync is kept

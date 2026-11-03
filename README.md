@@ -93,7 +93,7 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 
 **Does it work on Windows or Linux?** The download is for macOS. You can [run it from the code](docs/setup-from-code.md) on Linux, but that isn't tested.
 
-**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Oyster** menu (or the Dock icon's menu) asks any time. Click **Download**, quit the old one, and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest). Your files aren't affected.
+**How do I update it?** When there's a new version, the app offers it when you open it, and **Check for Updates…** in the **Job Oyster** menu (or the Dock icon's menu) asks any time. Click **Install and Relaunch**: it downloads the new version, checks it's signed by the same developer, replaces the old one and opens it again. If runs are going it asks first, and the update waits until you quit. A copy that can't replace itself (still on the disk image, or in a folder your account can't change) offers **Download** instead: quit the old one and drag the new one into Applications. You can also get it any time from the [latest release](https://github.com/Alexander-C-Carnes/job-oyster-app/releases/latest). Your files aren't affected.
 
 **Wasn't this called Job Search?** Yes, until v0.1.9. It's the same app. The first time you open Job Oyster it offers to move the old Job Search app to the Trash, and it moves your profile folder from `~/JobSearch` to `~/JobOyster` (the old path keeps working). From the code, `oyster` replaces the `jobsearch` command, which still works.
 
