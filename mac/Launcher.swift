@@ -6,10 +6,12 @@
 // Dock icon plus a menu-bar item. The item lists runs going, recently finished, résumés ready to send, and
 // roles at the Profile › Menu Bar Settings fit floor (7 by default) since yesterday; choosing one opens it in the browser.
 // Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
-// Check for Updates… in the menus does so any time. When a résumé finishes, it posts a notification; opening
+// Check for Updates… in the menus does so any time; Install and Relaunch downloads the new DMG, checks it's
+// signed by the same developer, swaps it in for this copy and opens it again. When a résumé finishes, it posts a notification; opening
 // that notification shows the role.
 import AppKit
 import Foundation
+import Security
 import UserNotifications
 
 /// Where a menu-bar row opens: a role, Logs, or just the app.
@@ -83,6 +85,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     var knownRuns: [MenuSnap.RunItem] = []   // last good runs list, for "recently finished"
     var recentRuns: [(item: MenuSnap.RunItem, ended: Date)] = []
     let recentFor: TimeInterval = 45
+    var updateWindow: NSWindow?
+    var updateLabel: NSTextField?
+    var updateBar: NSProgressIndicator?
+    var updateCancel: NSButton?
+    var updateDownload: UpdateDownload?
+    var stagedUpdate: (app: URL, version: String)?   // checked and ready; swapped in when the app quits
+    var relaunchAfterUpdate = false
 
     func applicationDidFinishLaunching(_ note: Notification) {
         buildMenu()
@@ -94,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         start()
         offerToTrashOldApp()
+        clearUpdateStage()
         checkForUpdate()
     }
 
@@ -113,7 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             + "their turn won't start. To let them finish, keep Job Oyster open."
         a.addButton(withTitle: "Quit and Stop Runs")
         a.addButton(withTitle: "Keep Running")
-        return a.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        if a.runModal() == .alertFirstButtonReturn { return .terminateNow }
+        if let staged = stagedUpdate {
+            relaunchAfterUpdate = false
+            tell("Job Oyster \(staged.version) installs when you quit", "It's downloaded and checked. Quit Job Oyster "
+                 + "once the runs are done and the new version takes its place; open it again from Applications.")
+        }
+        return .terminateCancel
     }
 
     // A call to this app's own server. The token is the one in the page URL.
@@ -242,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     func applicationWillTerminate(_ note: Notification) {
         quitting = true
         if let s = server, s.isRunning { s.interrupt(); s.waitUntilExit() }
+        if let staged = stagedUpdate { swapInUpdate(staged.app, relaunch: relaunchAfterUpdate) }
     }
 
     // MARK: server
@@ -911,19 +928,294 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 return
             }
             let news = self.whatsNew(obj["body"] as? String ?? "")
-            DispatchQueue.main.async {
-                let a = NSAlert()
-                a.messageText = "Job Oyster \(latest) is available"
-                a.informativeText = news + "You have \(current). Download the new version, quit this one, and drag the "
-                    + "new one into Applications. Your profile folder and everything in it stay as they are."
-                a.addButton(withTitle: "Download")
-                a.addButton(withTitle: "Later")
-                if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(page) }
-            }
+            let asset = self.dmgAsset(obj["assets"], version: latest)
+            DispatchQueue.main.async { self.offerUpdate(latest, current: current, news: news, asset: asset, page: page) }
         }.resume()
     }
 
-    @objc func checkForUpdates(_ sender: Any?) { checkForUpdate(announce: true) }
+    @objc func checkForUpdates(_ sender: Any?) {
+        if let w = updateWindow { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
+        if let staged = stagedUpdate { offerRelaunch(staged.version); return }
+        checkForUpdate(announce: true)
+    }
+
+    // A newer release is out. Install and Relaunch when this copy can replace itself; otherwise the release page,
+    // to download and drag in by hand.
+    func offerUpdate(_ latest: String, current: String, news: String, asset: (url: URL, size: Int)?, page: URL) {
+        let blocker = asset == nil ? "This release has no disk image for this Mac yet." : installBlocker()
+        let a = NSAlert()
+        a.messageText = "Job Oyster \(latest) is available"
+        if let why = blocker {
+            a.informativeText = news + "You have \(current). Download the new version, quit this one, and drag the "
+                + "new one into Applications. Your profile folder and everything in it stay as they are.\n\n"
+                + "Why not in one click: \(why)"
+            a.addButton(withTitle: "Download")
+            a.addButton(withTitle: "Later")
+            if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(page) }
+            return
+        }
+        guard let asset = asset else { return }
+        let mb = max(1, asset.size / 1_000_000)
+        a.informativeText = news + "You have \(current). Install and Relaunch downloads it (about \(mb) MB), checks "
+            + "it's signed by the same developer, replaces this copy and opens it again. Your profile folder and "
+            + "everything in it stay as they are."
+        a.addButton(withTitle: "Install and Relaunch")
+        a.addButton(withTitle: "Later")
+        a.addButton(withTitle: "Release Page")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: downloadUpdate(asset, version: latest, page: page)
+        case .alertThirdButtonReturn: NSWorkspace.shared.open(page)
+        default: break
+        }
+    }
+
+    // The release's DMG for this Mac: Job-Oyster-<version>-<arch>.dmg, else the stable Job-Oyster-<arch>.dmg.
+    func dmgAsset(_ raw: Any?, version: String) -> (url: URL, size: Int)? {
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        let assets = raw as? [[String: Any]] ?? []
+        for name in ["Job-Oyster-\(version)-\(arch).dmg", "Job-Oyster-\(arch).dmg"] {
+            if let a = assets.first(where: { $0["name"] as? String == name }),
+               let u = (a["browser_download_url"] as? String).flatMap(URL.init(string:)) {
+                return (u, a["size"] as? Int ?? 0)
+            }
+        }
+        return nil
+    }
+
+    // Why this copy can't replace itself in place, or nil when it can.
+    func installBlocker() -> String? {
+        let bundle = Bundle.main.bundleURL
+        let folder = bundle.deletingLastPathComponent()
+        if bundle.path.contains("/AppTranslocation/") {
+            return "macOS is running this copy from a temporary place because it hasn't been moved since it was "
+                + "downloaded. Drag Job Oyster into Applications, open it from there, and updates install in one click."
+        }
+        if (try? bundle.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true {
+            return "Job Oyster is running from its disk image. Drag it into Applications, open it from there, and "
+                + "updates install in one click."
+        }
+        if !FileManager.default.isWritableFile(atPath: folder.path) {
+            return "this Mac account can't change \(folder.path), where Job Oyster is."
+        }
+        if teamID(of: bundle) == nil {
+            return "this copy isn't signed with a Developer ID, so there's nothing to check the new one against."
+        }
+        return nil
+    }
+
+    // The Developer ID team that signed the app at url, or nil for an ad-hoc or unsigned one.
+    func teamID(of url: URL) -> String? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let c = code else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(c, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let d = info as? [String: Any] else { return nil }
+        return d[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    // Nil when the app at url is the release we asked for: same bundle id, the expected version, and a valid
+    // signature (nested code included) from an Apple-issued certificate for this copy's team.
+    func checkUpdate(_ url: URL, version: String) -> String? {
+        guard let team = teamID(of: Bundle.main.bundleURL), let id = info["CFBundleIdentifier"] as? String else {
+            return "This copy isn't signed with a Developer ID, so there's nothing to check the new one against."
+        }
+        let newInfo = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) as? [String: Any] ?? [:]
+        guard newInfo["CFBundleIdentifier"] as? String == id else { return "The download isn't Job Oyster." }
+        let got = newInfo["CFBundleShortVersionString"] as? String ?? "?"
+        guard got == version else { return "The download is version \(got), not \(version)." }
+        var code: SecStaticCode?, req: SecRequirement?
+        let text = "anchor apple generic and identifier \"\(id)\" and certificate leaf[subject.OU] = \"\(team)\""
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let c = code,
+              SecRequirementCreateWithString(text as CFString, [], &req) == errSecSuccess else {
+            return "Its signature couldn't be read."
+        }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
+        let status = SecStaticCodeCheckValidity(c, flags, req)
+        guard status == errSecSuccess else {
+            let why = SecCopyErrorMessageString(status, nil) as String? ?? "error \(status)"
+            return "Its signature didn't check out (\(why)), so it wasn't installed."
+        }
+        return nil
+    }
+
+    // The staging folder beside this copy (same volume, so the swap is a rename).
+    func updateStage() -> URL {
+        Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(".Job Oyster update")
+    }
+
+    // A stage left by an update that didn't finish (or the old copy from one that did).
+    func clearUpdateStage() {
+        let stage = updateStage()
+        DispatchQueue.global(qos: .utility).async { try? FileManager.default.removeItem(at: stage) }
+    }
+
+    func downloadUpdate(_ asset: (url: URL, size: Int), version: String, page: URL) {
+        showUpdateWindow("Downloading Job Oyster \(version)…")
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dest = caches.appendingPathComponent("Job Oyster/\(asset.url.lastPathComponent)")
+        let mb = Double(max(asset.size, 1)) / 1_000_000
+        let d = UpdateDownload(dest: dest, progress: { [weak self] f in
+            self?.updateBar?.isIndeterminate = false
+            self?.updateBar?.doubleValue = f
+            self?.updateLabel?.stringValue = String(format: "Downloading Job Oyster %@… %.0f of %.0f MB", version, f * mb, mb)
+        }, done: { [weak self] result in
+            guard let self = self else { return }
+            self.updateDownload = nil
+            switch result {
+            case .failure(let e as NSError) where e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled:
+                self.closeUpdateWindow()
+            case .failure(let e):
+                self.updateFailed("The download didn't finish: \(e.localizedDescription)", page: page)
+            case .success(let dmg):
+                self.installUpdate(dmg, version: version, page: page)
+            }
+        })
+        updateDownload = d
+        d.start(asset.url)
+    }
+
+    // Opens the DMG, copies the app beside this one, checks it, then quits; the swap runs once this process is gone.
+    func installUpdate(_ dmg: URL, version: String, page: URL) {
+        updateLabel?.stringValue = "Checking Job Oyster \(version)…"
+        updateBar?.isIndeterminate = true
+        updateBar?.startAnimation(nil)
+        updateCancel?.isEnabled = false
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try self.stageUpdate(dmg, version: version) }
+            try? FileManager.default.removeItem(at: dmg)
+            DispatchQueue.main.async {
+                switch result {
+                case .failure(let e): self.updateFailed(e.localizedDescription, page: page)
+                case .success(let app):
+                    self.stagedUpdate = (app, version)
+                    self.relaunchAfterUpdate = true
+                    self.updateLabel?.stringValue = "Restarting in Job Oyster \(version)…"
+                    self.closeUpdateWindow()
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+    }
+
+    func stageUpdate(_ dmg: URL, version: String) throws -> URL {
+        let fm = FileManager.default
+        let mount = fm.temporaryDirectory.appendingPathComponent("JobOysterUpdate-\(UUID().uuidString)")
+        try fm.createDirectory(at: mount, withIntermediateDirectories: true)
+        let (attached, out) = shell("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-readonly", "-noautoopen",
+                                                         "-mountpoint", mount.path])
+        guard attached == 0 else { throw UpdateError("macOS couldn't open the downloaded disk image. \(out)") }
+        defer {
+            if shell("/usr/bin/hdiutil", ["detach", mount.path]).0 != 0 {
+                _ = shell("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
+            }
+            try? fm.removeItem(at: mount)
+        }
+        let source = mount.appendingPathComponent("Job Oyster.app")
+        guard fm.fileExists(atPath: source.path) else { throw UpdateError("The disk image has no Job Oyster.app in it.") }
+        let stage = updateStage()
+        try? fm.removeItem(at: stage)
+        try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        let staged = stage.appendingPathComponent("Job Oyster.app")
+        let (copied, copyOut) = shell("/usr/bin/ditto", [source.path, staged.path])
+        guard copied == 0 else {
+            try? fm.removeItem(at: stage)
+            throw UpdateError("Copying the new version failed. \(copyOut)")
+        }
+        if let problem = checkUpdate(staged, version: version) {
+            try? fm.removeItem(at: stage)
+            throw UpdateError(problem)
+        }
+        return staged
+    }
+
+    // Runs after this process exits: old copy aside, new one in its place, open it, then clear the stage. If the
+    // move fails the old copy goes back. Logged to update.log beside server.log.
+    func swapInUpdate(_ staged: URL, relaunch: Bool) {
+        let script = """
+            pid=$1; new=$2; target=$3; relaunch=$4; stage=$(dirname "$new")
+            echo "$(date '+%F %T') installing $new over $target"
+            n=0; while kill -0 "$pid" 2>/dev/null; do n=$((n+1)); [ $n -gt 600 ] && { echo "app didn't quit"; exit 1; }; sleep 0.1; done
+            rm -rf "$stage/old.app"
+            if mv "$target" "$stage/old.app"; then
+              if mv "$new" "$target"; then echo "installed"; else echo "swap failed; old copy put back"; mv "$stage/old.app" "$target"; fi
+            else echo "couldn't move the old copy aside"; fi
+            [ "$relaunch" = 1 ] && open "$target"
+            rm -rf "$stage"
+            """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script, "sh", String(getpid()), staged.path, Bundle.main.bundleURL.path, relaunch ? "1" : "0"]
+        let log = logURL.deletingLastPathComponent().appendingPathComponent("update.log")
+        if !FileManager.default.fileExists(atPath: log.path) { FileManager.default.createFile(atPath: log.path, contents: nil) }
+        if let h = try? FileHandle(forWritingTo: log) { h.seekToEndOfFile(); p.standardOutput = h; p.standardError = h }
+        try? p.run()
+    }
+
+    func offerRelaunch(_ version: String) {
+        let a = NSAlert()
+        a.messageText = "Job Oyster \(version) is ready to install"
+        a.informativeText = "It's downloaded and checked. Relaunch to switch to it."
+        a.addButton(withTitle: "Relaunch Now")
+        a.addButton(withTitle: "Later")
+        if a.runModal() == .alertFirstButtonReturn { relaunchAfterUpdate = true; NSApp.terminate(nil) }
+    }
+
+    func shell(_ tool: String, _ args: [String]) -> (Int32, String) {
+        let p = Process(), pipe = Pipe()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do { try p.run() } catch { return (-1, error.localizedDescription) }
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        p.waitUntilExit()
+        return (p.terminationStatus, out.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func showUpdateWindow(_ text: String) {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 118), styleMask: [.titled],
+                         backing: .buffered, defer: false)
+        w.title = "Updating Job Oyster"
+        w.isReleasedWhenClosed = false
+        let label = NSTextField(labelWithString: text)
+        label.frame = NSRect(x: 20, y: 78, width: 380, height: 20)
+        let bar = NSProgressIndicator(frame: NSRect(x: 20, y: 52, width: 380, height: 20))
+        bar.style = .bar
+        bar.minValue = 0
+        bar.maxValue = 1
+        bar.isIndeterminate = true
+        bar.startAnimation(nil)
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancelUpdate(_:)))
+        cancel.frame = NSRect(x: 310, y: 12, width: 96, height: 30)
+        cancel.keyEquivalent = "\u{1b}"
+        for v in [label, bar, cancel] as [NSView] { w.contentView?.addSubview(v) }
+        w.center()
+        updateWindow = w; updateLabel = label; updateBar = bar; updateCancel = cancel
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+
+    func closeUpdateWindow() {
+        updateWindow?.orderOut(nil)
+        updateWindow = nil; updateLabel = nil; updateBar = nil; updateCancel = nil
+    }
+
+    @objc func cancelUpdate(_ sender: Any?) { updateDownload?.cancel() }
+
+    func updateFailed(_ why: String, page: URL) {
+        closeUpdateWindow()
+        let a = NSAlert()
+        a.messageText = "Couldn't install the update"
+        a.informativeText = why + "\n\nThis copy is unchanged. You can download the new version from the release page "
+            + "and drag it into Applications instead."
+        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: "Release Page")
+        if a.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.open(page) }
+    }
 
     // The headlines under "## What's new" in a release's notes (the Mac app workflow lists them from
     // CHANGELOG.md), as a few lines for the update alert; "" for a release without them.
@@ -948,6 +1240,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             a.addButton(withTitle: "OK")
             a.runModal()
         }
+    }
+}
+
+struct UpdateError: LocalizedError {
+    let errorDescription: String?
+    init(_ text: String) { errorDescription = text }
+}
+
+/// Downloads a release DMG to dest, reporting progress (0…1) and the result on the main queue.
+final class UpdateDownload: NSObject, URLSessionDownloadDelegate {
+    let dest: URL
+    let progress: (Double) -> Void
+    let done: (Result<URL, Error>) -> Void
+    var task: URLSessionDownloadTask?
+    var saved: Result<URL, Error>?
+
+    init(dest: URL, progress: @escaping (Double) -> Void, done: @escaping (Result<URL, Error>) -> Void) {
+        self.dest = dest; self.progress = progress; self.done = done
+    }
+
+    func start(_ url: URL) {
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        task = session.downloadTask(with: url)
+        task?.resume()
+    }
+
+    func cancel() { task?.cancel() }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData _: Int64,
+                    totalBytesWritten written: Int64, totalBytesExpectedToWrite total: Int64) {
+        guard total > 0 else { return }
+        let f = Double(written) / Double(total)
+        DispatchQueue.main.async { self.progress(f) }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+        saved = Result {
+            guard status == 200 else { throw UpdateError("GitHub answered \(status).") }
+            let fm = FileManager.default
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: dest)
+            try fm.moveItem(at: location, to: dest)
+            return dest
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let result: Result<URL, Error> = error.map { .failure($0) } ?? saved ?? .failure(UpdateError("Nothing was downloaded."))
+        session.finishTasksAndInvalidate()
+        DispatchQueue.main.async { self.done(result) }
     }
 }
 

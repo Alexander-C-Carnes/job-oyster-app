@@ -1,8 +1,9 @@
 """The ready-to-send list on the Tracker.
 
-A résumé is ready when it has been made and the role is still before Applied. Beside those, the list
-names three things that should happen first: a fit report's questions that haven't been answered, a
-referral still at To ask, and a posting that closed after the résumé was made.
+A résumé is ready when it has been made, the role is still before Applied, and its fit report asks
+nothing that hasn't been answered. Beside those, the list names three things that should happen first:
+a fit report's questions that haven't been answered (the résumé isn't ready until they are), a referral
+still at To ask, and a posting that closed after the résumé was made.
 
 Answering a question adds a confirmed fact, the same way the Impact record does, and remembers the
 question so it leaves the list. "Already in my record" remembers it without adding a second fact.
@@ -133,7 +134,8 @@ def inbox(rows: list[dict], questions: dict[str, list[tuple[str, str]]], answere
     """One row per tracked role that has something to do before it goes out, or a referral still at To ask.
 
     `questions` is job id -> the report's questions. A role can carry more than one reason. Closed wins
-    over ready: a résumé for a posting that has closed is not ready to send."""
+    over ready, and so do open questions: a résumé for a posting that has closed, or whose fit report
+    still asks something, is not ready to send."""
     items = []
     for r in rows:
         if not r.get("tracker_id") or r.get("dismissed"):
@@ -149,9 +151,7 @@ def inbox(rows: list[dict], questions: dict[str, list[tuple[str, str]]], answere
         elif r.get("tailored") and pending:
             done = answered.get(r["id"]) or set()
             open_q = [{"key": k, "text": t} for k, t in questions.get(r["id"]) or [] if k not in done]
-            if open_q:
-                reasons.append("questions")
-            reasons.append("ready")
+            reasons.append("questions" if open_q else "ready")
         if r.get("referral_url") and (r.get("referral_step") or "toask") == "toask":
             reasons.append("referral")
         if not reasons:
@@ -161,7 +161,7 @@ def inbox(rows: list[dict], questions: dict[str, list[tuple[str, str]]], answere
             fit = r.get("fit")
         items.append({
             "id": r["id"], "title": r.get("title") or "", "company": r.get("company") or "",
-            "fit": fit, "reasons": reasons, "questions": open_q,
+            "url": r.get("url") or "", "fit": fit, "reasons": reasons, "questions": open_q,
             "referral_name": r.get("referral_name") or "", "closed": r.get("closed") or "",
         })
     items.sort(key=lambda it: (min(REASONS.index(x) for x in it["reasons"]),

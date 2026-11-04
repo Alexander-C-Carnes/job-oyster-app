@@ -2610,19 +2610,22 @@ def test_ready_to_send_lists_resumes_questions_referrals_and_closed_postings(env
     assert c.get("/api/ready").status_code == 401
     item = c.get("/api/ready", headers=H).json()["items"][0]
     assert item["id"] == "j1" and item["reasons"] == ["ready"] and item["company"] == "Acme"
+    assert item["url"] == JOB_URL                       # the posting, to apply from the list
 
     Path(env["store"].state()["j1"]["report"]).write_text(
         "# Report\n\n## Questions before I finalize\n\n"
         "1. The posting asks for hardware programs. Have you run one?\n"
         "2. It asks for vendor management. Which vendors did you own?\n")
     item = c.get("/api/ready", headers=H).json()["items"][0]
-    assert item["reasons"] == ["questions", "ready"] and len(item["questions"]) == 2
-    assert c.get("/api/ready", headers=H).json()["counts"]["questions"] == 2     # questions, not roles
+    assert item["reasons"] == ["questions"] and len(item["questions"]) == 2   # not ready while the report asks
+    counted = c.get("/api/ready", headers=H).json()["counts"]
+    assert counted["questions"] == 2 and counted["ready"] == 0     # questions, not roles
     key = item["questions"][0]["key"]
     ready = c.post("/api/ready/j1/answer", headers=H, json={"key": key, "fact": "I ran the hardware program at Northwind."}).json()
     record = env["impact"].read_text()
     assert "I ran the hardware program at Northwind." in record and "user-confirmed" in record
     left = ready["items"][0]
+    assert left["reasons"] == ["questions"]                  # one question left: still not ready
     assert [q["key"] for q in left["questions"]] == [item["questions"][1]["key"]]
     assert c.post("/api/ready/j1/answer", headers=H, json={"key": "0123456789abcdef"}).status_code == 400
     ready = c.post("/api/ready/j1/answer", headers=H, json={"key": left["questions"][0]["key"]}).json()
