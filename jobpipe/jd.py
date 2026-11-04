@@ -225,22 +225,61 @@ def _comeet_posting(raw: str, meta: dict) -> str:
     return html_to_text("\n".join(f.get("value") or "" for f in (d.get("custom_fields") or {}).get("details") or []))
 
 
+def _greenhouse_posting(board: str, jid: str, c: httpx.Client, meta: dict) -> Optional[str]:
+    """A Greenhouse job's posting from its board's API, or None when the board has no such job."""
+    r = c.get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{jid}")
+    if r.status_code != 200:
+        return None
+    d = r.json()
+    _fill(meta, job_title=d.get("title"), company=d.get("company_name"), location=(d.get("location") or {}).get("name"))
+    return html_to_text(html.unescape(d.get("content") or ""))
+
+
+def _greenhouse_board(jid: str, c: httpx.Client) -> str:
+    """The board a Greenhouse job is on, from its number alone: Greenhouse's embed page sends you on to the
+    board's own (…/embed/job_app?for=<board>&token=<number>)."""
+    r = c.get("https://boards.greenhouse.io/embed/job_app", params={"token": jid}, follow_redirects=True)
+    for u in [h.headers.get("location") or "" for h in r.history] + [str(r.url)]:
+        board = dict(parse_qsl(urlsplit(u).query)).get("for", "")
+        if board:
+            return board
+    return ""
+
+
+# A job's own page on an applicant-tracking site, as a careers page links to it.
+_JOB_LINK = re.compile(r"""https://(?:[\w-]+\.wd\d+\.myworkdayjobs\.com/(?:[\w-]+/)*job/[^\s"'<>?#&]+"""
+                       r"|(?:job-)?boards\.greenhouse\.io/[\w-]+/jobs/\d+"
+                       r"|jobs\.lever\.co/[\w.-]+/[0-9a-f-]{36}"
+                       r"|jobs\.smartrecruiters\.com/[\w.-]+/\d+[\w-]*"
+                       r"|apply\.workable\.com/[\w-]+/j/[A-Z0-9]+)")
+
+
+def _one_job_link(raw: str, url: str) -> str:
+    """The one job a careers page with no posting on it links to on an applicant-tracking site ("" for none, or
+    for a page linking to several: a list of openings, or a closed job's page sending you to all of them)."""
+    links = {re.sub(r"/(apply|application)$", "", m.rstrip("/")) for m in _JOB_LINK.findall(html.unescape(raw))}
+    links.discard(url.rstrip("/"))
+    return links.pop() if len(links) == 1 else ""
+
+
 def _ats_posting(url: str, c: httpx.Client, meta: dict) -> str:
     """Ask the applicant-tracking system directly, for the sites whose pages hold no posting text."""
     p = urlsplit(url)
     host, sld = p.netloc.lower(), p.netloc.lower().removeprefix("www.").split(".")[0]
     m = re.search(r"greenhouse\.io/(?:embed/job_app\?for=)?([^/?&]+)/jobs/(\d+)", url)
     gh = [(m.group(1), m.group(2))] if m else []
-    m = re.search(r"[?&]gh_jid=(\d+)", url)
-    if m:  # a company page that embeds its Greenhouse board; the board is usually named after the company
-        gh += [(sld, m.group(1)), (sld.replace("careers", ""), m.group(1))]
+    embedded = re.search(r"[?&]gh_jid=(\d+)", url)
+    if embedded:  # a company page that embeds its Greenhouse board; the board is usually named after the company
+        gh += [(sld, embedded.group(1)), (sld.replace("careers", ""), embedded.group(1))]
     for board, jid in gh:
-        r = c.get(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{jid}")
-        if r.status_code == 200:
-            d = r.json()
-            _fill(meta, job_title=d.get("title"), company=d.get("company_name"),
-                  location=(d.get("location") or {}).get("name"))
-            return html_to_text(html.unescape(d.get("content") or ""))
+        text = _greenhouse_posting(board, jid, c, meta)
+        if text is not None:
+            return text
+    if embedded:  # a board named otherwise (DigitalOcean's is digitalocean98)
+        board = _greenhouse_board(embedded.group(1), c)
+        text = _greenhouse_posting(board, embedded.group(1), c, meta) if board else None
+        if text is not None:
+            return text
     m = re.search(r"/job/(\d+)", p.path)
     if m and host == "careers.oracle.com":
         r = c.get("https://eeho.fa.us2.oraclecloud.com/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails",
@@ -331,7 +370,17 @@ def _read_with_retry(url: str, c: httpx.Client, meta: dict) -> str:
         return ""
 
 
-def _read_posting(url: str, c: httpx.Client, meta: dict) -> str:
+def page_text(raw: str, url: str = "") -> str:
+    """A page's main text, for a page with no job data: trafilatura keeps the content and leaves out the site's
+    menus, footer, cookie notice and forms. "" when it has too few sentences to be a posting (a page that loads
+    its posting with JavaScript or in a frame, or a redirect notice: what's left is menu labels), or too much."""
+    import trafilatura
+    text = (trafilatura.extract(raw, url=url or None, include_tables=True, favor_recall=True) or "").strip()
+    sentences = sum(len(line) for line in text.splitlines() if len(line) >= 50)
+    return text if sentences >= MIN_DESCRIPTION_CHARS and len(text) <= MAX_PAGE_CHARS and "{{" not in text else ""
+
+
+def _read_posting(url: str, c: httpx.Client, meta: dict, follow: bool = True) -> str:
     text = _ats_posting(url, c, meta)
     if len(text) >= MIN_DESCRIPTION_CHARS:
         return text
@@ -365,8 +414,9 @@ def _read_posting(url: str, c: httpx.Client, meta: dict) -> str:
             text = _icims_posting(html.unescape(frame.group(1)).split("?")[0], c, meta)
             if len(text) >= MIN_DESCRIPTION_CHARS:
                 return text
-        text = html_to_text(raw)
-        return text if len(text) <= MAX_PAGE_CHARS and "{{" not in text else ""
+        text = page_text(raw, url)
+        link = "" if text or not follow else _one_job_link(raw, url)
+        return _read_posting(link, c, meta, follow=False) if link else text
     finally:
         _fill(meta, **_page_title_meta(raw, url))
 

@@ -1,10 +1,11 @@
+import html
 import json
 from pathlib import Path
 
 import httpx
 import pytest
 
-from jobpipe.jd import build_jd, detect_ats, posting_key, read_posting
+from jobpipe.jd import build_jd, detect_ats, fetch_posting_text, page_text, posting_key, read_posting
 from jobpipe.llm import candidate_materials, parse_output, validate
 from conftest import make_job
 
@@ -279,3 +280,58 @@ def test_keywords_normalized_from_the_shapes_the_matcher_writes():
     assert check_keywords(json.dumps({"keywords": flat})) == []
     assert "flat JSON object" in check_keywords(json.dumps({}))[0]
     assert "not valid JSON" in check_keywords("{")[0]
+
+
+MENU = "<nav><ul>" + "".join(f'<li><a href="/p/{i}">Product {i}</a></li>' for i in range(60)) + "</ul></nav>"
+FOOTER = "<footer>" + "".join(f'<a href="/f/{i}">Footer link {i}</a> ' for i in range(30)) + "</footer>"
+POSTING = "".join(f"<p>{line}</p>" for line in (
+    "Own the release train across twelve teams and report on delivery risk to the leadership group.",
+    "Partner with engineering managers to plan quarterly roadmaps and keep dependencies visible.",
+    "Run weekly program reviews, write the notes, and follow up on every open action item.",
+    "Build the dashboards that show how each launch is tracking against its milestones.",
+    "Coach new program managers on how we plan, communicate and escalate across the company.",
+    "You have eight or more years of program management in software, ideally in infrastructure.",
+    "You write clearly, and you can explain a technical tradeoff to an executive in two minutes.",
+    "You are comfortable with ambiguity and can bring structure to a team that is moving quickly.",
+    "The base salary for this role is $180,000 to $220,000, plus equity and benefits.",
+))
+
+
+def test_a_page_with_no_job_data_gives_its_posting_without_the_sites_menus():
+    page = f"<html><body><header>{MENU}</header><main><h1>Senior TAM</h1>{POSTING}</main>{FOOTER}</body></html>"
+    text = page_text(page, "https://acme.example/careers/1")
+    assert "release train across twelve teams" in text and "$180,000 to $220,000" in text
+    assert "Product 7" not in text and "Footer link" not in text
+
+
+def test_a_page_whose_posting_isnt_in_its_html_gives_no_text():
+    # its posting loads with JavaScript or in a frame, or the page only says it's sending you elsewhere
+    shell = f"<html><body><header>{MENU}</header><div id='app'></div>{FOOTER}</body></html>"
+    frame = f"<html><body>{MENU}<iframe src='https://boards.example/embed/1'></iframe>{FOOTER}</body></html>"
+    notice = f"<html><body>{MENU}<p>You are now being redirected to an external domain.</p>{FOOTER}</body></html>"
+    assert page_text(shell) == page_text(frame) == page_text(notice) == ""
+    c = _pages({"https://acme.example/": httpx.Response(200, text=shell)})
+    assert fetch_posting_text("https://acme.example/careers/3", c) == ""
+
+
+def test_a_greenhouse_job_on_a_board_not_named_after_the_company_is_found_by_its_number():
+    # DigitalOcean's board is digitalocean98: Greenhouse's embed page names it, the API has the posting
+    embed = "https://job-boards.greenhouse.io/embed/job_app?for=acme42&token=555"
+    c = _pages({"https://boards.greenhouse.io/embed/job_app": httpx.Response(302, headers={"location": embed}),
+                embed: httpx.Response(200, text="<html></html>"),
+                "https://boards-api.greenhouse.io/v1/boards/acme42/jobs/555": httpx.Response(
+                    200, json={"title": "Senior TAM", "content": html.escape(POSTING)}),
+                "https://www.acme.com/": httpx.Response(200, text=f"<html><body>{MENU}</body></html>")})
+    assert "release train across twelve teams" in fetch_posting_text("https://www.acme.com/careers/job?gh_jid=555", c)
+
+
+def test_a_careers_page_with_no_posting_is_read_from_the_one_job_it_links_to():
+    ld = {"@type": "JobPosting", "title": "Senior TAM", "description": POSTING}
+    job = "https://acme.wd5.myworkdayjobs.com/External/job/Remote-USA/Senior-TAM_R100"
+    one = f"<html><body>{MENU}<a href='{job}/apply'>Apply</a>{FOOTER}</body></html>"
+    two = one.replace("</body>", f"<a href='{job.replace('R100', 'R200')}'>Another</a></body>")
+    c = _pages({job: httpx.Response(200, text=f'<script type="application/ld+json">{json.dumps(ld)}</script>'),
+                "https://acme.example/careers/1": httpx.Response(200, text=one),
+                "https://acme.example/careers/2": httpx.Response(200, text=two)})
+    assert "release train across twelve teams" in fetch_posting_text("https://acme.example/careers/1", c)
+    assert fetch_posting_text("https://acme.example/careers/2", c) == ""      # a list of openings: which one isn't known
