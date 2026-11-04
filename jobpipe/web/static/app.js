@@ -2291,7 +2291,7 @@ function drawDetail() {
     // Only in the tracker: no posting stored, but a résumé made outside the app may be.
     const tab = S.detailTabJob !== j.id && showsSent(j) ? "sent"
       : S.detailTab === "posting" ? "posting" : S.detailTab === "sent" && showsSent(j) ? "sent" : "resume";
-    const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []), ["resume", "Résumé"], ["posting", "Posting & score"]];
+    const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []), ["posting", "Posting & score"], ["resume", "Résumé"]];
     const sub = h("div", { class: "subtabs" }, ...tabs.map(([k, label]) =>
       h("button", { class: k === tab ? "active" : "", onclick: () => { S.detailTab = k; S.detailTabJob = j.id; renderDetail(); } }, label)), foldAllButton());
     const panel = h("div", { class: "subpanel active" });
@@ -2317,7 +2317,7 @@ function drawDetail() {
   if (!d) { box.replaceChildren(head, h("div", { class: "pad muted" }, spinner(), " Loading…")); return; }
   const off = (k) => (k === "heatmap" ? !d.has_heatmap : ["resume", "report"].includes(k) && !j.tailored);
   const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []),
-                ["resume", "Résumé"], ["report", "Fit report"], ["heatmap", "Heat map"], ["posting", "Posting & score"]];
+                ["posting", "Posting & score"], ["resume", "Résumé"], ["report", "Fit report"], ["heatmap", "Heat map"]];
   // A tab with nothing in it yet still opens (to say how to fill it), but only when clicked for this job:
   // moving to another job falls back to the posting, or for a job applied to, to the résumé sent.
   const fresh = S.detailTabJob !== j.id;
@@ -4092,8 +4092,8 @@ function renderRunResults(r) {
         x.tailored && h("button", { class: "ghost small", onclick: () => openJob(x.id, "report") }, "Fit report"),
         h("button", { class: "ghost small", onclick: () => openJob(x.id, x.tailored ? "resume" : "posting") }, x.tailored ? "Résumé" : "Open"))))));
 }
-// Show one job's detail on the given tab, in whichever list it's in, clearing filters that hide it.
-function openJob(id, tab) {
+// Show the job's detail on the given tab (defaults to Posting & score if unspecified)
+function openJob(id, tab = "posting") {
   const j = S.byId.get(id);
   if (!j) { toast("That job isn't in the list yet. Try again in a moment.", true); return; }
   const scope = SCOPES.tracker.has(j) ? "tracker" : "find";
