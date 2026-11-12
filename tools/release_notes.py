@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """What's new in a release, from CHANGELOG.md.
 
-The private repo's CHANGELOG.md has a paragraph per change under its date and area; the public repo gets a
-CHANGELOG.md of the headlines alone, written by tools/publish_public.py with headlines(). Each release's notes
+CHANGELOG.md has an entry per change under its date and area: a bold headline, then a paragraph (entries from
+before 2026-11-12 are the headline alone). Each release's notes
 list the headlines CHANGELOG.md gained since the release before it (the Mac app workflow runs this):
 
     python3 tools/release_notes.py v0.1.9     # what HEAD adds since that tag, as markdown; nothing if none

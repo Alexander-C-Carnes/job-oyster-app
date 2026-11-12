@@ -1985,6 +1985,7 @@ def test_startups_tab_roles_into_find_jobs_and_the_tracker(env, monkeypatch):
     c = env["client"]
     store = su.StartupStore(config.DATA / "startups.json")
     raised = (date.today() - timedelta(days=5)).isoformat()      # inside the "recent" window whatever day the test runs
+    funding = f"Series B · $20M · {date.fromisoformat(raised):%b %Y} (FinSMEs)"
     store.merge([{"name": "Acme", "website": "https://acme.com", "stage": "Series B", "one_liner": "AI for banks", "hq": "New York, NY",
                   "round": {"name": "Series B", "stage": "Series B", "amount": 2e7, "currency": "$", "amount_usd": 2e7, "date": raised,
                             "headline": "Acme Raises $20M in Series B Funding", "url": "https://news.example/acme", "source": "FinSMEs"},
@@ -1993,7 +1994,7 @@ def test_startups_tab_roles_into_find_jobs_and_the_tracker(env, monkeypatch):
     d = c.get("/api/startups", headers=H).json()
     assert d["count"] == 2 and d["recent"] == 1 and d["lookup"] is False and "Technical Program Manager" in d["phrases"]
     by = {s["id"]: s for s in d["startups"]}
-    assert by["acme"]["line"] == "Series B · $20M · Oct 2026 (FinSMEs)" and by["acme"]["round"]["amount"] == "$20M"
+    assert by["acme"]["line"] == funding and by["acme"]["round"]["amount"] == "$20M"
     assert by["zeta"]["batch"] == "S26" and by["zeta"]["stage"] == "Unknown" and by["zeta"]["roles"] is None
     # the job already stored at Acme (j1, from a filter) now carries Acme's round, by company name
     rows = {j["id"]: j for j in c.get("/api/jobs", headers=H).json()["jobs"]}
@@ -2024,9 +2025,9 @@ def test_startups_tab_roles_into_find_jobs_and_the_tracker(env, monkeypatch):
     c.get("/api/jobs?wait=1", headers=H)
     created = [b for m, p, b in env["notion"].requests if m == "POST" and p.endswith("/pages")]
     mine = next(b for b in created if "jobs/77" in b["properties"]["Job URL"]["url"])
-    assert "Series B · $20M · Oct 2026 (FinSMEs)" in mine["properties"]["Notes"]["rich_text"][0]["text"]["content"]
+    assert funding in mine["properties"]["Notes"]["rich_text"][0]["text"]["content"]
     body = json.dumps(mine.get("children", []), ensure_ascii=False)
-    assert "Funding:" in body and "Series B · $20M · Oct 2026 (FinSMEs)" in body
+    assert "Funding:" in body and funding in body
     # tracking the company itself: an "Open roles — Zeta" row linked to its careers page, with what's known
     r = c.post("/api/startups/zeta/track", headers=H).json()
     assert r["action"] == "created" and r["tracker_id"]

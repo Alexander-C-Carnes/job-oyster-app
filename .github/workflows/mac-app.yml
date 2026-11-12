@@ -39,8 +39,7 @@ concurrency:
 
 jobs:
   version:
-    # Releases come from the public copy (…-app), where Actions are free; the private repo it's copied from has no
-    # minutes for them, so there every run would fail.
+    # Releases come from this repo (…-app); a copy under another name skips them.
     if: endsWith(github.repository, '-app')
     runs-on: ubuntu-latest
     outputs:
