@@ -27,13 +27,13 @@ from typing import Any, Optional
 
 import httpx
 import markdown as md_lib
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..config import Config
-from .. import formats, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
+from .. import formats, interview_pack, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from .. import hosted, lowfit
 from . import about, follow, idle
@@ -195,7 +195,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     allowed = allowed_hosts or {"127.0.0.1", "localhost"}
     app = FastAPI(title="jobpipe", docs_url=None, redoc_url=None, openapi_url=None)
     state: dict[str, Any] = {"runner": None, "edit_locks": {}, "reports": {}, "chatting": set(),
-                             "chat_runners": {}, "model_lists": {}}
+                             "chat_runners": {}, "model_lists": {}, "pack_tasks": set(), "research_tasks": set()}
     # The tracker lives in data/tracker.db. Given a NotionTracker (or none), it is wrapped here; the first
     # run starts from the last Notion snapshot the app saved, so nothing tracked is lost in the move.
     local = tracker if isinstance(tracker, LocalTracker) else LocalTracker(
@@ -203,6 +203,7 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     runs = runs or RunManager(db=local.path)   # run history sits beside the tracker in data/tracker.db
     progress = Estimator(runs)                 # how far along a tailoring run is, for the ring on its fit badge
     marks = Marks(store.root / "marks.json")
+    packs = interview_pack.Packs(store.root / "interview-packs")
     answered = Answered(store.root / "ready.json")   # fit-report questions already answered, so they leave Ready to send
     # Jobs kept under an id that file names and URLs can't hold (store.safe_id) move to a safe one, and the
     # tracker rows, run history and stars that name them follow, before anything reads them.
@@ -505,7 +506,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
                 "statuses": list(STATUSES), "active_runs": [{**r.public(len(r.lines)), "progress": progress.of(r),
                                  "queue_position": runs.queue_position(r)} for r in (*runs.running(), *runs.waiting)],
                 "max_runs": runs.max_runs,
-                "scoring": scorer.public(), "startups": startups_summary(), "durations": progress.durations()}
+                "scoring": scorer.public(),
+                "startups": startups_summary(), "durations": progress.durations()}
 
     @app.get("/api/jobs")
     def jobs(request: Request, refresh: bool = False, wait: bool = False):
@@ -2885,6 +2887,205 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
         state["runner"] = None  # the cached system prompt includes the record
         iv["added"] = int(iv.get("added") or 0) + len(lines)
         interview_file(key).write_text(json.dumps(iv, indent=1))
+        return impact_payload(new)
+
+    # ---- an interview pack for one role (interview_pack.py), made when it is marked Interviewing ----------
+    def job_materials(jid: str, row: dict) -> interview_pack.Materials:
+        """The posting, gaps, ledger and (when the app has the text) the résumé that was sent."""
+        st = board.state().get(jid) or {}
+        match_md, posting = "", ""
+        for key in ("run_dir", "analysis_dir"):
+            folder = local_path(st.get(key))
+            if not folder:
+                continue
+            if not match_md and (folder / "04-match.md").is_file():
+                match_md = (folder / "04-match.md").read_text()
+            if not posting and (folder / "jd.md").is_file():
+                posting = (folder / "jd.md").read_text()
+        if not posting:
+            posting = (store.job(jid) or {}).get("description") or ""
+        resume_md, pdf_only = "", ""
+        if row.get("tracker_id"):
+            info, _names = sent_info(row)
+            if info and info.get("source") == "app":
+                noted = re.fullmatch(r"v(\d+)", str(info.get("note") or ""))
+                if noted:
+                    try:
+                        resume_md = workspace(jid).md(int(noted.group(1)))
+                    except (HTTPException, EditError, OSError, ValueError):
+                        resume_md = ""
+            elif info:
+                pdf_only = info.get("name") or "the PDF on file"
+        return interview_pack.collect(posting, match_md, st.get("full_score"), st.get("triage"),
+                                      read_impact(), resume_md, pdf_only)
+
+    def company_on_file(jid: str, row: dict) -> str:
+        """The funding block on the job, and the startup record it matches. Empty when neither is stored."""
+        job = store.job(jid) or {}
+        chip = row.get("funding") if isinstance(row.get("funding"), dict) else None
+        raw = job.get("funding") if isinstance(job.get("funding"), dict) else None
+        funding = chip or raw
+        startup = startups.get(funding["startup_id"]) if funding and funding.get("startup_id") else None
+        if not startup:
+            startup = startups.for_job({
+                "company": row.get("company") or job.get("company") or "",
+                "company_domain": job.get("company_domain") or row.get("company_domain") or "",
+            })
+        return interview_pack.company_text(funding, startup)
+
+    def known_job(jid: str) -> dict:
+        row = board.row(jid)
+        if not row:
+            raise HTTPException(404, "Unknown job")
+        return row
+
+    async def build_pack(jid: str) -> None:
+        """One chat-model call. A debrief typed while this runs is kept (Packs.finish)."""
+        try:
+            row = board.row(jid) or {}
+            company, title = row.get("company") or "", row.get("title") or ""
+            try:
+                mats = job_materials(jid, row)
+                made = await interview_pack.make(
+                    get_runner(), cfg.chat_model, config.candidate().personalize(interview_pack.PACK_BRIEF), mats)
+                packs.finish(jid, status="ready", error="", company=company, title=title, made_at=now_iso(), **made)
+            except Exception as e:  # noqa: BLE001 - the AI isn't reachable, or the job's files can't be read
+                msg = str(e).splitlines()[0][:200] if str(e) else "no reply"
+                gaps, pdf_only, from_gaps = [], "", False
+                try:
+                    mats = job_materials(jid, row)
+                    gaps, pdf_only, from_gaps = mats.gaps, mats.pdf_only, mats.from_gaps
+                except Exception:  # noqa: BLE001
+                    pass
+                packs.finish(jid, status="failed", error=f"Your AI didn't answer: {msg}", company=company,
+                             title=title, made_at=now_iso(), questions=[], ask_them=[], gaps=gaps,
+                             from_gaps=from_gaps, pdf_only=pdf_only)
+        finally:
+            state["pack_tasks"].discard(jid)
+
+    async def build_research(jid: str) -> None:
+        """One chat-model call for company research. Questions, stories, and the debrief are not written."""
+        try:
+            row = board.row(jid) or {}
+            try:
+                posting = job_materials(jid, row).posting
+            except Exception:  # noqa: BLE001
+                posting = (store.job(jid) or {}).get("description") or ""
+            try:
+                company = company_on_file(jid, row)
+            except Exception:  # noqa: BLE001
+                company = ""
+            made = await interview_pack.research(
+                get_runner(), cfg.chat_model, config.candidate().personalize(interview_pack.RESEARCH_BRIEF),
+                posting, company)
+            packs.put_research(jid, status="ready", error="", sections=made["sections"], made_at=now_iso())
+        except Exception as e:  # noqa: BLE001 - the AI isn't reachable
+            msg = str(e).splitlines()[0][:200] if str(e) else "no reply"
+            packs.put_research(jid, status="failed", error=f"Your AI didn't answer: {msg}", made_at=now_iso())
+        finally:
+            state["research_tasks"].discard(jid)
+
+    @app.get("/api/interview-packs")
+    def list_interview_packs():
+        """Packs for the Interview prep tab: company, title, status, job id."""
+        return {"packs": packs.summaries()}
+
+    @app.get("/api/jobs/{jid}/interview-pack")
+    def get_interview_pack(jid: str):
+        known_job(jid)
+        return interview_pack.public(packs.get(jid), jid)
+
+    @app.post("/api/jobs/{jid}/interview-pack")
+    async def start_interview_pack(jid: str, background: BackgroundTasks, body: Optional[dict] = None):
+        """Start a build when there is none (or it failed), or when `again` is true. A pack already ready
+        is left as it is. Returns at once; the build keeps going after this response."""
+        row = known_job(jid)
+        again = bool((body or {}).get("again"))
+        if jid in state["pack_tasks"]:
+            return interview_pack.public(packs.get(jid), jid)
+        cur = packs.get(jid)
+        if cur and cur.get("status") == "ready" and not again:
+            return interview_pack.public(cur, jid)
+        state["pack_tasks"].add(jid)
+        seed = packs.begin_role(
+            jid, company=row.get("company") or "", title=row.get("title") or "", status="making", error="",
+            from_gaps=bool((cur or {}).get("from_gaps")), pdf_only=(cur or {}).get("pdf_only") or "",
+            gaps=(cur or {}).get("gaps") or [], questions=(cur or {}).get("questions") or [],
+            ask_them=(cur or {}).get("ask_them") or [], made_at=(cur or {}).get("made_at") or "")
+        background.add_task(build_pack, jid)
+        return interview_pack.public(seed, jid)
+
+    @app.post("/api/jobs/{jid}/interview-pack/research")
+    async def start_company_research(jid: str, background: BackgroundTasks, body: Optional[dict] = None):
+        """Company research, only when asked. A saved research is left as it is unless `again` is true,
+        which replaces the research and leaves the questions, stories, and debrief."""
+        row = known_job(jid)
+        again = bool((body or {}).get("again"))
+        if jid in state["research_tasks"]:
+            return interview_pack.public(packs.get(jid), jid)
+        cur = packs.get(jid)
+        research = (cur or {}).get("company_research") or {}
+        if research.get("status") == "ready" and research.get("sections") and not again:
+            out = interview_pack.public(cur, jid)
+            out["research_already"] = True
+            return out
+        saved, started = packs.begin_research(jid, company=row.get("company") or "", title=row.get("title") or "")
+        if not started:
+            return interview_pack.public(saved, jid)
+        state["research_tasks"].add(jid)
+        background.add_task(build_research, jid)
+        return interview_pack.public(saved, jid)
+
+    @app.put("/api/jobs/{jid}/interview-pack")
+    def save_interview_debrief(jid: str, body: dict):
+        """The debrief only. Questions and stories are left as the build wrote them."""
+        known_job(jid)
+        got = packs.put_debrief(jid, str(body.get("debrief") or "")[:20000])
+        if not got:
+            raise HTTPException(404, "No interview pack for this job yet.")
+        return interview_pack.public(got, jid)
+
+    @app.post("/api/jobs/{jid}/interview-pack/draft")
+    async def draft_interview_pack(jid: str):
+        """Lines the debrief supports, for you to check. Changes nothing."""
+        known_job(jid)
+        pack = packs.get(jid)
+        if not pack:
+            raise HTTPException(404, "No interview pack for this job yet.")
+        debrief = (pack.get("debrief") or "").strip()
+        if not debrief:
+            raise HTTPException(400, "Write the debrief first.")
+        try:
+            lines = await interview_pack.draft_lines(
+                get_runner(), cfg.chat_model, config.candidate().personalize(interview_pack.DEBRIEF_BRIEF), debrief)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"Your AI didn't answer: {str(e).splitlines()[0][:200] if str(e) else 'no reply'}") from None
+        return {"lines": lines, "version": doc_version(read_impact())}
+
+    @app.post("/api/jobs/{jid}/interview-pack/apply")
+    def apply_interview_pack(jid: str, body: dict):
+        """Add the lines you kept ({"lines", "version"}) to the record's "From your interviews" section,
+        under this role. `version` is the record the app has open; a different one on disk is a 409."""
+        row = known_job(jid)
+        pack = packs.get(jid)
+        if not pack:
+            raise HTTPException(404, "No interview pack for this job yet.")
+        lines = [str(x)[:600] for x in body.get("lines") or [] if str(x).strip()]
+        if not lines:
+            raise HTTPException(400, "Tick at least one line to add.")
+        current = read_impact()
+        if doc_version(current) != body.get("version"):
+            return JSONResponse({"detail": "The impact record was changed outside this window since you opened it.",
+                                 "current": impact_payload(current)}, status_code=409)
+        company = (row.get("company") or pack.get("company") or "the role").strip()
+        title = (row.get("title") or pack.get("title") or "role").strip()
+        new = record_import.apply(current, company, title, "", lines, f"the interview for {company}", date.today(),
+                                  section=onboarding.INTERVIEW_SECTION, intro=onboarding.INTERVIEW_INTRO)
+        if new == current:
+            raise HTTPException(400, "Those lines are in your impact record already.")
+        write_impact(new, current)
+        state["runner"] = None
+        packs.add_lines(jid, len(lines))
         return impact_payload(new)
 
     return app

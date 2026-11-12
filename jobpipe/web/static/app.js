@@ -143,7 +143,9 @@ const S = { jobs: [], byId: new Map(), regions: [], etag: null, notion: false, s
             scope: "tracker", sel: { tracker: null, find: null }, findFilter: "new",
             // Folded parts of the jobs tab, so the selected role (above all its résumé) gets the room.
             fold: { filters: !!prefs.fold?.filters, list: !!prefs.fold?.list, head: !!prefs.fold?.head },
-            selected: null, drawer: false, detailTab: "resume", detailTabJob: null, details: new Map(), scoring: new Map(), scoreErrors: new Map(), scoreFinished: null, picks: new Set(),
+            selected: null, drawer: false, detailTab: "resume", detailTabJob: null, details: new Map(), scoring: new Map(), scoreErrors: new Map(), scoreFinished: null,
+            picks: new Set(),
+            packs: new Map(), packIds: new Set(), packList: [], debriefDraft: {},
             summary: null, searches: [], defaults: {}, picked: null, runId: null, runSince: 0, tab: "tracker",
             dashRange: ["14", "30", "all"].includes(prefs.dashRange) ? prefs.dashRange : "30",
             trend: ["ats", "keywords", "skills", "experience"].includes(prefs.trend) ? prefs.trend : "ats",
@@ -172,6 +174,7 @@ function showTab(name) {
   if (name === "startups") loadStartups();
   if (name === "runs") loadRuns();
   if (name === "dashboard") renderDashboard();
+  if (name === "prep") loadPacks();
   if (name in DOCS) DOCS[name].load();
   // Profile's cards load at once; the promise settles when all have (the About button scrolls down after that)
   if (name === "profile") return Promise.allSettled([loadProfile(), loadAI(), loadFormats(), loadGhostDays(), loadMenuFit(), loadAbout()]);
@@ -409,7 +412,7 @@ function applyJobs(data) {
     renderDetail();
     if (cur.local) loadDetail(cur.id);
   } else if (cur && prev && (showsSent(prev) !== showsSent(cur) || prev.sent_resume !== cur.sent_resume)) {
-    if (!showsSent(prev)) S.detailTabJob = null;   // just marked Applied: open the résumé sent
+    if (!showsSent(prev) && S.detailTab !== "interview") S.detailTabJob = null;   // just marked Applied: open the résumé sent
     renderDetail();
   } else if (cur) renderDetailHead();
   if (S.tab === "searches") renderSearches();
@@ -1709,6 +1712,7 @@ const fitTile = (j, cls = "") => RUNP.jobs.has(j.id) ? ringTile(j, cls) : h("div
 // Applied to, with no record of the résumé that was sent.
 const SENT_STAGES = APPLIED_STAGES;
 const showsSent = (j) => !!j.tracker_id && (SENT_STAGES.includes(j.status) || !!j.sent_resume);
+const showsInterview = (j) => stageOf(j) === "Interviewing" || S.packIds.has(j.id);
 const noSent = (j) => !!j.tracker_id && SENT_STAGES.includes(j.status) && !j.sent_resume;
 const noSentTag = (j) => noSent(j) && h("span", { class: "tag warn-tag", title: "Add the résumé you sent in its Sent résumé tab." }, "No résumé on file");
 const referralTag = (j) => j.referral_url && h("span", { class: "tag ref", title: `Referral: ${refLabel(j)}. Click to open it`,
@@ -1869,6 +1873,11 @@ async function setStatus(j, status) {
     const notion = S.notionError ? "Notion will get it when it's back." : "";
     if (!shown) toast(`Status set to ${status}.${notion ? " " + notion : ""}`);
     else if (notion) toast(notion);
+    if (status === "Interviewing") {
+      if (S.selected === j.id) { S.detailTab = "interview"; S.detailTabJob = j.id; renderDetail(); }
+      else toast(`Making an interview pack for ${j.title || "this role"}.`);
+      startInterviewPack(j);
+    }
     loadJobs({ wait: true });         // once the background sync has run, show whether Notion has it
   } catch (e) { j.status = prev; repaint(j); toast(e.message, true); }
 }
@@ -2290,13 +2299,17 @@ function drawDetail() {
   if (!j.local) {
     // Only in the tracker: no posting stored, but a résumé made outside the app may be.
     const tab = S.detailTabJob !== j.id && showsSent(j) ? "sent"
+      : S.detailTab === "interview" && showsInterview(j) ? "interview"
       : S.detailTab === "posting" ? "posting" : S.detailTab === "sent" && showsSent(j) ? "sent" : "resume";
-    const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []), ["resume", "Résumé"], ["posting", "Posting & score"]];
+    const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []),
+                  ["resume", "Résumé"], ["posting", "Posting & score"],
+                  ...(showsInterview(j) ? [["interview", "Interview prep kit"]] : [])];
     const sub = h("div", { class: "subtabs" }, ...tabs.map(([k, label]) =>
       h("button", { class: k === tab ? "active" : "", onclick: () => { S.detailTab = k; S.detailTabJob = j.id; renderDetail(); } }, label)), foldAllButton());
     const panel = h("div", { class: "subpanel active" });
     box.replaceChildren(head, sub, panel);
     if (tab === "sent") renderSent(j, panel);
+    else if (tab === "interview") renderInterview(j, panel);
     else if (tab === "resume") renderOutside(j, panel);
     else {
       const read = scoreButton(j.id, "signal", false);
@@ -2317,27 +2330,38 @@ function drawDetail() {
   if (!d) { box.replaceChildren(head, h("div", { class: "pad muted" }, spinner(), " Loading…")); return; }
   const off = (k) => (k === "heatmap" ? !d.has_heatmap : ["resume", "report"].includes(k) && !j.tailored);
   const tabs = [...(showsSent(j) ? [["sent", "Sent résumé"]] : []),
-                ["resume", "Résumé"], ["report", "Fit report"], ["heatmap", "Heat map"], ["posting", "Posting & score"]];
+                ["resume", "Résumé"], ["report", "Fit report"], ["heatmap", "Heat map"], ["posting", "Posting & score"],
+                ...(showsInterview(j) ? [["interview", "Interview prep kit"]] : [])];
   // A tab with nothing in it yet still opens (to say how to fill it), but only when clicked for this job:
   // moving to another job falls back to the posting, or for a job applied to, to the résumé sent.
   const fresh = S.detailTabJob !== j.id;
   const tab = fresh && showsSent(j) ? "sent"
-    : (S.detailTab === "sent" && !showsSent(j)) || (off(S.detailTab) && fresh) ? "posting" : S.detailTab;
+    : (S.detailTab === "sent" && !showsSent(j)) || (S.detailTab === "interview" && !showsInterview(j)) || (off(S.detailTab) && fresh) ? "posting" : S.detailTab;
   const sub = h("div", { class: "subtabs" }, ...tabs.map(([k, label]) => h("button", {
     class: [k === tab && "active", off(k) && "empty"].filter(Boolean).join(" "),
     onclick: () => { S.detailTab = k; S.detailTabJob = j.id; renderDetail(); } }, label)), foldAllButton());
   const panel = h("div", { class: "subpanel active" });
   box.replaceChildren(head, sub, panel);
   if (tab === "sent") renderSent(j, panel);
+  else if (tab === "interview") renderInterview(j, panel);
   else if (off(tab) && tab === "resume") renderOutside(j, panel);
   else if (off(tab)) panel.append(emptyTab(j, d, tab));
   else if (tab === "resume") renderResume(d, panel);
   else if (tab === "report") renderReport(d, panel);
   else if (tab === "heatmap") panel.append(
     h("iframe", { class: "heatmap", sandbox: "allow-scripts", src: fileUrl(`/api/jobs/${encodeURIComponent(d.id)}/heatmap`) }));
-  if (tab === "posting") panel.append(h("div", { class: "posting-split" },
-    h("div", { class: "posting-pane" }, postingMeta(j, d), noPosting(j) ? postingNeeded(j) : postingBody(d.description)),
-    h("aside", { class: "score-pane" }, scoreBlock(j, d))));
+  if (tab === "posting") {
+    const needle = postingFocus?.id === j.id ? postingFocus.needle : "";
+    const body = noPosting(j) ? postingNeeded(j) : postingBody(d.description, needle);
+    panel.append(h("div", { class: "posting-split" },
+      h("div", { class: "posting-pane" }, postingMeta(j, d), body),
+      h("aside", { class: "score-pane" }, scoreBlock(j, d))));
+    const hit = needle && body.querySelector?.(".posting-hit");
+    if (hit) {
+      postingFocus = null;
+      requestAnimationFrame(() => hit.scrollIntoView({ block: "center", inline: "nearest" }));
+    }
+  }
 }
 
 // What a Résumé, Fit report or Heat map tab says before the run that fills it.
@@ -2429,6 +2453,319 @@ async function renderSent(j, panel) {
   renderResume(d, wrap, { src, label, n: sentN });
 }
 
+// ---- interview pack for one role, made when it is marked Interviewing ---------------------------
+const packPolls = new Set();
+const researchPolls = new Set();
+
+function renderPackStrip() {
+  const el = $("#prep-packs");
+  if (!el) return;
+  const list = S.packList || [];
+  el.classList.toggle("hidden", !list.length);
+  if (!list.length) { el.replaceChildren(); return; }
+  el.replaceChildren(h("span", { class: "muted" }, "Packs for roles"),
+    ...list.map((p) => h("button", { type: "button", class: "chip", onclick: () => openJob(p.job_id, "interview") },
+      [p.company, p.title].filter(Boolean).join(" · ") || "Role",
+      p.status === "making" ? " · Making…" : p.status === "failed" ? " · Didn't finish" : " → Open")));
+}
+
+async function loadPacks() {
+  try {
+    const d = await api("/api/interview-packs");
+    S.packList = d.packs || [];
+    const ids = new Set(S.packList.map((p) => p.job_id).filter(Boolean));
+    const job = S.byId.get(S.selected);
+    const gained = job && ids.has(job.id) && !S.packIds.has(job.id) && stageOf(job) !== "Interviewing";
+    S.packIds = ids;
+    renderPackStrip();
+    if (gained) renderDetail();
+  } catch { /* the strip stays as it was */ }
+}
+
+async function saveDebrief(id, text) {
+  try {
+    const p = await put(`/api/jobs/${encodeURIComponent(id)}/interview-pack`, { debrief: text });
+    S.packs.set(id, p);
+    if (S.debriefDraft[id] === text) delete S.debriefDraft[id];
+    return p;
+  } catch (e) { toast(e.message, true); return null; }
+}
+
+async function startInterviewPack(j, again = false) {
+  try {
+    const p = await post(`/api/jobs/${encodeURIComponent(j.id)}/interview-pack`, again ? { again: true } : {});
+    S.packs.set(j.id, p);
+    S.packIds.add(j.id);
+    if (p.status === "making") pollPack(j.id);
+    renderPackStrip();
+    if (S.selected === j.id && S.detailTab === "interview") {
+      const panel = $("#job-detail .subpanel");
+      if (panel) drawInterview(j, panel, p);
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
+function pollPack(id) {
+  if (packPolls.has(id)) return;
+  packPolls.add(id);
+  const tick = async () => {
+    let p;
+    try { p = await api(`/api/jobs/${encodeURIComponent(id)}/interview-pack`); }
+    catch { packPolls.delete(id); return; }
+    S.packs.set(id, p);
+    if (p.status === "making") { setTimeout(tick, 1200); return; }
+    packPolls.delete(id);
+    loadPacks();
+    const job = S.byId.get(id);
+    if (job && S.selected === id && S.detailTab === "interview") {
+      const panel = $("#job-detail .subpanel");
+      if (panel) drawInterview(job, panel, p);
+    }
+  };
+  setTimeout(tick, 1200);
+}
+
+function renderInterview(j, panel) {
+  panel.replaceChildren(h("div", { class: "pad muted" }, spinner(), " Loading…"));
+  loadInterview(j, panel);
+}
+
+async function loadInterview(j, panel) {
+  let p;
+  try { p = await api(`/api/jobs/${encodeURIComponent(j.id)}/interview-pack`); }
+  catch (e) {
+    if (panel.isConnected) panel.replaceChildren(h("div", { class: "pad" }, h("p", { class: "form-error" }, e.message)));
+    return;
+  }
+  if (S.selected !== j.id || !panel.isConnected) return;
+  S.packs.set(j.id, p);
+  if (p.status === "none" && stageOf(j) === "Interviewing") {
+    await startInterviewPack(j);
+    p = S.packs.get(j.id) || p;
+    if (S.selected !== j.id || !panel.isConnected) return;
+  }
+  if (p.status === "making") pollPack(j.id);
+  if (p.company_research?.status === "making") pollResearch(j.id);
+  drawInterview(j, panel, p);
+}
+
+function pollResearch(id) {
+  if (researchPolls.has(id)) return;
+  researchPolls.add(id);
+  const tick = async () => {
+    let p;
+    try { p = await api(`/api/jobs/${encodeURIComponent(id)}/interview-pack`); }
+    catch { researchPolls.delete(id); return; }
+    S.packs.set(id, p);
+    if (p.company_research?.status === "making") { setTimeout(tick, 1200); return; }
+    researchPolls.delete(id);
+    const job = S.byId.get(id);
+    if (job && S.selected === id && S.detailTab === "interview") {
+      const panel = $("#job-detail .subpanel");
+      if (panel) drawInterview(job, panel, p);
+    }
+  };
+  setTimeout(tick, 1200);
+}
+
+async function startCompanyResearch(j, again = false) {
+  const id = j.id;
+  try {
+    const p = await post(`/api/jobs/${encodeURIComponent(id)}/interview-pack/research`, again ? { again: true } : {});
+    S.packs.set(id, p);
+    if (p.company_research?.status === "making") pollResearch(id);
+    const panel = $("#job-detail .subpanel");
+    if (S.selected === id && S.detailTab === "interview" && panel) drawInterview(j, panel, S.packs.get(id) || p);
+  } catch (e) { toast(e.message, true); }
+}
+
+// The model is handed posting.md and company.md. Say those in the words a reader uses.
+// A sources disclaimer the model wrote is dropped here; the card states where the analysis came from.
+function researchProse(text) {
+  let s = String(text || "");
+  s = s.replace(/\bDeep company research\b/g, "Company research");
+  s = s.replace(/\bdeep company research\b/g, "company research");
+  s = s.replace(/Sources:\s*(?:posting\.md\s+and\s+company\.md|company\.md\s+and\s+posting\.md)\s+only\.?\s*/gi, "");
+  s = s.replace(/This comes from the job posting and from the company record already saved in the app \(funding, stage, industries\)\.\s*/gi, "");
+  s = s.replace(/No web search, reviews, or news were available\.?\s*/gi, "");
+  s = s.replace(/Anything not in (?:those two documents|the job posting or the saved company record) is marked ["“”']Not stated["“”'] and is something to ask about, not a fact\.?\s*/gi, "");
+  const record = "the company record already saved in the app";
+  if (/(?:posting|company)\.md/i.test(s)) {
+    s = s.replace(/Stored record\s*\(\s*company\.md\s*\)/gi, `From ${record}`);
+    s = s.replace(/\bper\s+company\.md\b/gi, `from ${record}`);
+    s = s.replace(/\bfrom\s+company\.md\b/gi, `from ${record}`);
+    s = s.replace(/\bin\s+company\.md\b/gi, `in ${record}`);
+    s = s.replace(/\bper\s+posting\.md\b/gi, "from the job posting");
+    s = s.replace(/\bfrom\s+posting\.md\b/gi, "from the job posting");
+    s = s.replace(/\bin\s+posting\.md\b/gi, "in the job posting");
+    s = s.replace(/`?(?:the\s+)?company\.md`?/gi, record);
+    s = s.replace(/`?(?:the\s+)?posting\.md`?/gi, "the job posting");
+    s = s.replace(/\bthe the\b/gi, "the");
+  }
+  s = s.replace(/\beither document\b/gi, "the job posting or the saved company record");
+  s = s.replace(/\bin the documents\b/gi, "in the job posting or the saved company record");
+  return s.trim();
+}
+
+function companyResearchCard(j, p) {
+  const r = p.company_research || { status: "none", sections: [] };
+  const sections = r.sections || [];
+  const ready = r.status === "ready" && sections.length;
+  const card = h("div", { class: "card iv-research" },
+    h("h3", {}, "Company research"),
+    h("p", { class: "muted" },
+      "It is recommended to do company research when considering a role at a new company. This involves a fuller look at the employer: history, financial health, culture, leadership, and market position, so you can see if the company fits your goals. It goes past the posting to employee-review themes, competitors, recent news, and industry trends. Use it to prepare for the interview, talk about an offer, and spot a mismatch."));
+  if (r.status === "making") {
+    card.append(h("p", {}, spinner(), " Researching the company…"));
+    return card;
+  }
+  if (r.status === "failed") card.append(h("p", {}, r.error || "Your AI didn't answer."));
+  const rendered = [];
+  for (const s of sections) {
+    const heading = researchProse(s.heading);
+    const text = researchProse(s.text);
+    if (heading || text) rendered.push({ heading, text });
+  }
+  if (rendered.length) {
+    card.append(h("p", { class: "muted" },
+      "The analysis below comes from the job posting and from the company detail already saved in the app (funding, stage, industries). No web search, reviews, or news were pulled at this time."));
+    for (const s of rendered) {
+      if (s.heading) card.append(h("h4", {}, s.heading));
+      if (s.text) card.append(h("p", { class: "iv-prose" }, s.text));
+    }
+  }
+  card.append(h("button", { type: "button", class: "ghost",
+    onclick: () => startCompanyResearch(j, ready) },
+    ready ? "Re-run research" : "Start company research"));
+  return card;
+}
+
+function drawInterview(j, panel, p) {
+  const id = j.id;
+  const ta = h("textarea", { rows: 5, "aria-label": "Debrief",
+    placeholder: "What they asked, what you said, what you want to remember." });
+  ta.value = S.debriefDraft[id] ?? p.debrief ?? "";
+  let timer;
+  ta.addEventListener("input", () => {
+    S.debriefDraft[id] = ta.value;
+    clearTimeout(timer);
+    timer = setTimeout(() => saveDebrief(id, ta.value), 700);
+  });
+  ta.addEventListener("blur", () => { clearTimeout(timer); if (p.status !== "none") saveDebrief(id, ta.value); });
+  const debriefCard = h("div", { class: "card" },
+    h("h3", {}, "Debrief"),
+    h("p", { class: "muted" }, "This field autosaves notes as you type. You can pull details from it later and add them to your impact record."),
+    ta,
+    p.status !== "making" && h("div", { class: "actions-inline" },
+      h("button", { type: "button", class: "primary", onclick: () => draftPackLines(j, ta) }, "Draft lines from this debrief")));
+  const again = p.status !== "none" && h("button", { type: "button", class: "ghost small", disabled: p.status === "making",
+    onclick: async () => { await saveDebrief(id, ta.value); startInterviewPack(j, true); } },
+    p.status === "failed" ? "Try again" : "Make it again");
+  const researchCard = companyResearchCard(j, p);
+  const root = h("div", { class: "iv-pack" });
+  if (p.status === "making") {
+    root.append(researchCard, h("div", { class: "notice" }, h("p", {}, spinner(), " Making the interview pack…"),
+      h("p", { class: "muted" }, "Questions from the gaps, stories from your record, and questions to ask them. You can write the debrief while that runs.")),
+      debriefCard);
+  } else if (p.status === "failed") {
+    root.append(researchCard, h("div", { class: "notice" },
+      h("h3", {}, "The pack didn't finish"),
+      h("p", {}, p.error || "Your AI didn't answer."),
+      p.gaps?.length ? h("p", {}, "Gaps on file: ", p.gaps.join("; "), ".") : null, again),
+      debriefCard);
+  } else if (p.status === "none") {
+    root.append(researchCard, h("div", { class: "notice" },
+      h("h3", {}, "No pack for this role yet"),
+      h("p", {}, "Marking a role Interviewing makes one."),
+      h("button", { type: "button", class: "primary", onclick: () => startInterviewPack(j) }, "Make the pack")));
+  } else {
+    root.append(researchCard, h("p", { class: "muted" },
+      (p.from_gaps ? "These are possible questions from the gaps in the fit report, and a response is shown only when your record supports it."
+        : "No gaps on file, so these questions come from the posting."),
+      p.pdf_only ? ` The résumé on file is ${p.pdf_only}, a PDF, so it wasn't quoted.` : ""), again);
+    if (p.added) root.append(h("p", { class: "muted" }, `${plural(p.added, "line")} added to your impact record.`));
+    if (p.questions?.length) {
+      const posting = S.details.get(id)?.d?.description || "";
+      const questions = h("div", { class: "iv-questions" }, h("h3", { class: "iv-section" }, "Likely questions"));
+      for (const q of p.questions) {
+        const needle = gapInPosting(posting, q.gap);
+        const gapText = quoted(q.gap);
+        questions.append(h("div", { class: "card iv-q" },
+          q.gap && h("div", { class: "iv-field" },
+            h("p", { class: "iv-k" }, "Job requirement"),
+            h("p", {}, needle ? h("button", { type: "button", class: "link-btn iv-req",
+              title: "Show this line in Posting & score",
+              onclick: () => openPostingLine(j, needle) }, gapText) : gapText)),
+          h("div", { class: "iv-field" },
+            h("p", { class: "iv-k" }, "Question"),
+            h("p", { class: "iv-ask" }, quoted(q.question))),
+          h("div", { class: "iv-field" },
+            h("p", { class: "iv-k" }, "Possible response"),
+            h("p", {},
+              q.story ? [q.story, q.cite ? h("span", { class: "cite" }, " From the fit report.") : null]
+                : h("span", { class: "muted" }, "There is no story in the record for this requirement.")))));
+      }
+      root.append(questions);
+    } else {
+      root.append(h("div", { class: "notice" }, h("p", {}, "Nothing came back. Make it again."),
+        p.gaps?.length ? h("p", { class: "muted" }, "Gaps on file: ", p.gaps.join("; "), ".") : null));
+    }
+    if (p.ask_them?.length) root.append(h("div", { class: "card" }, h("h3", { class: "iv-section" }, "Questions to ask them"),
+      h("ul", {}, ...p.ask_them.map((q) => h("li", {}, q)))));
+    root.append(debriefCard);
+  }
+  if (p.company_research?.status === "making") pollResearch(j.id);
+  panel.replaceChildren(h("div", { class: "pad" }, root));
+}
+
+async function draftPackLines(j, ta) {
+  if (!ta.value.trim()) { toast("Write the debrief first.", true); return; }
+  const saved = await saveDebrief(j.id, ta.value);
+  if (!saved) return;
+  const card = ta.closest(".card");
+  card.querySelector(".setup-draft")?.remove();
+  const box = h("div", { class: "setup-draft" }, h("p", {}, spinner(), " Drafting lines from your debrief…"));
+  card.append(box);
+  let d;
+  try { d = await post(`/api/jobs/${encodeURIComponent(j.id)}/interview-pack/draft`); }
+  catch (e) { box.replaceChildren(h("p", { class: "form-error" }, e.message)); return; }
+  if (!d.lines.length) {
+    box.replaceChildren(h("p", {}, "Your debrief didn't add anything your record doesn't already say."));
+    return;
+  }
+  const rows = d.lines.map((l) => {
+    const cb = h("input", { type: "checkbox", checked: l.ok }), text = h("input", { type: "text", value: l.text, "aria-label": "Line" });
+    cb.addEventListener("change", count);
+    return { cb, text, el: h("li", { class: `sugg-line ${l.ok ? "new" : "detail"}` }, h("label", { class: "check" }, cb, text), l.why ? h("small", {}, l.why) : null) };
+  });
+  const add = h("button", { type: "button", class: "primary" });
+  function count() {
+    const n = rows.filter((r) => r.cb.checked).length;
+    add.disabled = !n;
+    add.textContent = `Add ${plural(n, "line")} to my impact record`;
+  }
+  count();
+  add.addEventListener("click", async () => {
+    const lines = rows.filter((r) => r.cb.checked).map((r) => r.text.value.trim()).filter(Boolean);
+    add.disabled = true;
+    try {
+      await DOCS.impact.save();
+      const rec = await api("/api/impact-record");
+      await post(`/api/jobs/${encodeURIComponent(j.id)}/interview-pack/apply`, { lines, version: rec.version });
+      await DOCS.impact.load();
+      rows.forEach((r) => { if (r.cb.checked) { r.cb.checked = false; r.cb.disabled = r.text.disabled = true; r.el.classList.add("added"); } });
+      const pack = S.packs.get(j.id);
+      if (pack) pack.added = (pack.added || 0) + lines.length;
+      add.replaceWith(h("span", { class: "sugg-done" }, `Added ${plural(lines.length, "line")} ✓`));
+    } catch (e) { toast(e.message, true); count(); }
+  });
+  box.replaceChildren(
+    h("p", {}, h("b", {}, "Lines for your impact record. "),
+      h("span", { class: "muted" }, "Edit any of them; untick what's wrong. A figure that isn't in your debrief is unticked until you check it.")),
+    h("ul", { class: "sugg-lines" }, ...rows.map((r) => r.el)),
+    h("div", { class: "actions" }, h("span", { class: "grow" }), add));
+}
+
 // A résumé made outside the app (the resume-job-fit skill's run folder, or a saved résumé in
 // the profile's references/) for a job the app didn't tailor: the one picked for it, or the one named for it.
 async function renderOutside(j, panel) {
@@ -2472,24 +2809,96 @@ async function renderOutside(j, panel) {
 // The posting, read beside its score. JobsPipe stores postings as plain text: blank-line paragraphs,
 // "- " bullets, and section titles on their own short line.
 const BULLET = /^\s*(?:[-*•·–]|\d+[.)])\s+/;
-function postingBody(text) {
+// A kit requirement opens Posting & score on the line that contains its words. Cleared once that line is drawn.
+let postingFocus = null;
+function openPostingLine(j, needle) {
+  postingFocus = { id: j.id, needle };
+  S.detailTab = "posting";
+  S.detailTabJob = j.id;
+  renderDetail();
+}
+function quoted(text) {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  return /^["“]/.test(s) && /["”]$/.test(s) ? s : `"${s}"`;
+}
+function postingNeedle(gap) {
+  return String(gap || "").replace(/\s+/g, " ").trim().replace(/^["“”']+|["“”']+$/g, "").trim();
+}
+// Drop parenthetical expansions so a shortened requirement can match the posting line
+// that spells the same names out, such as "SIEM" beside "SIEM (Security Information and Event Management)".
+function withoutParens(s) {
+  let out = String(s || "");
+  let prev;
+  do {
+    prev = out;
+    out = out.replace(/\s*\([^()]*\)/g, "");
+  } while (out !== prev);
+  return out.replace(/\s+/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
+}
+function requirementCore(s) {
+  return withoutParens(String(s || "").replace(BULLET, ""))
+    .toLowerCase()
+    .replace(/^["“”']+|["“”']+$/g, "")
+    .replace(/\.+$/, "")
+    .trim();
+}
+// The leftover after the requirement is one trailing clause, not another sentence.
+function trailingClause(rest) {
+  const words = rest.replace(/^[\s,;:–—-]+/, "").trim();
+  if (!words || /[.!?]/.test(words)) return false;
+  const n = words.split(/\s+/).filter(Boolean).length;
+  return n > 0 && n <= 12;
+}
+// The gap's own words, when they sit on one posting line, or when that line is the same
+// requirement written longer: parenthetical expansions and a trailing clause may differ.
+// A period the model put on the end of the quote is not part of the line.
+// Returns words the posting line contains, so Posting & score can highlight that line.
+function gapInPosting(description, gap) {
+  const needle = postingNeedle(gap);
+  if (!needle) return "";
+  const lines = (description || "").split("\n").map((line) => line.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const has = (want) => want && lines.some((line) => line.toLowerCase().includes(want.toLowerCase()));
+  if (has(needle)) return needle;
+  const bare = needle.replace(/\.$/, "").trim();
+  if (bare !== needle && has(bare)) return bare;
+  const core = requirementCore(needle);
+  if (core.length < 40) return "";
+  const hit = lines.find((line) => {
+    const lineCore = requirementCore(line);
+    if (!lineCore.startsWith(core)) return false;
+    const rest = lineCore.slice(core.length).trim();
+    return !rest || trailingClause(rest);
+  });
+  return hit || "";
+}
+function postingBody(text, focusNeedle) {
   const lines = (text || "").split("\n").map((l) => l.trim());
   const box = h("div", { class: "posting-body" });
   if (!lines.some(Boolean)) { box.append(h("p", { class: "muted" }, "No posting text is stored for this job. Paste the description from its page to score it and make its résumé.")); return box; }
   const next = (i) => lines.slice(i + 1).find(Boolean) || "";
+  const want = focusNeedle ? String(focusNeedle).replace(/\s+/g, " ").trim().toLowerCase() : "";
+  let marked = false;
+  const mark = (el, line) => {
+    if (!marked && want && line.replace(/\s+/g, " ").trim().toLowerCase().includes(want)) {
+      el.classList.add("posting-hit");
+      marked = true;
+    }
+    return el;
+  };
   let list = null;
   lines.forEach((line, i) => {
     if (!line) return;
     if (BULLET.test(line)) {
       if (!list) box.append(list = h("ul"));
-      list.append(h("li", {}, line.replace(BULLET, "")));
+      list.append(mark(h("li", {}, line.replace(BULLET, "")), line));
       return;
     }
     list = null;
     // A short line with no sentence ending, followed by a paragraph or a list, is a section title.
     const n = next(i);
     const title = line.length < 70 && !/[.,;!]$/.test(line) && (BULLET.test(n) || n.length >= 70);
-    box.append(h(title ? "h4" : "p", {}, line));
+    box.append(mark(h(title ? "h4" : "p", {}, line), line));
   });
   return box;
 }
@@ -6025,6 +6434,7 @@ async function setupInterview(role, pane, redraw) {
   applyFolds();
   Object.entries(DOCS).forEach(([k, d]) => d.setView(S.docViews[k]));
   await Promise.all([loadSummary(), loadJobs()]);
+  loadPacks();
   setScope(S.scope);      // the Tracker, unless a #job= link already opened a role in Search Jobs
   api("/api/setup").then((d) => { WIZ.data = d; setupCard(); if (d.show) openSetup(0); }).catch(() => {});
   // An open document also picks up changes made elsewhere, e.g. notes Claude adds to interview prep.
