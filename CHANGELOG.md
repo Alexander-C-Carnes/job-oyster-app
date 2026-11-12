@@ -7,6 +7,8 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 ### Finding jobs
 - Startups hiring on Gem boards show their open roles
 - Gem job links read in like any other posting
+### Tracker
+- A Has pay filter shows only roles that state a salary
 
 ## 2026-11-04
 
