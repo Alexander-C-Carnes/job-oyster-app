@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import httpx
 
-from . import egress
+from . import egress, gem
 from .jobs_api import salary_text, work_mode
 from .store import canonical_url
 
@@ -30,6 +30,8 @@ def detect_ats(*urls: Optional[str]) -> str:
         return "iCIMS"
     if "ashbyhq.com" in joined:
         return "Ashby"
+    if "jobs.gem.com" in joined:
+        return "Gem"
     if "smartrecruiters.com" in joined:
         return "SmartRecruiters"
     return "not identified"
@@ -271,6 +273,14 @@ def _ats_posting(url: str, c: httpx.Client, meta: dict) -> str:
     jid = linkedin_job_id(url) if sld == "linkedin" else ""
     if jid:
         return _linkedin_posting(jid, c, meta)
+    board, ext = gem.split_url(url)
+    if ext:
+        found = gem.posting(board, ext, c)
+        if not found:
+            return ""
+        _fill(meta, **{k: found[k] for k in ("job_title", "company", "location", "remote",
+                                              "min_annual_salary_usd", "max_annual_salary_usd") if k in found})
+        return found.get("description") or ""
     return ""
 
 
