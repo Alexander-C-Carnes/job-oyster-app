@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-12
+
+### Finding jobs
+- Startups hiring on Gem boards show their open roles
+- Gem job links read in like any other posting
+
 ## 2026-11-04
 
 ### Mac app

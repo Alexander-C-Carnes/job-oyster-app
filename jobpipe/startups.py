@@ -766,7 +766,7 @@ ATS_RE = {
     "lever": re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)"),
     "lever-eu": re.compile(r"jobs\.eu\.lever\.co/([A-Za-z0-9_-]+)"),      # Lever's EU host: many European companies
     "ashby": re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)|api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9_.-]+)"),
-    "gem": re.compile(r"jobs\.gem\.com/([A-Za-z0-9_-]+)"),
+    "gem": re.compile(r"jobs\.gem\.com/(?!api/|static/)([A-Za-z0-9_-]+)"),
 }
 CAREERS_PATHS = ("/careers", "/jobs", "/careers/", "/jobs/", "/join", "/join-us", "/company/careers", "/about/careers", "/en/careers")
 
