@@ -20,7 +20,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from . import egress
-from . import hiringcafe, jd
+from . import gem, hiringcafe, jd
 from .jd import MIN_DESCRIPTION_CHARS, MIN_PASTED_CHARS, linkedin_job_id, posting_url
 from .notion import APPLIED_STATUSES
 from .store import canonical_url, now_iso
@@ -70,6 +70,9 @@ def is_closed(job: dict, client: httpx.Client) -> Optional[bool]:
             if r.status_code != 200:
                 return None
             return not any(str(j.get("id")) == m.group(2) for j in r.json().get("jobs") or [])
+        board, ext = gem.split_url(url)
+        if ext:  # the page is 200 even after the posting is gone; the API returns null
+            return gem.posting(board, ext, client) is None
         r = client.get(url)
         if r.status_code in (404, 410):
             return True

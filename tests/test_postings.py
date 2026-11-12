@@ -24,6 +24,13 @@ class FakeSites:
             return httpx.Response(200, json={"jobs": [{"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}]})
         if host == "apply.workable.com":
             return httpx.Response(404 if "/jobs/GONE1" in url else 200, json={})
+        if host == "jobs.gem.com":
+            ext = (json.loads(request.content or b"{}").get("variables") or {}).get("extId")
+            if ext == "flaky":
+                return httpx.Response(502, text="no")
+            posting = None if ext == "gone" else {"title": "Open role", "extId": ext, "descriptionHtml": "<p>Open</p>",
+                                                   "locations": [], "job": {"locationType": "REMOTE", "teamDisplayName": "Acme"}}
+            return httpx.Response(200, json={"data": {"oatsExternalJobPosting": posting}})
         if host == "gone.example":
             return httpx.Response(410)
         if host == "site.example":
@@ -45,6 +52,10 @@ def test_is_closed_per_site():
     assert closed("https://jobs.ashbyhq.com/acme/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb") is True
     assert closed("https://apply.workable.com/lawnstarter/j/GONE1") is True
     assert closed("https://apply.workable.com/sakana-ai/j/9B6A0E82AF") is False
+    assert closed("https://jobs.gem.com/acme/gone") is True
+    assert closed("https://jobs.gem.com/acme/gone/application") is True
+    assert closed("https://jobs.gem.com/acme/openrole") is False
+    assert closed("https://jobs.gem.com/acme/flaky") is None
     assert closed("https://gone.example/jobs/1") is True
     assert closed("https://site.example/jobs/1") is True
     assert closed("https://open.example/jobs/1") is False

@@ -9,7 +9,7 @@ Optional, with a key in .env: Fundable (FUNDABLE_API_KEY) or People Data Labs (P
 lookups, which give the latest round of a company the news didn't cover.
 
 Each startup is kept in data/startups.json, merged across sources by its name (and website).
-Open roles come from the company's own careers board (Greenhouse, Lever (US or EU host) or Ashby public APIs),
+Open roles come from the company's own careers board (Greenhouse, Lever (US or EU host), Ashby or Gem public APIs),
 found from its website, so they cost no JobsPipe credits. A role added from here is stored like
 any other job, with a `funding` block the board shows as a round chip.
 """
@@ -30,7 +30,7 @@ from urllib.parse import quote, urljoin, urlsplit
 import httpx
 
 from . import egress
-from . import regions
+from . import gem, regions
 from .jd import html_to_text
 from .store import _read, _write, now_iso, slug
 
@@ -766,6 +766,7 @@ ATS_RE = {
     "lever": re.compile(r"jobs\.lever\.co/([A-Za-z0-9_-]+)"),
     "lever-eu": re.compile(r"jobs\.eu\.lever\.co/([A-Za-z0-9_-]+)"),      # Lever's EU host: many European companies
     "ashby": re.compile(r"jobs\.ashbyhq\.com/([A-Za-z0-9_.-]+)|api\.ashbyhq\.com/posting-api/job-board/([A-Za-z0-9_.-]+)"),
+    "gem": re.compile(r"jobs\.gem\.com/([A-Za-z0-9_-]+)"),
 }
 CAREERS_PATHS = ("/careers", "/jobs", "/careers/", "/jobs/", "/join", "/join-us", "/company/careers", "/about/careers", "/en/careers")
 
@@ -779,11 +780,12 @@ class Board:
     def url(self) -> str:
         return {"greenhouse": f"https://boards.greenhouse.io/{self.board}", "lever": f"https://jobs.lever.co/{self.board}",
                 "lever-eu": f"https://jobs.eu.lever.co/{self.board}",
-                "ashby": f"https://jobs.ashbyhq.com/{self.board}"}[self.kind]
+                "ashby": f"https://jobs.ashbyhq.com/{self.board}",
+                "gem": f"https://jobs.gem.com/{self.board}"}[self.kind]
 
 
 def board_jobs(b: Board, client: httpx.Client) -> Optional[list[dict]]:
-    """The open roles on a Greenhouse, Lever or Ashby board, or None if that board doesn't exist."""
+    """The open roles on a Greenhouse, Lever, Ashby or Gem board, or None if that board doesn't exist."""
     try:
         if b.kind == "greenhouse":
             r = client.get(f"https://boards-api.greenhouse.io/v1/boards/{b.board}/jobs", params={"content": "true"})
@@ -826,6 +828,8 @@ def board_jobs(b: Board, client: httpx.Client) -> Optional[list[dict]]:
                     role["pay_usd"] = [lo, hi]
                 out.append(role)
             return out
+        if b.kind == "gem":
+            return gem.board_jobs(b.board, client)
     except (httpx.HTTPError, ValueError):
         return None
     return None
@@ -857,7 +861,7 @@ def boards_in(text: str) -> list[Board]:
 
 
 def find_board(website: str, name: str, client: httpx.Client, log: Callable[[str], None] = lambda s: None) -> tuple[Optional[Board], str]:
-    """(the company's careers board, the careers page found). Looks for a Greenhouse, Lever or Ashby link on the
+    """(the company's careers board, the careers page found). Looks for a Greenhouse, Lever, Ashby or Gem link on the
     site's home page and careers pages, then tries the obvious board names."""
     site = website if "://" in (website or "") else f"https://{website}" if website else ""
     careers = ""
@@ -1008,6 +1012,10 @@ def open_roles(s: dict, phrases: list[str], client: Optional[httpx.Client] = Non
     ats = s.get("ats") or {}
     b = Board(ats["kind"], ats["board"]) if ats.get("kind") and ats.get("board") else None
     careers = s.get("careers_url") or ""
+    if b is None:  # a careers link already pointing at a board (jobs.gem.com/acme, say) is that board
+        found = boards_in(careers or s.get("jobs_url") or "")
+        if found:
+            b, careers = found[0], careers or found[0].url
     jobs = board_jobs(b, c) if b else None
     if jobs is None:
         b, careers = find_board(s.get("website") or "", s.get("name") or "", c, log)
