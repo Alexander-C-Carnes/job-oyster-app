@@ -97,6 +97,10 @@ Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Clas
 
 **Wasn't this called Job Search?** Yes, until v0.1.9. It's the same app. The first time you open Job Oyster it offers to move the old Job Search app to the Trash, and it moves your profile folder from `~/JobSearch` to `~/JobOyster` (the old path keeps working). From the code, `oyster` replaces the `jobsearch` command, which still works.
 
+## Thanks
+
+[Ronnie Moore](https://github.com/ronnie) built a good part of this app: reading Comeet, Workable and HiringCafe postings, saying when a posting has closed, dismissing jobs that score too low or are checked in one go, deleting dismissed jobs you never tracked, résumés ready to send with a notification when one finishes, updating a résumé from a confirmed fact, and the Mac app's menu-bar item. Thank you, Ronnie.
+
 ## Buy me a coffee
 
 Job Oyster is free. If it helped you, especially if it helped you land a job, you can [buy me a coffee](https://buy.stripe.com/bJe6oI8zu7mX8tN74u3F600). You choose the amount, it's paid through Stripe, and it doesn't unlock anything: everyone gets the same app.
