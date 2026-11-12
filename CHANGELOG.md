@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-12
+
+### Tracker
+- A Has pay filter shows only roles that state a salary
+
 ## 2026-11-04
 
 ### Mac app
