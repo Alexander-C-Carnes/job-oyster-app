@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-17
 
+### App
+- When the app opens after an update, a card shows each new thing worth trying, with a button that takes you there and the rest of the changes folded underneath
+- Settings › About › What's new shows the month's cards again
 ### Job details
 - Marking a role Interviewing makes an interview prep kit: likely questions, stories from your record, questions to ask, and a debrief that can add lines to your impact record
 - Company research for a role, when you ask for it

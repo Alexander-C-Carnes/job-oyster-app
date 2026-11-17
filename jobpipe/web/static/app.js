@@ -334,6 +334,7 @@ async function loadSummary() {
   if (!off.classList.contains("hidden")) {   // back after an outage: reload what failed while it was down
     off.classList.add("hidden");
     loadJobs().then(() => { if (S.selected && !S.details.has(S.selected) && S.byId.get(S.selected)?.local) loadDetail(S.selected); });
+    loadWhatsNew();                           // it may have restarted on new code
   }
   applyScoring(S.summary.scoring);
   const c = S.summary.credits;
@@ -6538,6 +6539,68 @@ async function setupInterview(role, pane, redraw) {
   draw();
 }
 
+// ---- what's new (whats_new.py): a card per new thing, shown when the app opens after an update -------------
+// Cards are files in jobpipe/web/whats-new/, written by the PR that makes the change. Closing them (Done, Skip all,
+// Escape or the card's button) marks them seen; Settings › About › What's new shows the last month's again.
+const WN = { cards: [], changes: [], since: "", at: 0, review: false };
+const wnDialog = $("#wn-dialog");
+const wnDay = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+async function loadWhatsNew(all = false) {
+  let d;
+  try { d = await api(`/api/whats-new${all ? "?all=1" : ""}`); } catch (e) { if (all) toast(e.message, true); return; }
+  if (!d.cards.length) { if (all) toast("No new cards in the last month."); return; }
+  if (wnDialog.open || setupDialog.open) return;
+  Object.assign(WN, d, { at: 0, review: all });
+  const areas = new Map();
+  d.changes.forEach((e) => { if (!areas.has(e.area)) areas.set(e.area, []); areas.get(e.area).push(e.headline); });
+  $("#wn-more").hidden = !d.changes.length;
+  $("#wn-more").open = false;
+  $("#wn-more-sum").textContent = `${d.since ? `Everything that changed since ${wnDay(d.since)}` : "Everything that changed this month"} (${d.changes.length})`;
+  fill($("#wn-more-list"), [...areas].map(([a, hs]) => h("div", { class: "wn-area" }, h("h3", {}, a || "Other"), h("ul", {}, hs.map((x) => h("li", {}, x))))));
+  wnShow(0);
+  wnDialog.showModal();
+  $("#wn-next").focus();
+}
+function wnShow(i) {
+  WN.at = Math.max(0, Math.min(WN.cards.length - 1, i));
+  const c = WN.cards[WN.at], many = WN.cards.length > 1, last = WN.at === WN.cards.length - 1;
+  const art = $("#wn-art");
+  art.innerHTML = c.art;          // only the wn-* pieces: tests/test_whats_new.py checks every card's picture
+  wnDialog.classList.toggle("no-art", !c.art);
+  $("#wn-count").textContent = `New on ${wnDay(c.date)}${many ? ` · ${WN.at + 1} of ${WN.cards.length}` : ""}`;
+  $("#wn-title").textContent = c.title;
+  $("#wn-body").textContent = c.body;
+  fill($("#wn-dots"), many && WN.cards.map((_, k) => h("i", { class: k === WN.at ? "on" : null })));
+  $("#wn-try").hidden = !c.try;
+  $("#wn-try").textContent = c.button;
+  $("#wn-next").textContent = last ? "Done" : "Next";
+  $("#wn-skip").hidden = last;
+}
+// Where a card's button goes: tab:<tab>[#<element id>], or role:<stage>[/<role tab>] (the first tracked role there).
+function wnGo(target) {
+  const at = target.indexOf(":"), kind = target.slice(0, at), rest = target.slice(at + 1);
+  if (kind === "tab") {
+    const [tab, id] = rest.split("#");
+    Promise.resolve(showTab(tab)).then(() => { if (id) $(`#${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); });
+  } else if (kind === "role") {
+    const [stage, tab = "posting"] = rest.split("/");
+    const j = S.jobs.find((x) => SCOPES.tracker.has(x) && stageOf(x) === stage);
+    if (j) openJob(j.id, tab);
+    else { showTab("tracker"); toast(`None of your roles is ${stage} yet. It'll be on the role when one is.`); }
+  }
+}
+wnDialog.addEventListener("close", () => {
+  if (!WN.review) post("/api/whats-new/seen", { cards: WN.cards.map((c) => c.slug) }).catch(() => {});
+});
+wnDialog.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" && WN.at < WN.cards.length - 1) wnShow(WN.at + 1);
+  if (e.key === "ArrowLeft" && WN.at > 0) wnShow(WN.at - 1);
+});
+$("#wn-next").addEventListener("click", () => (WN.at < WN.cards.length - 1 ? wnShow(WN.at + 1) : wnDialog.close()));
+$("#wn-skip").addEventListener("click", () => wnDialog.close());
+$("#wn-try").addEventListener("click", () => { const t = WN.cards[WN.at].try; wnDialog.close(); wnGo(t); });
+$("#about-news").addEventListener("click", () => loadWhatsNew(true));
+
 // ---- boot -------------------------------------------------------------------------------------------
 (async function boot() {
   if (!TOKEN) $("#auth-error").classList.remove("hidden");
@@ -6551,7 +6614,11 @@ async function setupInterview(role, pane, redraw) {
   await Promise.all([loadSummary(), loadJobs()]);
   loadPacks();
   setScope(S.scope);      // the Tracker, unless a #job= link already opened a role in Search Jobs
-  api("/api/setup").then((d) => { WIZ.data = d; setupCard(); if (d.show) openSetup(0); }).catch(() => {});
+  // After an update, cards for what's new. A new profile goes to setup instead, and asking marks the old ones seen.
+  api("/api/setup").then((d) => {
+    WIZ.data = d; setupCard();
+    if (d.show) { openSetup(0); api("/api/whats-new").catch(() => {}); } else loadWhatsNew();
+  }).catch(() => {});
   // An open document also picks up changes made elsewhere, e.g. notes Claude adds to interview prep.
   setInterval(() => { if (!document.hidden) { loadSummary(); if (S.tab === "tracker") loadReady(); if (S.tab in DOCS) DOCS[S.tab].load(); } }, 5000);
   document.addEventListener("visibilitychange", () => {

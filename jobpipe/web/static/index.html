@@ -551,6 +551,7 @@
         <section class="pcard look-card about-card" id="about-card">
           <h2>About</h2>
           <p class="about-version" id="about-version"></p>
+          <p><button type="button" class="ghost small" id="about-news" title="The cards for what changed this month">What's new</button></p>
           <div class="about-home" id="about-home"></div>
           <p class="muted">Job Oyster is free. The code and the guides are public on GitHub.</p>
           <div class="about-links">
@@ -637,6 +638,23 @@
   <dialog id="import-dialog" class="import-dialog" aria-labelledby="import-title">
     <div class="import-head"><h2 id="import-title">Add a résumé</h2><p class="muted" id="import-sub"></p></div>
     <div id="import-body"></div>
+  </dialog>
+
+  <dialog id="wn-dialog" class="wn-dialog" aria-labelledby="wn-title">
+    <div class="wn-art" id="wn-art" aria-hidden="true"></div>
+    <div class="wn-copy">
+      <p class="wn-count" id="wn-count"></p>
+      <h2 id="wn-title"></h2>
+      <p class="wn-body" id="wn-body"></p>
+      <div class="wn-dots" id="wn-dots" aria-hidden="true"></div>
+      <div class="wn-actions">
+        <button type="button" class="ghost small" id="wn-skip">Skip all</button>
+        <span class="grow"></span>
+        <button type="button" class="ghost" id="wn-try"></button>
+        <button type="button" class="primary" id="wn-next">Next</button>
+      </div>
+      <details class="wn-more" id="wn-more"><summary id="wn-more-sum"></summary><div class="wn-more-list" id="wn-more-list"></div></details>
+    </div>
   </dialog>
 
   <dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">

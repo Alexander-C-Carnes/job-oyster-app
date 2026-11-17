@@ -73,7 +73,7 @@ unset PLAYWRIGHT_BROWSERS_PATH
 
 say "The app's code"
 mkdir -p "$RES/app"
-git ls-files -z jobpipe skill example-profile .env.example requirements.txt README.md | \
+git ls-files -z jobpipe skill example-profile .env.example requirements.txt README.md CHANGELOG.md | \
   (cd "$REPO_DIR" && xargs -0 tar -cf -) | tar -xf - -C "$RES/app"
 "$PY" -m compileall -q -j 0 "$RES/app/jobpipe" "$RES/python/lib/python$PYVER/site-packages" >/dev/null || true
 find "$RES/python" -name "*.pyc" -path "*/test/*" -delete 2>/dev/null || true

@@ -36,7 +36,7 @@ from ..config import Config
 from .. import formats, interview_pack, jd, onboarding, own_formats, pinned, record_import, regions, render, resume_import
 from .. import hiringcafe as hc
 from .. import hosted, lowfit
-from . import about, follow, idle
+from . import about, follow, idle, whats_new
 from .flow import application_flow
 from .menu import snapshot as menu_snapshot
 from .ready import Answered, counts, inbox, is_key, questions_in
@@ -2812,6 +2812,35 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
             raise HTTPException(400, "Unknown setup state.")
         save_setup(state=state_, at=now_iso())
         return get_setup()
+
+    # ---- what's new (whats_new.py): the cards the app shows when it opens after an update -------------------
+    seen_news = whats_new.Seen(store.root / "whats-new.json")
+
+    def news_log() -> list[dict]:
+        try:
+            return whats_new.changes(whats_new.CHANGELOG.read_text())
+        except OSError:
+            return []
+
+    @app.get("/api/whats-new")
+    def get_whats_new(all: bool = False):
+        """The cards to show now, and the changelog entries since you last looked. all=1: the last month's cards,
+        seen or not. A new profile starts with everything seen, so setup isn't followed by old news."""
+        cards, log = whats_new.load(whats_new.CARDS), news_log()
+        if not all and not seen_news.exists():
+            fresh = searches_file.load_candidate(searches_path) is None or searches_file.is_example(searches_path)
+            if fresh and not setup_state().get("state"):
+                seen_news.write([c.slug for c in cards], max((e["date"] for e in log), default=""))
+        return whats_new.pending(cards, seen_news.read(), log, date.today(), everything=all)
+
+    @app.post("/api/whats-new/seen")
+    def whats_new_seen(body: dict):
+        """{"cards": [slug, ...]}: these were shown and closed; the changelog counts as read up to its newest day."""
+        known = {c.slug for c in whats_new.load(whats_new.CARDS)}
+        slugs = [s for s in body.get("cards") or [] if s in known]
+        log = news_log()
+        seen_news.mark(slugs, max((e["date"] for e in log), default=""))
+        return {"ok": True}
 
     @app.post("/api/setup/linkedin")
     async def setup_linkedin(request: Request):
