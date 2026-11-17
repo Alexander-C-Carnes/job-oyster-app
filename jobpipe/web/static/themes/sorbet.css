@@ -381,6 +381,14 @@ html[data-theme="sorbet"] .sugg-head b { font-family: var(--display); font-weigh
 html[data-theme="sorbet"] .sugg-new { border-radius: 999px; background: #FFF0C7; color: #7A5200; border-color: transparent; font-weight: 700; }
 html[data-theme="sorbet"] .sugg-done:not([hidden]) { display: inline-block; animation: sorbet-pop 930ms var(--open); color: #2B6A0F; }
 html[data-theme="sorbet"] .sugg-line.added { opacity: .5; transition: opacity .3s ease; }
+/* interview prep kit: question cards, the posting line a requirement opens, the role packs on Interview prep */
+html[data-theme="sorbet"] .iv-q { border: 0; background: var(--panel); box-shadow: inset 0 0 0 2px var(--line); }
+html[data-theme="sorbet"] .iv-q .iv-k { font: 600 11.5px/1.3 var(--display); text-transform: uppercase; letter-spacing: .06em; }
+html[data-theme="sorbet"] .iv-q .iv-ask { font: 600 15.5px/1.4 var(--display); }
+html[data-theme="sorbet"] .iv-pack .card h3:not(.iv-section) { font-size: 16px; }
+html[data-theme="sorbet"] .posting-body .posting-hit { background: var(--sel); box-shadow: inset 4px 0 0 var(--accent); border-radius: 12px; animation: sorbet-pop 700ms var(--open); transform-origin: left center; }
+html[data-theme="sorbet"] .prep-packs button.chip { border-radius: 999px; font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] .posting-body .posting-hit { animation: none; } }
 @media (prefers-reduced-motion: reduce) { html[data-theme="sorbet"] .sugg-done:not([hidden]) { animation: none; } }
 @media (prefers-reduced-motion: reduce) {
   html[data-theme="sorbet"] .fmt-preview:not(.loading), html[data-theme="sorbet"] .format-add .format-add-mark { animation: none; transition: none; }

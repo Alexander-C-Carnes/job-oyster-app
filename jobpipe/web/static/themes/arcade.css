@@ -262,6 +262,7 @@ html[data-theme="arcade"] .band { font-weight: 500; font-size: 15px; letter-spac
 html[data-theme="arcade"] .posting-pane { border-right: var(--px) solid var(--ink); }
 html[data-theme="arcade"] .posting-meta { font-size: 14px; border-bottom: 2px solid var(--line); }
 html[data-theme="arcade"] .posting-body { font-size: 15px; }
+html[data-theme="arcade"] .posting-body .posting-hit { background: var(--sel); box-shadow: inset var(--px) 0 0 var(--ink); border-radius: 0; }
 html[data-theme="arcade"] .score-pane .notice { max-width: none; }
 html[data-theme="arcade"] .sources th, html[data-theme="arcade"] .sources td { font-size: 13px; border-bottom: 2px solid var(--line); }
 html[data-theme="arcade"] .sources td { font-family: var(--body); }

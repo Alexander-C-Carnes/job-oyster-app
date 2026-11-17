@@ -2640,6 +2640,9 @@ function companyResearchCard(j, p) {
   return card;
 }
 
+// A story cites a fit-report ledger id (E1) or a heading in the impact record (interview_pack.honest).
+const citeLabel = (cite) => /^E\d+[a-z]?$/i.test(cite) ? ` From the fit report (${cite}).` : ` From your impact record (${cite}).`;
+
 function drawInterview(j, panel, p) {
   const id = j.id;
   const ta = h("textarea", { rows: 5, "aria-label": "Debrief",
@@ -2702,7 +2705,7 @@ function drawInterview(j, panel, p) {
           h("div", { class: "iv-field" },
             h("p", { class: "iv-k" }, "Possible response"),
             h("p", {},
-              q.story ? [q.story, q.cite ? h("span", { class: "cite" }, " From the fit report.") : null]
+              q.story ? [q.story, q.cite ? h("span", { class: "cite" }, citeLabel(q.cite)) : null]
                 : h("span", { class: "muted" }, "There is no story in the record for this requirement.")))));
       }
       root.append(questions);
