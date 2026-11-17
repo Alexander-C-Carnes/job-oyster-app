@@ -84,55 +84,94 @@ def test_a_share_link_is_read_once_for_its_search_and_a_search_link_needs_no_req
         cafe(FakeCafe(blocked=True)).resolve(SHARE)
 
 
-def test_a_search_reads_each_page_and_each_results_listing_for_its_posting():
-    fake = FakeCafe()
-    jobs = cafe(fake).search(saved())
-    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1),
-                          *(f"{ORIGIN}/job/rq000{n}example" for n in (1, 2, 4, 5))]      # not expired Globex's
+ACME_URL = "https://job-boards.greenhouse.io/acmerobotics/jobs/4001"
+ACME_TEXT = "Run Acme Robotics' release trains. " * 30
+
+
+def employer(pages: dict, asked: list):
+    """Employers' posting pages by address, as jd.fetch_posting_text reads them ("" for any other)."""
+    def text(url: str) -> str:
+        asked.append(url)
+        return pages.get(url, "")
+    return text
+
+
+def test_a_search_reads_only_its_pages_and_the_employers_postings_never_a_listing():
+    fake, asked = FakeCafe(), []
+    jobs = cafe(fake).search(saved(), employer_text=employer({ACME_URL: ACME_TEXT}, asked))
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
     assert [j["company"] for j in jobs] == ["Acme Robotics", "Northwind Data", "Initech", "Acme"]   # Globex's expired
+    assert len(asked) == 3 and ACME_URL in asked          # each result with an apply link; Initech's has none
     acme = jobs[0]
-    assert acme["url"] == acme["apply_url"] == "https://job-boards.greenhouse.io/acmerobotics/jobs/4001"
+    assert acme["url"] == acme["apply_url"] == ACME_URL and acme["description"] == ACME_TEXT.strip()
     assert acme["source"] == "HiringCafe" and acme["listing_url"] == f"{ORIGIN}/job/rq0001example"
     assert (acme["remote"], acme["hybrid"], acme["country_codes"], acme["date_posted"]) == (True, False, ["US"], "2026-10-15")
     assert (acme["salary_string"], acme["min_annual_salary_usd"], acme["max_annual_salary_usd"]) == ("USD 180k–220k", 180000, 220000)
-    assert "Run Acme Robotics' release trains." in acme["description"] and "<li>" not in acme["description"]
-    north = jobs[1]         # its listing couldn't be read: no posting text, never the result's short summary
+    north = jobs[1]         # its employer page was too short: no posting text, never the result's short summary
     assert north["description"] == ""
     assert north["hybrid"] and not north["remote"] and north["salary_string"] == "" and "max_annual_salary_usd" not in north
-    initech = jobs[2]       # its listing page gave the apply link and the whole posting
-    assert initech["url"] == "https://initech.example.com/jobs/4" and initech["salary_string"] == "USD 150k"
-    assert "Run Initech's platform programs" in initech["description"] and "<li>" not in initech["description"]
+    initech = jobs[2]
+    assert initech["url"] == listing_url({"requisition_id": "rq0004example"}) and initech["description"] == ""
     assert len(cafe(max_pages=1).search(saved())) == 2
-    fake.asked.clear()      # a result the app has the posting for isn't read again, with an apply link or without
-    cafe(fake).search(saved(), lambda job: False)
-    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
+    asked.clear()           # a result the app has the posting for isn't read again
+    cafe(fake).search(saved(), lambda job: False, employer({}, asked))
+    assert asked == []
+
+
+def test_listings_fill_in_the_jobs_still_without_their_posting():
+    fake = FakeCafe()
+    hc = cafe(fake)
+    lines = []
+    hc.log = lines.append
+    jobs = hc.search(saved())
+    fake.asked.clear()
+    filled = hc.fill_listings(jobs)
+    assert fake.asked == [f"{ORIGIN}/job/rq000{n}example" for n in (1, 2, 4, 5)]
+    assert [j["company"] for j in filled] == ["Acme Robotics", "Initech"]
+    assert "Run Acme Robotics' release trains." in filled[0]["description"] and "<li>" not in filled[0]["description"]
+    initech = filled[1]     # its listing gave the apply link and the whole posting
+    assert initech["url"] == initech["apply_url"] == "https://initech.example.com/jobs/4"
+    assert initech["id"] == jobs[2]["id"] and "Run Initech's platform programs" in initech["description"]
+    assert (hc.listings_read, hc.requests) == (2, 6)
+    assert any("read 2 listing(s), 2 still waiting" in line for line in lines)
 
 
 def test_once_the_bot_check_turns_a_listing_away_no_more_are_read_until_the_next_run():
-    fake = FakeCafe(checked=[f"{ORIGIN}/job/rq0001example"])
+    fake = FakeCafe(checked=[f"{ORIGIN}/job/rq0004example"])
     lines = []
     hc = cafe(fake, log=lines.append)
     jobs = hc.search(saved())
-    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1), f"{ORIGIN}/job/rq0001example"]
-    assert len(jobs) == 4 and all(j["description"] == "" for j in jobs)
-    assert any("no more listings are read this run" in line for line in lines)
-    initech = next(j for j in jobs if j["company"] == "Initech")       # its link stays its HiringCafe page
-    assert initech["url"] == listing_url({"requisition_id": "rq0004example"})
+    filled = hc.fill_listings(jobs)
+    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1),
+                          *(f"{ORIGIN}/job/rq000{n}example" for n in (1, 2, 4))]      # none after Initech's
+    assert [j["company"] for j in filled] == ["Acme Robotics"]
+    assert any(f"at {ORIGIN}/job/rq0004example after 1 listing(s), 5 request(s) to HiringCafe in" in line
+               and "no more listings are read this run" in line for line in lines)
     fake.checked.clear()
     fake.asked.clear()
-    hc.search(saved())                                                  # still this run: listings stay unread
-    assert fake.asked == [search_url(STATE, 0), search_url(STATE, 1)]
+    assert hc.fill_listings(jobs) == [] and fake.asked == []           # still this run: listings stay unread
     hc.reset()                                                          # the next run reads them again
-    assert "Run Acme Robotics' release trains." in hc.search(saved())[0]["description"]
+    assert (hc.requests, hc.listings_read, hc.blocked) == (0, 0, False)
+    assert [j["company"] for j in hc.fill_listings(jobs)] == ["Acme Robotics", "Initech"]
 
 
 def test_a_result_whose_listing_cant_be_read_keeps_its_hiringcafe_page():
     fake = FakeCafe()
     del fake.pages[f"{ORIGIN}/job/rq0004example"]
-    initech = next(j for j in cafe(fake).search(saved()) if j["company"] == "Initech")
+    hc = cafe(fake)
+    initech = next(j for j in hc.search(saved()) if j["company"] == "Initech")
+    assert hc.fill_listings([initech]) == []
     assert initech["url"] == listing_url({"requisition_id": "rq0004example"}) and initech["apply_url"] == ""
 
 
+def test_pauses_vary_around_their_base(monkeypatch):
+    slept = []
+    monkeypatch.setattr("jobpipe.hiringcafe.time.sleep", slept.append)
+    hc = HiringCafe(fetch=FakeCafe(), pause=1.0, listing_pause=2.0)
+    hc.fill_listings(hc.search(saved()))
+    pages, listings = slept[:1], slept[1:]
+    assert 0.75 <= pages[0] <= 1.75 and len(listings) == 4
+    assert all(1.5 <= t <= 3.5 for t in listings) and len(set(listings)) > 1
 def test_describe_says_what_a_search_asks_for():
     assert describe(STATE) == ('"Technical Program Manager" · Remote, Hybrid · United States · Full Time · '
                                "posted in the last 14 days")
@@ -172,6 +211,59 @@ def test_a_run_fills_in_a_stored_job_that_only_had_hiringcafes_summary(tmp_dirs)
     p.search([], [saved()])
     assert "Run Acme Robotics' release trains." in store.job(acme["id"])["description"]
     assert store.job(north["id"])["description"] == "Pasted by you. " * 30
+
+
+OLD_LISTING = f"{ORIGIN}/job/rq0009old"
+
+
+def old_job(store: Store) -> str:
+    """A HiringCafe job an earlier run found and couldn't read the listing of, no longer in the search's results."""
+    job = {"id": "hc-old", "job_title": "Program Manager", "company": "Old Co", "url": OLD_LISTING, "apply_url": "",
+           "listing_url": OLD_LISTING, "source": "HiringCafe", "description": ""}
+    store.save_job(job, "hc-tpm")
+    store.update("hc-old", first_seen="2026-10-01T00:00:00+00:00")
+    return "hc-old"
+
+
+def backlog_run(store: Store, fake: FakeCafe, lines: list) -> Pipeline:
+    fake.pages[OLD_LISTING] = listing_page({"job_information": {"description": "Run Old Co's programs. " * 40},
+                                            "apply_url": "https://old.example.com/jobs/9"})
+    cfg = config.load()
+    return Pipeline(cfg, store=store, jobs=JobsClient(cfg, store, client=jobspipe_client(FakeJobsAPI({}))),
+                    runner=FakeRunner({}), use_notion=False, log=lines.append, fetch_pages=False, hiringcafe=cafe(fake, log=lines.append))
+
+
+def test_listings_the_bot_check_stopped_are_read_on_the_next_run_oldest_first(tmp_dirs):
+    store, lines = Store(), []
+    old = old_job(store)
+    fake = FakeCafe(checked=[OLD_LISTING])
+    p = backlog_run(store, fake, lines)
+    cands, _ = p.search([], [saved()])
+    assert fake.asked[2:] == [OLD_LISTING] and all(not c.job["description"] for c in cands)
+    assert "Old Co" not in [c.meta.company for c in cands]
+    assert any("after 0 listing(s), 3 request(s)" in line for line in lines)
+
+    fake.checked.clear()
+    fake.asked.clear()
+    cands, _ = p.search([], [saved()])                  # the next run picks up where this one stopped
+    assert fake.asked[2] == OLD_LISTING
+    assert sorted(fake.asked[3:]) == [f"{ORIGIN}/job/rq000{n}example" for n in (1, 2, 4, 5)]
+    oldco = next(c for c in cands if c.meta.company == "Old Co")
+    assert oldco.id == old and oldco.search_id == "hc-tpm" and "Run Old Co's programs." in oldco.job["description"]
+    assert store.job(old)["apply_url"] == "https://old.example.com/jobs/9"
+    assert "Run Acme Robotics' release trains." in next(c for c in cands if c.meta.company == "Acme Robotics").job["description"]
+
+    fake.asked.clear()
+    p.search([], [saved()])                             # read once: not again
+    assert OLD_LISTING not in fake.asked and f"{ORIGIN}/job/rq0001example" not in fake.asked
+
+
+def test_a_dismissed_jobs_listing_isnt_read(tmp_dirs):
+    store, lines = Store(), []
+    store.update(old_job(store), dismissed=True)
+    fake = FakeCafe()
+    backlog_run(store, fake, lines).search([], [saved()])
+    assert OLD_LISTING not in fake.asked
 
 
 def test_a_run_drops_hiringcafe_results_at_the_defaults_excluded_companies(tmp_dirs):
