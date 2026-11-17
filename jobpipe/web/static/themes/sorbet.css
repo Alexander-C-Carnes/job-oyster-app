@@ -583,6 +583,8 @@ html[data-theme="sorbet"] #menu-fit-state:not(:empty) { animation: sorbet-pop 93
 
 /* About card (Profile): the links as springy pills, the Claude credit on a soft wash */
 html[data-theme="sorbet"] .about-version b { font: 600 15px var(--display); }
+html[data-theme="sorbet"] .about-claude { padding: 10px 14px; border-radius: 16px; background: color-mix(in srgb, var(--st-done) 11%, white); }
+html[data-theme="sorbet"] .about-claude b { font: 600 14.5px var(--display); }
 html[data-theme="sorbet"] .about-links h3 { font: 600 15px var(--display); text-transform: none; letter-spacing: 0; color: var(--ink); margin-bottom: 6px; }
 html[data-theme="sorbet"] .about-links ul { display: flex; flex-wrap: wrap; gap: 6px; }
 html[data-theme="sorbet"] .about-links li { padding: 0; }
