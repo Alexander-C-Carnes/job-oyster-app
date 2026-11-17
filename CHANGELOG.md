@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-17
+
+### Finding jobs
+- HiringCafe jobs read the employer's posting first, and listings the bot check stopped are read on the next run
+- A posting read from a careers page leaves out the site's menus, and a page with no posting on it gives no text
+
 ## 2026-11-12
 
 ### Finding jobs
@@ -21,12 +27,6 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 ### Tracker
 - Ready to send opens the role and says what's really ready
 - A status change during a Notion sync is kept
-
-## 2026-11-03
-
-### Finding jobs
-- HiringCafe jobs read the employer's posting first, and listings the bot check stopped are read on the next run (@ronnie)
-- A posting read from a careers page leaves out the site's menus, and a page with no posting on it gives no text (@ronnie)
 
 ## 2026-11-01
 
