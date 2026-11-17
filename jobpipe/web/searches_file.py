@@ -277,7 +277,7 @@ def save_resume_format(path: Path, fid: str) -> None:
         keys = list(m)
         after = next((k for k in ("pdf_name", "pdf_prefix") if k in keys), None)
         at = keys.index(after) + 1 if after else len(keys)
-        m.insert(at, "resume_format", fid, comment="how résumé PDFs look (Profile › Résumé format)")
+        m.insert(at, "resume_format", fid, comment="how résumé PDFs look (Settings › Résumé Format)")
     else:
         m["resume_format"] = fid
     tmp = path.with_suffix(".yaml.tmp")
@@ -332,7 +332,7 @@ def save_ghost_days(path: Path, days: Any) -> int:
         m = CommentedMap()
         keys = list(doc)
         doc.insert(keys.index("notion") + 1 if "notion" in keys else len(keys), "tracker", m)
-        doc.yaml_set_comment_before_after_key("tracker", before="The job tracker (Profile › Tracker). A job at Applied or "
+        doc.yaml_set_comment_before_after_key("tracker", before="The job tracker (Settings › Tracker Rules). A job at Applied or "
                                               "Interviewing this many days\nwith no change of status moves to Ghosted. 0 = never.")
     m["ghost_after_days"] = days
     tmp = path.with_suffix(".yaml.tmp")
@@ -362,7 +362,7 @@ def save_menu_fit_floor(path: Path, floor: Any) -> int:
             keys.index("notion") + 1 if "notion" in keys else len(keys))
         doc.insert(at, "menu", m)
         doc.yaml_set_comment_before_after_key(
-            "menu", before="The Mac menu bar (Profile › Menu Bar Settings). Newest roles at this fit score or higher "
+            "menu", before="The Mac menu bar (Settings › Menu Bar). Newest roles at this fit score or higher "
                            "(found or scored yesterday or today).")
     m["fit_floor"] = floor
     tmp = path.with_suffix(".yaml.tmp")
@@ -382,7 +382,7 @@ def save_candidate(path: Path, cand: dict) -> None:
     for k in (*CANDIDATE_TEXT, "evidence"):
         if k == "pdf_name" and k not in m and "pdf_prefix" in m:    # beside the setting it replaces
             m.insert(list(m).index("pdf_prefix") + 1, k, cand.get(k, ""),
-                     comment="what résumé PDFs are named (Profile › PDF file names); blank means {title} - {company}")
+                     comment="what résumé PDFs are named (Settings › PDF File Names); blank means {title} - {company}")
         else:
             m[k] = cand.get(k, "")
     m.pop("example", None)
@@ -398,7 +398,7 @@ def save_candidate(path: Path, cand: dict) -> None:
     tmp.replace(path)
 
 
-# ---- the AI (searches.yaml's `models:` section and the key in the profile's .env, edited on the Profile tab) ----
+# ---- the AI (searches.yaml's `models:` section and the key in the profile's .env, edited in Settings › AI Config) ----
 MODEL_STAGES = ("triage", "analysis", "writer", "chat", "rescore")
 EFFORT_CHOICES = ("low", "medium", "high")
 MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,119}")

@@ -4,6 +4,11 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-17
 
+### Settings
+- Settings has its own tab beside Profile and Impact record, under the person button
+- It holds how the app looks, résumé format and PDF names, tracker rules, the menu bar, the AI, the signal score, API keys, and About
+- About shows the folders the app uses and opens them in Finder
+- Guided Setup ends with the look's celebration
 ### Finding jobs
 - HiringCafe jobs read the employer's posting first, and listings the bot check stopped are read on the next run
 - A posting read from a careers page leaves out the site's menus, and a page with no posting on it gives no text
