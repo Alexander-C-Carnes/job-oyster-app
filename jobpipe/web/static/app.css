@@ -1474,3 +1474,54 @@ p.setup-note:not(.muted) { padding: 8px 12px; border-radius: var(--radius); back
   .setup-steps li.now .l { display: inline; }
   .setup-body { padding: 16px; }
 }
+
+/* What's new (whats_new.py): a card per new thing, its sketch on the left, the month's changelog folded underneath.
+   :root raises it over each look's plain dialog rule, which sets padding. */
+:root dialog.wn-dialog { width: min(700px, 94vw); padding: 0; overflow: hidden; }
+.wn-dialog[open] { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+.wn-dialog.no-art[open] { grid-template-columns: 1fr; }
+.wn-dialog.no-art .wn-art { display: none; }
+.wn-art { background: var(--panel-2); border-right: 1px solid var(--line); padding: 26px 22px; display: grid; place-items: center; min-height: 300px; }
+.wn-copy { padding: 24px 24px 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.wn-count { margin: 0; font-size: 12px; font-weight: 600; color: var(--faint); }
+:root .wn-dialog h2 { font-size: 22px; line-height: 1.15; margin: 0; text-wrap: balance; }
+.wn-body { margin: 0; color: var(--muted); line-height: 1.5; }
+.wn-dots { display: flex; gap: 6px; }
+.wn-dots i { width: 7px; height: 7px; border-radius: 999px; background: var(--line); transition: width .2s ease; }
+.wn-dots i.on { width: 20px; background: var(--accent); }
+.wn-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: auto; }
+.wn-dialog [hidden] { display: none !important; }      /* the looks give buttons a display of their own */
+.wn-more { border-top: 1px solid var(--line); padding-top: 10px; font-size: 12.5px; color: var(--muted); }
+.wn-more summary { cursor: pointer; }
+.wn-more-list { max-height: 180px; overflow: auto; margin-top: 8px; display: grid; gap: 8px; }
+.wn-more-list h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 0 0 2px; }
+.wn-more-list ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; }
+@media (max-width: 640px) {
+  .wn-dialog[open] { grid-template-columns: 1fr; }
+  .wn-art { min-height: 150px; border-right: 0; border-bottom: 1px solid var(--line); }
+}
+/* the sketch's pieces (whats-new/README.md lists them), in the look's own colours */
+.wn-window { width: 100%; max-width: 250px; background: var(--panel); border: 1px solid var(--line); border-radius: calc(var(--radius) + 2px);
+  box-shadow: var(--shadow); padding: 12px; display: grid; gap: 8px; font-size: 12px; color: var(--ink); }
+.wn-tilt { transform: rotate(-3deg); }
+.wn-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; }
+.wn-tag { font-size: 10.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); white-space: nowrap; }
+.wn-row { display: grid; gap: 5px; padding: 7px 9px; border-radius: var(--radius); background: var(--panel-2); }
+.wn-label { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); }
+.wn-line { display: block; height: 6px; border-radius: 4px; background: var(--line); }
+.wn-line.wn-short { width: 60%; }
+.wn-chips, .wn-inline, .wn-tabs { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.wn-stack { display: grid; gap: 6px; }
+.wn-grow { flex: 1; }
+.wn-chip, .wn-tab { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; color: var(--muted); }
+.wn-chip { border: 1px solid var(--line); background: var(--panel); }
+.wn-chip.wn-on, .wn-tab.wn-on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.wn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.wn-btn { justify-self: start; padding: 3px 10px; border-radius: 999px; background: var(--ink); color: var(--panel); font-size: 10.5px; font-weight: 700; }
+.wn-score { display: inline-grid; place-items: center; min-width: 22px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: var(--fit-hi-bg); color: var(--fit-hi); }
+.wn-score.wn-mid { background: var(--fit-mid-bg); color: var(--fit-mid); }
+.wn-score.wn-muted { background: var(--fit-lo-bg); color: var(--fit-lo); }
+@media (prefers-reduced-motion: no-preference) {
+  .wn-dialog[open] .wn-window { animation: wn-in .32s ease-out both; }
+}
+@keyframes wn-in { from { opacity: 0; translate: 0 8px; } }

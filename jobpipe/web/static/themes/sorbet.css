@@ -668,3 +668,19 @@ html[data-theme="sorbet"] .setup-card { background: linear-gradient(120deg, var(
   html[data-theme="sorbet"] :is(.setup-steps li.now .n, .setup-msg p, .setup-draft, .setup-done-mark) { animation: none; }
   html[data-theme="sorbet"] .setup-roles button { transition: none; }
 }
+
+/* What's new: a candy wash behind the sketch, the title in Fredoka, and the sketch pops in on the look's spring */
+html[data-theme="sorbet"] dialog.wn-dialog { border-radius: 26px; }
+html[data-theme="sorbet"] .wn-art { background: linear-gradient(160deg, #FFE1EC, #E6DBFF); border-right: 0; border-bottom: 0; }
+html[data-theme="sorbet"] .wn-dialog h2 { font: 600 25px/1.12 var(--display); }
+html[data-theme="sorbet"] .wn-window { border: 0; border-radius: 16px; box-shadow: 0 10px 26px rgba(42, 27, 61, .16); }
+html[data-theme="sorbet"] .wn-head { font-family: var(--display); font-weight: 600; }
+html[data-theme="sorbet"] .wn-tag { background: var(--sel); color: var(--link); }
+html[data-theme="sorbet"] .wn-row { border-radius: 10px; }
+html[data-theme="sorbet"] .wn-line { background: #E7D3E0; }
+html[data-theme="sorbet"] .wn-chip, html[data-theme="sorbet"] .wn-tab { font-family: var(--display); }
+html[data-theme="sorbet"] .wn-more summary { font-weight: 700; color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme="sorbet"] .wn-dialog[open] .wn-window { animation: wn-pop 620ms var(--open) both; }
+}
+@keyframes wn-pop { from { opacity: 0; scale: .82; rotate: -5deg; } }

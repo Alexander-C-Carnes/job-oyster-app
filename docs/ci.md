@@ -11,7 +11,8 @@ Mac (the tests, and Claude's fixes), so read a contributor's PR before labelling
 ## What happens to a change
 
 ```
-session: tests green (tools/ci/checks.sh), CHANGELOG.md entry, open a PR labelled `ship`, stop
+session: tests green (tools/ci/checks.sh), CHANGELOG.md entry (and a what's new card for something new to
+use: jobpipe/web/whats-new/README.md), open a PR labelled `ship`, stop
    │
 oyster-ci gate (next tick)  each PR: merge with main → PR rules; then the queue together: checks → push to main
    │                        (GitHub marks each PR merged; the desktop app archives its session)
