@@ -398,15 +398,22 @@ async def draft(runner: Runner, model: ModelCfg, role: dict, turns: list[Turn], 
         label="setup-interview-draft", model=model, instructions=brief, documents={"role.md": _role_doc(role)},
         expect=["lines.md"], prose_file="lines.md", tail=f"The interview:\n{_convo(answered, first)}"))
     said = " ".join(t.a for t in answered) + " " + str(role.get("notes") or "")
+    return checked_lines(res.files["lines.md"], said)
+
+
+def checked_lines(lines_md: str, said: str, where: str = "your answers") -> list[dict]:
+    """The bullet lines in lines.md, each {"text", "ok", "why"}. A figure `said` doesn't contain is flagged
+    (not ok), so the candidate checks it before adding. `where` names the text the figure had to be in."""
     have = set(evidence.figures(said))
     out = []
-    for raw in res.files["lines.md"].splitlines():
+    for raw in (lines_md or "").splitlines():
         text = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", raw).strip()
-        if not text or text.lower().rstrip(".") == "none" or not raw.lstrip().startswith(("-", "*", "•")) and not re.match(r"^\s*\d+[.)]", raw):
+        bullet = raw.lstrip().startswith(("-", "*", "•")) or re.match(r"^\s*\d+[.)]", raw)
+        if not text or text.lower().rstrip(".") == "none" or not bullet:
             continue
         missing = [f for f in evidence.figures(text) if f not in have]
         out.append({"text": text, "ok": not missing,
-                    "why": (f"{', '.join(missing)} isn't in your answers: check it." if missing else "")})
+                    "why": (f"{', '.join(missing)} isn't in {where}: check it." if missing else "")})
     return out
 
 

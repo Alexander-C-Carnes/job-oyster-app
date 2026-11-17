@@ -4,6 +4,9 @@ What changed in the app, newest first. Each release's notes on GitHub list what 
 
 ## 2026-11-17
 
+### Job details
+- Marking a role Interviewing makes an interview prep kit: likely questions, stories from your record, questions to ask, and a debrief that can add lines to your impact record
+- Company research for a role, when you ask for it
 ### Settings
 - Settings has its own tab beside Profile and Impact record, under the person button
 - It holds how the app looks, résumé format and PDF names, tracker rules, the menu bar, the AI, the signal score, API keys, and About
