@@ -214,7 +214,7 @@ def find_claude() -> str:
 
 
 def claude_status(bin_: str) -> dict:
-    """The CLI's version and whether it's signed in (`claude auth status`), for the AI card on the Profile tab.
+    """The CLI's version and whether it's signed in (`claude auth status`), for the AI Config card in Settings.
     signed_in is None when the CLI can't say (one too old for `auth status`)."""
     import subprocess
     run = lambda *args: subprocess.run([bin_, *args], capture_output=True, text=True, timeout=30,

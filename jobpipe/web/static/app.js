@@ -2721,7 +2721,7 @@ function formatNote(d, r, trim) {
   box.append(h("span", { class: "grow" }, `Drawn in ${f.name}. Your résumé format is ${def.name}.`), use, later);
   return box;
 }
-// The résumé chat's model menu: every AI set up on the Profile tab, with the Profile's chat model as the
+// The résumé chat's model menu: every AI set up in Settings › AI Config, with the saved chat model as the
 // default. Your pick is remembered in this browser; picking the default again follows the Profile.
 let CHAT_MODELS = null;     // a promise of /api/ai/chat-models, asked for again after the AI settings are saved
 const chatModels = () => (CHAT_MODELS ||= api("/api/ai/chat-models").catch((e) => { CHAT_MODELS = null; throw e; }));

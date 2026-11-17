@@ -155,7 +155,7 @@ class Candidate:
 
 
 DEFAULT_PDF_NAME = "{title} - {company}"
-# What a PDF file name pattern can say, and what each becomes (shown on the Profile tab).
+# What a PDF file name pattern can say, and what each becomes (shown in Settings › PDF File Names).
 PDF_NAME_VARS = {"{name}": "your name", "{first}": "your first name", "{company}": "the company",
                  "{title}": "the role's title", "{YYYY}": "the year", "{YY}": "the year's last two digits",
                  "{MM}": "the month", "{DD}": "the day", "{v}": "the version: v1, v2…",

@@ -1142,7 +1142,7 @@ dialog h2 + p { margin: -6px 0 12px; }
 .format-status:empty { display: none; }
 .format-status p { margin: 0 0 6px; }
 .format-behind { margin: 0; padding-left: 18px; }
-/* Profile › Tracker: how long a role waits at Applied or Interviewing before it moves to Ghosted */
+/* Settings › Tracker Rules: how long a role waits at Applied or Interviewing before it moves to Ghosted */
 .ghosted-form { margin: 0 0 14px; }
 .ghosted-form .rule-row { display: flex; align-items: center; gap: 10px; }
 .ghosted-form label.inline { color: var(--ink); font-size: 13px; }
@@ -1347,7 +1347,7 @@ dialog h2 + p { margin: -6px 0 12px; }
 .topbar .profile-btn.active { background: var(--ink); color: var(--panel); border-color: var(--ink); border-bottom-color: var(--ink); }
 .topbar .profile-btn .ico { width: 16px; height: 16px; }
 
-/* ---- the setup wizard (Profile › Setup, and on first use) ---- */
+/* ---- the setup wizard (Profile › Guided Setup, and on first use) ---- */
 .setup-card { display: flex; align-items: center; gap: 16px; padding-bottom: 14px; margin-bottom: 14px; flex-wrap: wrap; }
 .setup-card .grow { min-width: 0; }
 .setup-card .grow > p.muted { margin: -4px 0 0; }

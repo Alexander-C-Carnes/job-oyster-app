@@ -79,7 +79,7 @@ Settings are in the `evidence:` section of `searches.yaml`: the three model name
 | 2: matcher | same brief; `ratings.json` / `keywords.json` are validated and re-requested once if malformed |
 | 3: writers A/B/C in parallel | same brief and lenses; each draft goes through `check_resume.py`; a rater call rates each draft literally for the draft scorecard |
 | 4: merge | the skill's Stage 4 text as the merge brief; `check_resume.py` on the result, one fix pass on FAIL; the local [evidence checks](#evidence-checks-local-models), with one honesty review pass for flagged lines; one keyword-restore pass if Total % drops below the best draft or the evidence supports a missing keyword |
-| 5: PDF | `jobpipe/render.py` in the format chosen on the Profile tab (`jobpipe/formats.py`); tightens spacing once, then trims (deleting only) if over the format's page limit (two pages; one in Compact); scorecard re-run on the PDF text |
+| 5: PDF | `jobpipe/render.py` in the format chosen in Settings › Résumé Format (`jobpipe/formats.py`); tightens spacing once, then trims (deleting only) if over the format's page limit (two pages; one in Compact); scorecard re-run on the PDF text |
 | 6: report | `heatmap.py` + the report template |
 | 7: Notion | `jobpipe/tracker.py` records the job locally with the same update rules (never moves Blocked, Applied or any later stage back, keeps your Notes text) and `jobpipe/notion.py` copies it to Notion with the same properties, now or on the next sync |
 
