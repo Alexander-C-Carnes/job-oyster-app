@@ -10,6 +10,10 @@ Add one when the PR gives you something new to do or see: a feature, a new tab o
 add one for fixes, wording, speed or behind-the-scenes work; the changelog line covers those. One card per PR at
 most. The `CHANGELOG.md` entry is still required either way.
 
+oyster-ci's PR rules (`tools/ci/pr_rules.py`) hold a PR that adds a `CHANGELOG.md` entry until it adds or changes a
+card, or says why not with a line `Card: none — <why>` in its description (or a commit message). A PR with
+`Changelog: none` needs neither.
+
 If a later PR changes something a card from the last 30 days describes (a renamed button, a moved tab), it updates
 that card in the same PR. Cards older than 30 days never show again, so leave those alone.
 

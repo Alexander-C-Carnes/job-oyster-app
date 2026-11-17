@@ -340,7 +340,9 @@ is current. Make the gate pass:
 - Failing checks: find the cause in the gate's log and fix it in the code. Run the failing test, then
   \`bash tools/ci/checks.sh origin/main\` (the gate's checks) before you finish.
 - PR rules: you can add the missing CHANGELOG.md entry (under today's date and the right area, a bold public headline
-  naming the PR's commit, then a short paragraph), but you can't edit the PR description.
+  naming the PR's commit, then a short paragraph), but you can't edit the PR description. A missing what's new card:
+  if the PR gives the user something new to do or see, add a card as jobpipe/web/whats-new/README.md says; if it's a
+  fix, wording or internal, commit \`git commit --allow-empty -m "Card: none — <why>"\` instead.
 - Personal details in the public files (the privacy check): replace them with made-up ones (the Jordan Rivera example
   profile, Northwind Cloud, Fabrikam Games, Contoso Health). If a file truly needs the term, commit nothing and say so.
 

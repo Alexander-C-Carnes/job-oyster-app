@@ -34,7 +34,8 @@ For the open, non-draft PRs to `main` labelled `ship`, oldest first, up to `OYST
 1. Merges each with the current main on its own in the clone. A conflict fails that PR. `CHANGELOG.md` merges by
    union (`.gitattributes`), so two PRs adding entries don't conflict.
 2. **PR rules** for each (`tools/ci/pr_rules.py`): the PR adds a `CHANGELOG.md` entry, or its description has a line
-   `Changelog: none — <why>`.
+   `Changelog: none — <why>`. A PR with an entry also adds or updates a what's new card
+   (`jobpipe/web/whats-new/`), or has a line `Card: none — <why>` in its description or a commit message.
 3. **Batch:** merges the PRs that passed into main together (one that conflicts with an earlier PR in the batch waits
    for the next one) and runs the **checks** (`tools/ci/checks.sh`) once on the result: pytest, the privacy check
    (`tools/privacy_check.py`: nothing personal in a public repo), and `bash -n` / `swiftc -typecheck` on changed scripts.
