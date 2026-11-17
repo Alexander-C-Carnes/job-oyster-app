@@ -7,9 +7,11 @@ decoded searchState is kept in searches.yaml beside the link, so a run doesn't d
 HiringCafe renders its search page on its server: /classic?searchState=…&page=N carries that page's results (40 at
 most) in the page's __NEXT_DATA__ JSON, and each result has the employer's own apply link. That link is the job's
 url, so a job HiringCafe found is the one JobsPipe or Himalayas found at the same posting. A result carries only a
-short summary, not the posting: a new result's HiringCafe listing (/job/<id>) is read for the whole posting text,
-and a result with no apply link has it read for the link too. HiringCafe's robots.txt asks crawlers to keep off
-search pages (it lets anyone read /job/); this reads one person's saved searches, a page or two each per run.
+short summary, not the posting: a new result's posting is read from the employer's page (its apply link). Only a
+result with no apply link, or whose employer page gives too little, has its HiringCafe listing (/job/<id>) read,
+after the searches, oldest job first, a few seconds apart (varied), until the bot check turns one away; the rest wait
+for the next run. HiringCafe's robots.txt asks crawlers to keep off search pages (it lets anyone read /job/); this
+reads one person's saved searches, a page or two each per run.
 
 HiringCafe sits behind Cloudflare's bot check. Plain HTTP clients (httpx, curl) and headless Chromium get its "Just a
 moment…" challenge (403, cf-mitigated: challenge) on every page; curl_cffi, which connects with Chrome's TLS and
@@ -20,6 +22,7 @@ comes from DNS over HTTPS (doh.py), as JobsPipe's does.
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -30,7 +33,7 @@ import httpx
 
 from . import doh, egress, regions
 from .config import HiringCafeSearch
-from .jd import html_to_text, posting_key
+from .jd import MIN_DESCRIPTION_CHARS, html_to_text, posting_key
 from .store import Store, safe_id
 
 HOST = "hiringcafe.com"
@@ -236,16 +239,27 @@ class HiringCafe:
         self.max_pages = max_pages      # 40 results a page; a search's newest week is rarely more than one
         self.pause = pause              # seconds between pages
         self.listing_pause = listing_pause      # seconds between listings: ~17 a second apart got the bot check (2026-10-28)
-        self.blocked = False            # the bot check turned a listing away: no more listings until reset()
         self.log = log
+        self.reset()
 
     def reset(self) -> None:
-        """A new run: read listings again."""
-        self.blocked = False
+        """A new run: read listings again, and count this run's requests from zero."""
+        self.blocked = False            # the bot check turned a listing away: no more listings until reset()
+        self.requests = 0               # this run's requests to hiringcafe.com
+        self.listings_read = 0
+        self.started: Optional[float] = None
+
+    @staticmethod
+    def _sleep(base: float) -> None:
+        if base > 0:
+            time.sleep(random.uniform(0.75 * base, 1.75 * base))
 
     def _get(self, url: str, follow: bool = True) -> Page:
         if self._fetch is None:
             self._fetch = browser_fetch()
+        if self.started is None:
+            self.started = time.monotonic()
+        self.requests += 1
         p = self._fetch(url, follow)
         if p.challenged:
             raise Blocked("HiringCafe's bot check (Cloudflare) turned the request away")
@@ -282,7 +296,7 @@ class HiringCafe:
         got: list[dict] = []
         for page in range(self.max_pages):
             if page:
-                time.sleep(self.pause)
+                self._sleep(self.pause)
             props = page_props(self._get(search_url(state, page)).text)
             if props.get("ssrError"):
                 raise Unreadable(f"HiringCafe's search failed ({props['ssrError']})")
@@ -292,22 +306,26 @@ class HiringCafe:
                 break
         return got
 
-    def _listing(self, raw: dict) -> dict:
-        """A result filled in from its listing page: the posting text, and the apply link when it had none."""
-        url = listing_url(raw)
+    def _listing(self, url: str) -> Optional[dict]:
+        """A listing page's job, or None when it can't be read (and, at the bot check, none are read after it)."""
         if self.blocked or not url:
-            return raw
-        time.sleep(self.listing_pause)
+            return None
+        self._sleep(self.listing_pause)
         try:
             job = page_props(self._get(url).text).get("job")
         except Blocked as e:
             self.blocked = True
-            self.log(f"  HiringCafe: {e} at {url}, so no more listings are read this run")
-            return raw
+            secs = time.monotonic() - (self.started or time.monotonic())
+            self.log(f"  HiringCafe: {e} at {url} after {self.listings_read} listing(s), {self.requests} request(s) "
+                     f"to HiringCafe in {secs:.0f}s, so no more listings are read this run")
+            return None
         except Unreadable as e:
             self.log(f"  HiringCafe: couldn't read {url} ({e})")
-            return raw
-        return {**raw, **job} if isinstance(job, dict) else raw
+            return None
+        if not isinstance(job, dict):
+            return None
+        self.listings_read += 1
+        return job
 
     def listing_text(self, url: str) -> str:
         """The posting text on a HiringCafe listing page, or "" when it can't be read."""
@@ -317,18 +335,39 @@ class HiringCafe:
             return ""
         return posting_text(job) if isinstance(job, dict) else ""
 
-    def search(self, s: HiringCafeSearch, wanted: Callable[[dict], bool] = lambda job: True) -> list[dict]:
-        """The search's open results as stored jobs, one per posting. A result's listing is read only when
-        wanted(job) (the app has no posting text for it yet): for the posting, and the apply link when it has none.
-        A stored job is matched by its listing too, so one whose result has no apply link isn't read again."""
+    def search(self, s: HiringCafeSearch, wanted: Callable[[dict], bool] = lambda job: True,
+               employer_text: Optional[Callable[[str], str]] = None) -> list[dict]:
+        """The search's open results as stored jobs, one per posting. No listing is read here: a result the app
+        has no posting text for (wanted(job)) has its employer's page read for it (employer_text), when it has an
+        apply link. One still without text is left for fill_listings."""
         jobs: dict[str, dict] = {}
         for raw in self.results(s.search_state):
             if raw.get("is_expired"):
                 continue
-            if (not raw.get("apply_url") or not posting_text(raw)) and wanted(to_job(raw)):
-                raw = self._listing(raw)
             job = to_job(raw)
+            if employer_text and job["apply_url"] and not job["description"] and wanted(job):
+                text = (employer_text(job["apply_url"]) or "").strip()
+                if len(text) >= MIN_DESCRIPTION_CHARS:
+                    job["description"] = text
             if job["url"] and job["job_title"]:
                 jobs.setdefault(posting_key(job["url"]), job)
         return list(jobs.values())
 
+    def fill_listings(self, jobs: list[dict]) -> list[dict]:
+        """Stored jobs filled in from their HiringCafe listings, in order, until the bot check turns one away:
+        the posting text, and the apply link when a job had none. Those not filled wait for the next run."""
+        filled = []
+        for job in jobs:
+            if self.blocked:
+                break
+            got = self._listing(job.get("listing_url") or "")
+            text = posting_text(got) if got else ""
+            if not text:
+                continue
+            new = {**job, "description": text}
+            if not job.get("apply_url") and got.get("apply_url"):
+                new.update(apply_url=got["apply_url"], url=got["apply_url"])
+            filled.append(new)
+        if jobs:
+            self.log(f"  HiringCafe: read {len(filled)} listing(s), {len(jobs) - len(filled)} still waiting for their posting text")
+        return filled

@@ -10,9 +10,9 @@ from typing import Callable, Optional, Sequence
 
 from . import config, hosted
 from .config import Config, HiringCafeSearch, Search
-from .hiringcafe import HiringCafe, Unreadable, links, posting_index
+from .hiringcafe import SOURCE, HiringCafe, Unreadable, links, posting_index
 from .himalayas import Himalayas
-from .jd import MIN_DESCRIPTION_CHARS, build_jd, posting_url
+from .jd import MIN_DESCRIPTION_CHARS, build_jd, fetch_posting_text, posting_url
 from .jobs_api import BudgetExhausted, JobsClient, company_matches, post_filter, salary_text, work_mode
 from .llm import PROVIDERS, ClaudeCodeRunner, ClaudeRunner, OpenAICompatRunner, Runner
 from .lowfit import dismiss_low_fit
@@ -289,22 +289,24 @@ class Pipeline:
     def _hiringcafe(self, searches: Sequence[HiringCafeSearch]) -> list[tuple[dict, HiringCafeSearch]]:
         """Each HiringCafe search's jobs (free). A result at a posting already stored, from any source, is that job,
         as it's stored: it only gains this search, and the posting text when it had none. Each check is recorded
-        with how many jobs were new."""
+        with how many jobs were new. Then the stored HiringCafe jobs still without posting text, oldest first, have
+        their listings read until the bot check stops it: this run's and those an earlier run left."""
         if not searches:
             return []
         self.hiringcafe = self.hiringcafe or HiringCafe(log=self.log)
         self.hiringcafe.reset()
         known = posting_index(self.store)
         stored_as = lambda job: next((known[k] for k in sorted(links(job)) if k in known), None)
+        no_text = lambda job: not job.get("description_pasted") and len((job.get("description") or "").strip()) < MIN_DESCRIPTION_CHARS
 
-        def wanted(job: dict) -> bool:          # a listing is read only for a job without its posting text
+        def wanted(job: dict) -> bool:          # a posting is read only for a job without its posting text
             jid = stored_as(job)
-            have = self.store.job(jid) if jid else {}
-            return not have.get("description_pasted") and len((have.get("description") or "").strip()) < MIN_DESCRIPTION_CHARS
-        out = []
+            return no_text(self.store.job(jid) if jid else {})
+        employer = fetch_posting_text if self.fetch_pages else None
+        out: dict[str, tuple[dict, HiringCafeSearch]] = {}
         for s in searches:
             try:
-                found = self.hiringcafe.search(s, wanted)
+                found = self.hiringcafe.search(s, wanted, employer)
             except Unreadable as e:
                 self.log(f"{s.id}: HiringCafe search not read: {e}")
                 self.store.record_hiringcafe_check(s.id, error=str(e))
@@ -321,10 +323,26 @@ class Pipeline:
                 self.store.save_job(job, s.id)
                 for k in links(job):
                     known.setdefault(k, str(job["id"]))
-                out.append((job, s))
+                out.setdefault(str(job["id"]), (job, s))
             self.store.record_hiringcafe_check(s.id, found=len(found), new=new)
             self.log(f"{s.id}: {len(found)} job(s) on HiringCafe (free), {new} new")
-        return out
+
+        by_id = {s.id: s for s in searches}
+        state = self.store.state()
+        backlog = []
+        for jid, st in sorted(state.items(), key=lambda kv: kv[1].get("first_seen") or ""):
+            if st.get("dismissed") or st.get("closed_at") or st.get("triage"):
+                continue
+            s = next((by_id[x] for x in st.get("searches") or [] if x in by_id), None)
+            job = self.store.job(jid)
+            if s and job.get("source") == SOURCE and job.get("listing_url") and no_text(job):
+                backlog.append(job)
+        for job in self.hiringcafe.fill_listings(backlog):
+            jid = str(job["id"])
+            s = out[jid][1] if jid in out else next(by_id[x] for x in state[jid]["searches"] if x in by_id)
+            self.store.save_job(job, s.id)
+            out[jid] = (job, s)
+        return list(out.values())
 
     def drop_known(self, cands: list[Candidate], retriage: bool) -> tuple[list[Candidate], list[str]]:
         state = self.store.state()
