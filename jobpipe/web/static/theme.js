@@ -68,13 +68,19 @@ window.Look = (() => {
   }
   function sizeCanvas() {
     const dpr = devicePixelRatio || 1;
-    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+    const inDialog = canvas.parentElement?.id === "setup-dialog";
+    const w = inDialog ? canvas.clientWidth : innerWidth;
+    const h = inDialog ? canvas.clientHeight : innerHeight;
+    canvas.width = Math.max(1, w) * dpr; canvas.height = Math.max(1, h) * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   // A burst of pieces from (x, y): a cannon when spread is narrow, a shower when it is wide.
-  function confetti(x, y, colors, { count = 200, duration = 2000, size = 1, spread = 0.9, speed = 1, square = false } = {}) {
+  function confetti(x, y, colors, { count = 200, duration = 2000, size = 1, spread = 0.9, speed = 1, square = false, root = null } = {}) {
     if (RM()) return;
     layer();
+    const parent = root?.isConnected ? root : document.body;
+    if (canvas.parentElement !== parent) parent.append(canvas);
+    sizeCanvas();
     const t0 = performance.now();
     for (let i = 0; i < count; i++) {
       const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * spread, v = (7 + Math.random() * 9) * speed;
@@ -244,10 +250,6 @@ window.Look = (() => {
     renderPickers();
   });
   renderPickers();
-  $("#look-btn")?.addEventListener("click", () => {
-    window.showTab?.("profile");
-    setTimeout(() => $("#look-card")?.scrollIntoView({ block: "start", behavior: RM() ? "auto" : "smooth" }), 30);
-  });
 
   return { THEMES, current, set, register, renderPicker, status, sparkle, fly, confetti, banner, catCard, hideAll, hideCat, hideBanner,
            standard, CATS, RENDER, RM, h, words: { appliedWords, doneWords, deniedWords, interviewingWords, offerWords, who } };

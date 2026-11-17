@@ -477,7 +477,7 @@ class OpenAICompatRunner(_RetryingRunner):
         env = key_env if key_env is not None else p.key_env
         key = api_key or (os.environ.get(env, "") if env else "")
         if not key and not p.local and provider != "openai-compatible":     # a local or custom server may need none
-            raise RuntimeError(f"{env} is not set. Add your {p.label} key on the Profile tab (AI), "
+            raise RuntimeError(f"{env} is not set. Add your {p.label} key on the Settings › AI Config, "
                                f"or in {config.PROFILE / '.env'}. Get one at {p.signup}.")
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         if provider == "openrouter":
@@ -587,7 +587,7 @@ class OpenAICompatRunner(_RetryingRunner):
             return AgentError(f"{label}: OpenRouter refused the request (403: {msg}).")
         if r.status_code in (401, 403):
             return AgentError(f"{label}: {self.label} rejected the key ({r.status_code}: {msg}). Check {env} on the "
-                              f"Profile tab (AI).")
+                              f"Settings › AI Config.")
         if r.status_code == 404:
             return AgentError(f"{label}: {self.label} doesn't know that model, or the address is wrong "
                               f"({self.base_url}): {msg}")

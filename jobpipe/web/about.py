@@ -22,6 +22,34 @@ REPO_URL = f"https://github.com/{REPO}"
 LATEST_EVERY = 6 * 3600.0     # seconds a release lookup is kept (one that failed: 10 minutes)
 
 
+def home_label(path: Path) -> str:
+    """~/JobOyster when the folder sits under the home directory, otherwise the full path."""
+    path = Path(path).expanduser()
+    try:
+        rel = path.resolve().relative_to(Path.home())
+    except ValueError:
+        return str(path)
+    return "~" if not rel.parts else "~/" + rel.as_posix()
+
+
+def outside(path: Path, folder: Path) -> bool:
+    """True when path is not the folder and not inside it."""
+    try:
+        Path(path).expanduser().resolve().relative_to(Path(folder).expanduser().resolve())
+    except ValueError:
+        return True
+    return False
+
+
+def dirty(root: Path) -> bool:
+    """True when the checkout has changes that are not in the commit About names."""
+    try:
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return status.returncode == 0 and bool(status.stdout.strip())
+
+
 def running(root: Path) -> dict:
     """{"version": "0.1.11"} in the Mac app; {"commit", "date", "branch"} from a git checkout; else {}."""
     v = os.environ.get("OYSTER_APP_VERSION", "").strip()

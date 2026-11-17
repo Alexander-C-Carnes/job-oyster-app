@@ -509,8 +509,11 @@ html[data-theme="arcade"] .setup-steps li.now button { color: var(--ink); backgr
 html[data-theme="arcade"] .setup-steps li.now .n { background: var(--accent); color: #fff; animation: arcade-blink-step 1s steps(2) infinite; }
 @keyframes arcade-blink-step { 50% { background: var(--panel); color: var(--ink); } }
 html[data-theme="arcade"] .setup-body > h2 { font: 400 20px/1.3 var(--pixel-lg); }
+html[data-theme="arcade"] .setup-done-title { font: 400 22px/1.25 var(--pixel-lg); letter-spacing: 0; }
 html[data-theme="arcade"] .setup-plan li, html[data-theme="arcade"] .setup-way, html[data-theme="arcade"] .setup-ai,
-html[data-theme="arcade"] .setup-chat, html[data-theme="arcade"] .setup-draft, html[data-theme="arcade"] .setup-sum li { border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--ink); }
+html[data-theme="arcade"] .setup-chat, html[data-theme="arcade"] .setup-draft, html[data-theme="arcade"] .setup-sum { border: 3px solid var(--ink); border-radius: 0; box-shadow: 4px 4px 0 var(--ink); }
+html[data-theme="arcade"] .setup-sum li { border: 0; box-shadow: none; }
+html[data-theme="arcade"] .setup-sum li + li { border-top: 3px solid var(--ink); }
 html[data-theme="arcade"] .setup-plan li::before { border-radius: 0; background: var(--cyan); color: var(--ink); font: 400 11px/1 var(--pixel); }
 html[data-theme="arcade"] .setup-plan b, html[data-theme="arcade"] .setup-way h3, html[data-theme="arcade"] .setup-chat-head b { font: 400 13px/1.4 var(--pixel-lg); }
 html[data-theme="arcade"] .setup-way .tag { background: var(--yellow); border: 2px solid var(--ink); color: var(--ink); font: 400 8px var(--pixel); }
