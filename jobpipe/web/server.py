@@ -521,6 +521,8 @@ def create_app(cfg: Config, *, token: str, store: Optional[Store] = None,
     async def open_about_folder(request: Request):
         """Show one of this process's own folders in Finder. The page names which, never a path."""
         import subprocess
+        if hosted.enabled():           # the website's folders are on its server, not the visitor's Mac
+            raise HTTPException(403, "The website keeps your files on its server, so there's no folder to show.")
         which = "profile"
         raw = await request.body()
         if raw:
