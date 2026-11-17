@@ -2,6 +2,12 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-17
+
+### Job details
+- Marking a role Interviewing makes an interview prep kit: likely questions, stories from your record, questions to ask, and a debrief that can add lines to your impact record
+- Company research for a role, when you ask for it
+
 ## 2026-11-12
 
 ### Finding jobs
