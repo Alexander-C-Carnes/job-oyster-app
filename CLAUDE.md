@@ -12,12 +12,14 @@ merge, a pull of main, an app restart or an archive.
 
 - **Done means:** branch from `origin/main`; tests pass (`bash tools/ci/checks.sh`: pytest plus the privacy check);
   a `CHANGELOG.md` entry naming the commit (its headline becomes release notes), or a
-  `Changelog: none — <why>` line in the PR description for internal work; push and `gh pr create --label ship`. Then
+  `Changelog: none — <why>` line in the PR description for internal work; with a changelog entry, a what's new card
+  (below) or a `Card: none — <why>` line in the description; push and `gh pr create --label ship`. Then
   say it's queued and stop. Don't wait for the merge.
 - **A what's new card** when the PR gives the owner something new to do or see (a feature, a new tab or button, a
   step that moved): one file in `jobpipe/web/whats-new/`, as its README says. The app shows it once, when it next
   opens. None for fixes, wording or internal work; one per PR at most. A PR that changes something a card from the
-  last 30 days describes updates that card too. `tests/test_whats_new.py` checks every card.
+  last 30 days describes updates that card too. `tests/test_whats_new.py` checks every card; oyster-ci's PR rules
+  fail a PR with a changelog entry and neither a card nor a `Card: none — <why>` line.
 - **Label `ship` as soon as the objective is done and verified**, without asking. Leave it off (or open a draft) only
   when the owner asked to see it first, or something in it is their decision; say which.
 - **The app runs detached** (`./oyster start` in the main checkout, log `~/Library/Logs/Job Oyster/app.log`). Never
