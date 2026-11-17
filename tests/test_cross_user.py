@@ -58,6 +58,8 @@ class Copy:
         self.home, self.port, self.secret = root / name, free_port(), f"SECRET-{name}-{os.urandom(6).hex()}"
         self.home.mkdir()
         keep = {k: v for k, v in os.environ.items() if not k.startswith(("JOBPIPE_", "OYSTER_"))}
+        # Every route gets called, so `open` and `xdg-open` do nothing here: no Finder windows on the Mac running it.
+        keep["PATH"] = os.pathsep.join([str(offline / "bin"), keep.get("PATH", "")])
         self.log = open(root / f"{name}.log", "w")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "jobpipe", "serve", "--port", str(self.port), "--no-open"], cwd=config.ROOT,
@@ -106,6 +108,10 @@ def two(tmp_path_factory):
     offline = root / "offline"
     offline.mkdir()
     (offline / "sitecustomize.py").write_text(OFFLINE)
+    (offline / "bin").mkdir()
+    for opener in ("open", "xdg-open"):
+        (offline / "bin" / opener).write_text("#!/bin/sh\nexit 0\n")
+        (offline / "bin" / opener).chmod(0o755)
     a = b = None
     try:
         a = Copy(root, "a", offline)

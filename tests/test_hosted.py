@@ -122,6 +122,16 @@ def test_hosted_refuses_changing_the_ai_keys_or_claude_sign_in(henv, method, pat
     assert henv["cfg"].backend == "api" and henv["cfg"].base_url == PROXY
 
 
+def test_hosted_doesnt_open_folders_on_the_server(henv, monkeypatch):
+    opened = []
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: opened.append(cmd))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    for body in (None, {"which": "profile"}, {"which": "code"}):
+        r = henv["client"].post("/api/about/open", headers=H, **({"json": body} if body else {}))
+        assert r.status_code == 403
+    assert opened == []
+
+
 def test_hosted_settings_read_back_as_the_websites_ai(henv):
     c = henv["client"]
     a = c.get("/api/ai", headers=H).json()
