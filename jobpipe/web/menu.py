@@ -1,7 +1,7 @@
 """What the Mac menu bar lists.
 
 Runs that are going or waiting their turn (a search, Make résumé, or a signal/full score), the roles
-ready to send, and roles at the Profile › Menu Bar Settings fit floor (7 by default) found or
+ready to send, and roles at the Settings › Menu Bar fit floor (7 by default) found or
 scored since yesterday. The launcher polls GET /api/menu and opens the browser on a click. Ready
 to send is the Tracker's list (ready.inbox): a tracked role with a résumé, not sent yet, whose
 posting hasn't closed. The fit is the full score where there is one, else the signal score, the
@@ -16,7 +16,7 @@ from ..notion import APPLIED_STATUSES
 from .ready import inbox
 from .searches_file import MENU_FIT_FLOOR_MAX
 
-FIT_FLOOR = 7   # default; Profile › Menu Bar Settings can set menu.fit_floor in searches.yaml
+FIT_FLOOR = 7   # default; Settings › Menu Bar can set menu.fit_floor in searches.yaml
 # Sent, or ruled out: nothing to send, and not a new role to look at.
 _ASIDE = set(APPLIED_STATUSES) | {"Not Applying"}
 _SCORE_KIND = {"signal": "Signal score", "full": "Full score", "upload": "Score résumé"}
@@ -59,7 +59,7 @@ def snapshot(rows: list[dict], state: dict[str, dict], runs: list[dict],
     """rows: the job board. state: data/state.json. runs: going and waiting, each
     {id, label, status, args}. scores: signal/full/upload in progress, each
     {id: job id, kind, state: queued|running} — they do not go through RunManager.
-    fit_floor: Newest at fit N+ (Profile › Menu Bar Settings); default FIT_FLOOR."""
+    fit_floor: Newest at fit N+ (Settings › Menu Bar); default FIT_FLOOR."""
     today = today or date.today()
     since, today_s = (today - timedelta(days=1)).isoformat(), today.isoformat()
     floor = FIT_FLOOR if fit_floor is None else max(1, min(MENU_FIT_FLOOR_MAX, int(fit_floor)))

@@ -4,7 +4,7 @@
 // (~/JobOyster, or $JOBPIPE_HOME), which the server makes on first start. Quitting the app stops the server,
 // and with it any runs going (a search, Make résumé); it asks first when there are some.
 // Dock icon plus a menu-bar item. The item lists runs going, recently finished, résumés ready to send, and
-// roles at the Profile › Menu Bar Settings fit floor (7 by default) since yesterday; choosing one opens it in the browser.
+// roles at the Settings › Menu Bar fit floor (7 by default) since yesterday; choosing one opens it in the browser.
 // Clicking the Dock icon again opens the browser again. On start it checks GitHub for a newer release, and
 // Check for Updates… in the menus does so any time; Install and Relaunch downloads the new DMG, checks it's
 // signed by the same developer, swaps it in for this copy and opens it again. When a résumé finishes, it posts a notification; opening

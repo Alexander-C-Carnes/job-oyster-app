@@ -43,7 +43,7 @@ All of this happens inside the app.
 1. **Connect an AI.** Click the round person button at the top right to open **Profile**, then go to **AI**. If you have a Claude Pro or Max plan, click **Sign in to Claude…** and nothing costs extra. (If it says Claude Code isn't installed, install the [Claude app](https://claude.ai/download) first.) You can also [use ChatGPT, Gemini, Kimi or a free local model](docs/choosing-an-ai.md), and switch between them.
 2. **Say who you are.** On the same **Profile** tab, fill in your name and contact line, and add your résumé with **Add a résumé** (a PDF, Word file or text).
 3. **Write your impact record.** This is the step that matters most. In the **Impact record** (under **Profile**, the round button at the top right), replace Jordan's with your own: every role or big project, what you did, and what changed because of it, with numbers wherever you have them. The app can only use what's written here. [Here's what makes a good one.](docs/your-evidence.md)
-4. **Start finding jobs.** Get a [JobsPipe](https://jobspipe.dev) key (the free plan gives you 1,000 jobs to start), paste it under **Profile → Other keys**, and set up your searches in the **Filters** tab. Even without a key you can add jobs by pasting their link, and browse the **Search Startups** tab.
+4. **Start finding jobs.** Get a [JobsPipe](https://jobspipe.dev) key (the free plan gives you 1,000 jobs to start), paste it under **Settings › API Keys**, and set up your searches in the **Filters** tab. Even without a key you can add jobs by pasting their link, and browse the **Search Startups** tab.
 
 Then pick a job and try the three actions:
 
@@ -72,7 +72,7 @@ Everything about you (your record, résumés, keys, and every job and applicatio
 |---|---|
 | ![The Dashboard, with made-up applications](docs/images/dashboard.png) | ![The Impact record editor, showing the made-up example](docs/images/impact.png) |
 
-Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Classic) with the palette button at the top right.
+Don't like pink? Pick a different look (Sorbet, Transit, Bauhaus, Arcade or Classic) in **Settings › App Appearance**.
 
 ## Learn more
 

@@ -109,9 +109,9 @@ class Candidate:
     phone: str = ""
     email: str = ""
     linkedin: str = ""                   # linkedin.com/in/... (the check requires a visible URL)
-    pdf_name: str = ""                   # what résumé PDFs are named: a pattern of PDF_NAME_VARS (Profile › PDF file names)
+    pdf_name: str = ""                   # what résumé PDFs are named: a pattern of PDF_NAME_VARS (Settings › PDF File Names)
     pdf_prefix: str = ""                 # before pdf_name: PDFs were <prefix>-<Company>-<Title>.pdf
-    resume_format: str = "signature"     # how résumé PDFs look: an id in jobpipe/formats.py (Profile › Résumé format)
+    resume_format: str = "signature"     # how résumé PDFs look: an id in jobpipe/formats.py (Settings › Résumé Format)
     # Resume variants the matcher and triage score, as "source name" -> file in the profile's references/.
     # The names become the columns of ratings.json and the heat map.
     resumes: dict[str, str] = field(default_factory=dict)
@@ -155,7 +155,7 @@ class Candidate:
 
 
 DEFAULT_PDF_NAME = "{title} - {company}"
-# What a PDF file name pattern can say, and what each becomes (shown on the Profile tab).
+# What a PDF file name pattern can say, and what each becomes (shown in Settings › PDF File Names).
 PDF_NAME_VARS = {"{name}": "your name", "{first}": "your first name", "{company}": "the company",
                  "{title}": "the role's title", "{YYYY}": "the year", "{YY}": "the year's last two digits",
                  "{MM}": "the month", "{DD}": "the day", "{v}": "the version: v1, v2…",
