@@ -3550,7 +3550,8 @@ function missingKeywords(r, id) {
   if (!missing.length && !ans.dismissed.length) return null;
   if (!KW_UI.has(id)) KW_UI.set(id, { picked: new Set() });
   const ui = KW_UI.get(id), box = h("div", { class: "kw-box" });
-  const reload = () => { S.details.delete(id); openJob(id, "resume"); };
+  // The job's scores first (they follow the current version), so the header matches the panel.
+  const reload = async () => { S.details.delete(id); await loadJobs(); openJob(id, "resume"); };
   const answer = (keyword, a, fact = "") => post(`/api/jobs/${encodeURIComponent(id)}/keywords`, { keyword, answer: a, fact });
   const act = h("div", { class: "kw-act" });
   const pickedNow = () => [...ui.picked].filter((k) => missing.includes(k) && !ans.dismissed.includes(k));
