@@ -2,6 +2,11 @@
 
 What changed in the app, newest first. Each release's notes on GitHub list what it added.
 
+## 2026-11-18
+
+### Résumés
+- Make résumé no longer stops at the merge step when Claude Code takes longer than 10 minutes on one call; a timed-out or overloaded call is tried once more
+
 ## 2026-11-17
 
 ### App

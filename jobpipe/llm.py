@@ -92,6 +92,10 @@ class AgentError(RuntimeError):
     pass
 
 
+class TransientAgentError(AgentError):
+    """A failure worth one more try: the request timed out, the API was overloaded, the connection dropped."""
+
+
 @dataclass
 class AgentCall:
     label: str
@@ -250,12 +254,13 @@ class ClaudeCodeRunner(_RetryingRunner):
       a subscription has no per-token charge for the warm-up to save.
     """
     def __init__(self, *, claude_bin: Optional[str] = None, max_parallel: int = 3,
-                 timeout_s: int = 1800):
+                 timeout_s: int = 1800, retry_wait: float = 10.0):
         import tempfile
         self.pinned = bool(claude_bin or os.environ.get("CLAUDE_BIN"))   # a CLI the settings name is never swapped
         self.bin = claude_bin or os.environ.get("CLAUDE_BIN") or find_claude()
         self.sem = asyncio.Semaphore(max_parallel)
         self.timeout_s = timeout_s
+        self.retry_wait = retry_wait
         self.workdir = Path(tempfile.mkdtemp(prefix="jobpipe-claude-"))  # no CLAUDE.md or project settings here
         self._system_files: dict[bool, Path] = {}
         self.usage_log: list[dict] = []
@@ -275,18 +280,31 @@ class ClaudeCodeRunner(_RetryingRunner):
                 "--model", call.model.model] + ([] if older_claude(call.model.model) else ["--effort", call.model.effort])
 
     @staticmethod
-    def child_env() -> dict[str, str]:
+    def child_env(timeout_s: Optional[int] = None) -> dict[str, str]:
+        """The CLI's environment. timeout_s also sets Claude Code's own per-request limit (API_TIMEOUT_MS, 10
+        minutes by default): a merge that writes three long files at high effort can take longer than that, and
+        Claude Code then gives up with "Request timed out" well inside the runner's own limit."""
         env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
         env.setdefault("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "64000")
+        if timeout_s:
+            env.setdefault("API_TIMEOUT_MS", str(timeout_s * 1000))
         return env
 
     async def _once(self, call: AgentCall, extra_note: str = "") -> AgentResult:
+        """One call, tried a second time when Claude Code reports a timeout, an overload or a dropped connection."""
+        try:
+            return await self._attempt(call, extra_note)
+        except TransientAgentError:
+            await asyncio.sleep(self.retry_wait)
+            return await self._attempt(call, extra_note)
+
+    async def _attempt(self, call: AgentCall, extra_note: str = "") -> AgentResult:
         if not self.pinned and not os.access(self.bin, os.X_OK):
             # The CLI found at start-up is gone (uninstalled, or Homebrew moved it): find the one that's here now.
             self.bin = await asyncio.to_thread(find_claude)
         async with self.sem:
             proc = await asyncio.create_subprocess_exec(
-                *self.command(call), cwd=self.workdir, env=self.child_env(),
+                *self.command(call), cwd=self.workdir, env=self.child_env(self.timeout_s),
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             try:
                 out, err = await asyncio.wait_for(
@@ -315,8 +333,11 @@ class ClaudeCodeRunner(_RetryingRunner):
             if "authenticate" in text.lower() or "/login" in text:
                 raise AgentError(f"{call.label}: Claude Code isn't signed in ({text}). Run \"{self.bin}\" in a "
                                  "terminal, sign in with /login, then try again.")
-            raise AgentError(f"{call.label}: Claude Code error ({data.get('subtype')}, "
-                             f"{data.get('api_error_status')}): {text}")
+            status = data.get("api_error_status")
+            transient = (isinstance(status, int) and (status == 408 or status >= 500)
+                         or any(w in text.lower() for w in ("timed out", "timeout", "overloaded", "connection error")))
+            raise (TransientAgentError if transient else AgentError)(
+                f"{call.label}: Claude Code error ({data.get('subtype')}, {status}): {text}")
         if data.get("stop_reason") == "refusal":
             raise AgentError(f"{call.label}: model declined")
         if data.get("stop_reason") == "max_tokens":

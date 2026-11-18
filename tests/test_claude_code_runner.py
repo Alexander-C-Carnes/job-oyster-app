@@ -216,3 +216,33 @@ def test_crash_and_expired_login_say_what_happened(tmp_path):
     b, _ = fake_claude(d, [result("Failed to authenticate: OAuth session expired and could not be refreshed", is_error=True)])
     with pytest.raises(AgentError, match=r"isn't signed in \(Failed to authenticate.*sign in with /login"):
         asyncio.run(ClaudeCodeRunner(claude_bin=b).run(call()))
+
+
+def test_claude_code_timeout_is_retried_once(tmp_path):
+    """Claude Code's own "Request timed out" (its API_TIMEOUT_MS) gets one more try; a second one fails."""
+    timed_out = result("Request timed out", is_error=True)
+    bin_, log = fake_claude(tmp_path, [timed_out, result(OK)])
+    res = asyncio.run(ClaudeCodeRunner(claude_bin=bin_, retry_wait=0).run(call()))
+    assert res.files["ratings.json"] == '{"a": 1}\n' and len(log.read_text().splitlines()) == 2
+
+    d = tmp_path / "twice"
+    d.mkdir()
+    b, log2 = fake_claude(d, [timed_out])
+    with pytest.raises(AgentError, match="Request timed out"):
+        asyncio.run(ClaudeCodeRunner(claude_bin=b, retry_wait=0).run(call()))
+    assert len(log2.read_text().splitlines()) == 2
+
+
+def test_other_claude_code_errors_are_not_retried(tmp_path):
+    bin_, log = fake_claude(tmp_path, [result("Prompt is too long", is_error=True)])
+    with pytest.raises(AgentError, match="Prompt is too long"):
+        asyncio.run(ClaudeCodeRunner(claude_bin=bin_, retry_wait=0).run(call()))
+    assert len(log.read_text().splitlines()) == 1
+
+
+def test_claude_codes_request_limit_matches_the_runners(monkeypatch):
+    monkeypatch.delenv("API_TIMEOUT_MS", raising=False)
+    assert ClaudeCodeRunner.child_env(1800)["API_TIMEOUT_MS"] == "1800000"
+    assert "API_TIMEOUT_MS" not in ClaudeCodeRunner.child_env()
+    monkeypatch.setenv("API_TIMEOUT_MS", "900000")      # a limit the owner set stays
+    assert ClaudeCodeRunner.child_env(1800)["API_TIMEOUT_MS"] == "900000"
